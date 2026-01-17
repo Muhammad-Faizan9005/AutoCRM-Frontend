@@ -115,7 +115,9 @@ This project is part of a Final Year Project (FYP).
 
 ## 👥 Authors
 
-- Your Name - *Initial work*
+- Muhammad Faizan Haider - Initial work
+- Muhammad Tayyab - Admin Panel
+- Iqra Mubarik - Client Side
 
 ## 📞 Support
 
