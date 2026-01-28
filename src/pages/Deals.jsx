@@ -1,34 +1,24 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, X, MoreHorizontal, Check, List as ListIcon, LayoutGrid, ChevronDown, RotateCcw, Settings } from 'lucide-react';
+import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, RotateCcw, List, KanbanSquare, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const Deals = () => {
-  // --- STATES (Deals Data) ---
-  const [viewMode, setViewMode] = useState('Table'); 
+  const [viewMode, setViewMode] = useState('Table');
   const [deals, setDeals] = useState([
     { id: 1, org: 'Aslam industries', revenue: 'PKR 1,000,000.00', status: 'Qualification', email: 'aslam.ali@gmail.com', mobile: '03004567890', modified: '1 week ago' },
   ]);
-
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [activeDropdown, setActiveDropdown] = useState(null); 
-  const [searchTerm, setSearchTerm] = useState("");
-  
-  // Column Visibility (Same logic as Leads)
-  const [visibleColumns, setVisibleColumns] = useState({ 
-    org: true, revenue: true, status: true, email: true, mobile: true, modified: true 
-  });
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [visibleColumns, setVisibleColumns] = useState({ org: true, revenue: true, status: true, email: true, mobile: true, modified: true });
 
-  // Form State matching Screenshot (92)
   const [formData, setFormData] = useState({
     orgName: '', website: '', employees: '1-10', territory: 'Territory', revenue: 'PKR 0.00', industry: 'Industry',
-    salutation: 'Salutation', firstName: '', lastName: '', email: '', mobile: '', gender: 'Gender', status: 'Qualification'
+    salutation: 'Salutation', firstName: '', lastName: '', email: '', mobile: '', status: 'Qualification'
   });
 
-  // --- LOGIC ---
-  const filteredDeals = useMemo(() => {
-    return deals.filter(d => d.org.toLowerCase().includes(searchTerm.toLowerCase()));
-  }, [deals, searchTerm]);
+  const filteredDeals = useMemo(() => deals.filter(d => d.org.toLowerCase().includes(searchTerm.toLowerCase())), [deals, searchTerm]);
 
   const handleSort = (key) => {
     const sorted = [...deals].sort((a, b) => String(a[key]).localeCompare(String(b[key])));
@@ -49,7 +39,6 @@ const Deals = () => {
     };
     setDeals([newEntry, ...deals]);
     setIsCreateModalOpen(false);
-    setFormData({ ...formData, orgName: '', revenue: 'PKR 0.00', email: '', mobile: '' });
   };
 
   const exportToExcel = () => {
@@ -57,154 +46,188 @@ const Deals = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Deals");
     XLSX.writeFile(wb, "CRM_Deals.xlsx");
-    setIsExportModalOpen(false);
+    setIsExportOpen(false);
+  };
+
+  const groupedDeals = {
+    Qualification: deals.filter(d => d.status === 'Qualification'),
+    Proposal: deals.filter(d => d.status === 'Proposal'),
+    Closed: deals.filter(d => d.status === 'Closed')
   };
 
   return (
-    <div className="space-y-6 text-left relative min-h-screen">
-      {/* 1. Header (Exact same as Leads) */}
-      <div className="flex justify-between items-center px-2">
+    <div className="min-h-screen p-4 space-y-3 bg-gray-50 font-sans text-sm">
+
+      {/* HEADER */}
+      <div className="flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold text-black tracking-tight">Deals</h1>
+
+          {/* TABLE / KANBAN SWITCH */}
+          <div className="relative">
+            <button onClick={() => setActiveDropdown(activeDropdown==='view'?null:'view')}
+              className="flex items-center gap-1 px-2 py-1 border border-gray-300 rounded-md bg-white text-xs">
+              {viewMode === 'Table' ? <List size={14}/> : <KanbanSquare size={14}/>} {viewMode}
+            </button>
+            {activeDropdown==='view' && (
+              <div className="absolute top-full mt-1 left-0 bg-white border rounded shadow w-28 z-10 text-xs">
+                <div onClick={()=>{setViewMode('Table');setActiveDropdown(null)}} className="p-2 hover:bg-gray-100 cursor-pointer">Table</div>
+                <div onClick={()=>{setViewMode('Kanban');setActiveDropdown(null)}} className="p-2 hover:bg-gray-100 cursor-pointer">Kanban</div>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="flex items-center gap-2">
-           <h2 className="text-xl font-bold text-gray-800">Deals /</h2>
-           <div className="relative">
-              <button onClick={() => setActiveDropdown(activeDropdown === 'view' ? null : 'view')} className="flex items-center gap-1 text-gray-500 hover:text-purple-700 font-medium transition-colors">
-                {viewMode === 'Table' ? <ListIcon size={18}/> : <LayoutGrid size={18}/>}
-                {viewMode} View <ChevronDown size={14}/>
-              </button>
-              {activeDropdown === 'view' && (
-                <div className="absolute top-8 left-0 w-40 bg-white border shadow-lg rounded-md z-[60] py-1">
-                  <button onClick={() => {setViewMode('Table'); setActiveDropdown(null)}} className="w-full text-left px-4 py-2 text-sm hover:bg-purple-50 flex items-center gap-2"><ListIcon size={14}/> Table</button>
-                  <button onClick={() => {setViewMode('Kanban'); setActiveDropdown(null)}} className="w-full text-left px-4 py-2 text-sm hover:bg-purple-50 flex items-center gap-2"><LayoutGrid size={14}/> Kanban</button>
-                </div>
-              )}
-           </div>
-        </div>
-        <button onClick={() => setIsCreateModalOpen(true)} className="bg-black text-white px-4 py-1.5 rounded-md flex items-center gap-2 hover:bg-gray-800 text-sm font-medium transition-all shadow-sm active:scale-95">
-          <Plus size={16} /> Create
-        </button>
-      </div>
-
-      {/* 2. Action Bar (Exact same as Leads) */}
-      <div className="flex justify-between items-center bg-white px-4 py-2 border-b border-gray-100 sticky top-0 z-40">
-        <div className="relative flex items-center gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-            <input 
-              type="text" placeholder="Search deals..." 
-              className="pl-10 pr-4 py-1.5 bg-gray-50 rounded-md text-sm w-64 outline-none focus:ring-1 focus:ring-purple-200"
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-400"><RotateCcw size={18}/></button>
-        </div>
-
-        <div className="flex items-center gap-1">
-          {/* Functional Popups matching Screenshots 93-95 style */}
-          <div className="relative">
-            <button onClick={() => setActiveDropdown(activeDropdown === 'filter' ? null : 'filter')} className="p-2 hover:bg-gray-100 rounded text-gray-500 flex items-center gap-1 text-sm"><Filter size={16}/> Filter</button>
-            {activeDropdown === 'filter' && (
-              <div className="absolute right-0 top-10 w-80 bg-white border border-gray-200 shadow-2xl rounded-2xl z-50 p-6">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Empty - Choose a field to filter by</p>
-                <button className="flex items-center gap-2 text-purple-600 text-xs font-bold mb-4 hover:underline"><Plus size={14}/> Add Filter</button>
-                <div className="max-h-60 overflow-y-auto space-y-1">
-                  {['Status', 'Annual Revenue', 'Organization'].map(f => (
-                    <div key={f} className="p-2.5 hover:bg-slate-50 rounded-lg text-xs font-medium text-slate-600 cursor-pointer">{f}</div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="relative">
-            <button onClick={() => setActiveDropdown(activeDropdown === 'sort' ? null : 'sort')} className="p-2 hover:bg-gray-100 rounded text-gray-500 flex items-center gap-1 text-sm"><ArrowUpDown size={16}/> Sort</button>
-            {activeDropdown === 'sort' && (
-              <div className="absolute right-0 top-10 w-64 bg-white border border-gray-200 shadow-2xl rounded-2xl z-50 p-4">
-                <div className="space-y-1">
-                  {['Organization', 'Status', 'Modified'].map(s => (
-                    <button key={s} onClick={() => handleSort(s.toLowerCase())} className="w-full text-left p-2.5 hover:bg-slate-50 rounded-lg text-xs font-medium text-slate-600">Sort by {s}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="relative">
-            <button onClick={() => setActiveDropdown(activeDropdown === 'cols' ? null : 'cols')} className="p-2 hover:bg-gray-100 rounded text-gray-500 flex items-center gap-1 text-sm"><LayoutPanelLeft size={16}/> Columns</button>
-            {activeDropdown === 'cols' && (
-              <div className="absolute right-0 top-10 w-72 bg-white border border-gray-200 shadow-2xl rounded-2xl z-50 p-4">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Column Display</p>
-                <div className="space-y-2">
-                  {Object.keys(visibleColumns).map(col => (
-                    <div key={col} className="flex items-center justify-between p-2.5 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors" onClick={() => setVisibleColumns({...visibleColumns, [col]: !visibleColumns[col]})}>
-                      <div className="flex items-center gap-3">
-                        <MoreHorizontal size={14} className="text-slate-300 rotate-90" />
-                        <span className="text-xs font-bold text-slate-600 capitalize">{col}</span>
-                      </div>
-                      {visibleColumns[col] && <Check size={14} className="text-purple-600" />}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          
-          <div className="relative">
-            <button onClick={() => setActiveDropdown(activeDropdown === 'more' ? null : 'more')} className="p-2 hover:bg-gray-100 rounded text-gray-500"><MoreHorizontal size={18}/></button>
-            {activeDropdown === 'more' && (
-              <div className="absolute right-0 top-10 w-40 bg-white border shadow-xl rounded-md z-50 py-1 overflow-hidden">
-                <button onClick={() => setIsExportModalOpen(true)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-purple-50 flex items-center gap-2"><Download size={14}/> Export</button>
-              </div>
-            )}
-          </div>
+          <button onClick={() => setDeals([...deals])} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
+            <RotateCcw size={18} />
+          </button>
+          <button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold">
+            <Plus size={16} /> Create
+          </button>
         </div>
       </div>
 
-      {/* 3. Table Area (Same as Leads) */}
-      {viewMode === 'Table' ? (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm mx-2 overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50 text-gray-500 font-medium border-b tracking-wider uppercase text-[10px]">
-              <tr>
-                <th className="px-6 py-4 w-10"><input type="checkbox" className="rounded border-gray-300"/></th>
-                {visibleColumns.org && <th className="px-6 py-4">Organization</th>}
-                {visibleColumns.revenue && <th className="px-6 py-4">Annual Revenue</th>}
-                {visibleColumns.status && <th className="px-6 py-4">Status</th>}
-                {visibleColumns.email && <th className="px-6 py-4">Email</th>}
-                {visibleColumns.mobile && <th className="px-6 py-4">Mobile</th>}
-                {visibleColumns.modified && <th className="px-6 py-4">Modified</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filteredDeals.map((deal) => (
-                <tr key={deal.id} className="hover:bg-gray-50 transition-colors group">
-                  <td className="px-6 py-4"><input type="checkbox" className="rounded border-gray-300"/></td>
-                  {visibleColumns.org && <td className="px-6 py-4 font-bold text-gray-800">{deal.org}</td>}
-                  {visibleColumns.revenue && <td className="px-6 py-4 text-gray-600 font-medium">{deal.revenue}</td>}
-                  {visibleColumns.status && (
-                    <td className="px-6 py-4">
-                      <span className="flex items-center gap-2 text-[11px] font-black text-slate-800 uppercase tracking-tight">
-                        <div className="w-1.5 h-1.5 rounded-full bg-black"></div> {deal.status}
-                      </span>
-                    </td>
-                  )}
-                  {visibleColumns.email && <td className="px-6 py-4 text-gray-500 font-medium">{deal.email}</td>}
-                  {visibleColumns.mobile && <td className="px-6 py-4 text-gray-500 font-medium">{deal.mobile}</td>}
-                  {visibleColumns.modified && <td className="px-6 py-4 text-gray-400 text-[10px] font-bold italic">{deal.modified}</td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* SEARCH + ACTIONS */}
+<div className="flex justify-between items-center">
+  {/* SEARCH */}
+  <div className="relative w-64">
+    <Search className="absolute left-2 top-2 text-gray-400" size={16}/>
+    <input
+      type="text"
+      placeholder="Search deals..."
+      className="pl-8 pr-3 py-1.5 rounded-lg border border-gray-300 w-full text-xs"
+      onChange={e => setSearchTerm(e.target.value)}
+    />
+  </div>
+
+  {/* ACTION BUTTONS */}
+  <div className="flex gap-2">
+
+    {/* FILTER */}
+    <div className="relative">
+      <button
+        onClick={() => setActiveDropdown(activeDropdown === 'filter' ? null : 'filter')}
+        className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center"
+      >
+        <Filter size={14}/> Filter
+      </button>
+      {activeDropdown === 'filter' && (
+        <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-40 z-50 text-xs">
+          {['Status', 'Revenue', 'Organization'].map(f => (
+            <div key={f} className="p-2 hover:bg-gray-100 cursor-pointer">{f}</div>
+          ))}
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 px-4">
-          {['Qualification', 'Proposal', 'Won'].map(stage => (
-            <div key={stage} className="bg-gray-100/50 p-4 rounded-[24px] border border-dashed border-gray-200">
-              <h3 className="font-bold text-gray-400 text-[10px] uppercase mb-5 tracking-[0.2em] px-2">{stage}</h3>
-              <div className="space-y-4">
-                {filteredDeals.filter(d => d.status === stage).map(deal => (
-                  <div key={deal.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all cursor-grab active:cursor-grabbing">
-                    <p className="font-bold text-sm text-gray-800 tracking-tight">{deal.org}</p>
-                    <p className="text-[11px] text-purple-600 mt-1 font-bold">{deal.revenue}</p>
+      )}
+    </div>
+
+    {/* SORT */}
+    <div className="relative">
+      <button
+        onClick={() => setActiveDropdown(activeDropdown === 'sort' ? null : 'sort')}
+        className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center"
+      >
+        <ArrowUpDown size={14}/> Sort
+      </button>
+      {activeDropdown === 'sort' && (
+        <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-36 z-50 text-xs">
+          {['org', 'status', 'modified'].map(s => (
+            <div
+              key={s}
+              onClick={() => handleSort(s)}
+              className="p-2 hover:bg-gray-100 cursor-pointer capitalize"
+            >
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    {/* COLUMNS */}
+    <div className="relative">
+      <button
+        onClick={() => setActiveDropdown(activeDropdown === 'cols' ? null : 'cols')}
+        className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center"
+      >
+        <LayoutPanelLeft size={14}/> Columns
+      </button>
+      {activeDropdown === 'cols' && (
+        <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-36 z-50 text-xs">
+          {Object.keys(visibleColumns).map(col => (
+            <div
+              key={col}
+              onClick={() => setVisibleColumns({ ...visibleColumns, [col]: !visibleColumns[col] })}
+              className="flex justify-between p-2 hover:bg-gray-100 cursor-pointer capitalize"
+            >
+              {col} {visibleColumns[col] && '✓'}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    {/* EXPORT */}
+    <button
+      onClick={() => setIsExportOpen(true)}
+      className="flex items-center gap-1 px-2 py-1 border border-gray-300 rounded-md bg-white text-xs"
+    >
+      <Download size={14}/> Export
+    </button>
+
+  </div>
+</div>
+
+
+      {/* TABLE VIEW */}
+      {viewMode === 'Table' && (
+        <div className="mt-2 flex flex-col gap-1">
+          <div className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_1fr_80px] bg-black text-white text-[10px] uppercase font-bold px-2 py-1 rounded-t-md">
+            <div><input type="checkbox"/></div>
+            {visibleColumns.org && <div>Organization</div>}
+            {visibleColumns.revenue && <div>Revenue</div>}
+            {visibleColumns.status && <div>Status</div>}
+            {visibleColumns.email && <div>Email</div>}
+            {visibleColumns.mobile && <div>Mobile</div>}
+            {visibleColumns.modified && <div>Modified</div>}
+            <div>Action</div>
+          </div>
+
+          {filteredDeals.map(d => (
+            <div key={d.id} className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_1fr_80px] bg-white border-b border-gray-300 px-2 py-1 items-center text-xs">
+              <div><input type="checkbox"/></div>
+              {visibleColumns.org && <div className="font-bold">{d.org}</div>}
+              {visibleColumns.revenue && <div>{d.revenue}</div>}
+              {visibleColumns.status && <div>{d.status}</div>}
+              {visibleColumns.email && <div>{d.email}</div>}
+              {visibleColumns.mobile && <div>{d.mobile}</div>}
+              {visibleColumns.modified && <div className="text-gray-400 italic">{d.modified}</div>}
+             <div className="flex flex-col justify-end text-right h-full pr-10">
+  <button
+    onClick={() => setDeals(deals.filter(x => x.id !== d.id))}
+    className="text-red-500 text-xs"
+  >
+    Delete
+  </button>
+</div>
+
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* KANBAN VIEW */}
+      {viewMode === 'Kanban' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+          {Object.entries(groupedDeals).map(([status, items]) => (
+            <div key={status} className="bg-gray-100 rounded-lg p-3">
+              <h3 className="text-xs font-bold mb-2">{status}</h3>
+              <div className="space-y-2">
+                {items.map(d => (
+                  <div key={d.id} className="bg-white p-2 rounded shadow text-xs border">
+                    <div className="font-bold">{d.org}</div>
+                    <div className="text-gray-500">{d.revenue}</div>
+                    <button onClick={()=>setDeals(deals.filter(x=>x.id!==d.id))} className="text-red-500 text-[10px] mt-1">Delete</button>
                   </div>
                 ))}
               </div>
@@ -213,67 +236,103 @@ const Deals = () => {
         </div>
       )}
 
-      {/* 4. Create Deal Modal (3-Column Grid matching Screenshot 92) */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 text-left font-sans">
-          <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
-            <div className="flex justify-between items-center px-8 py-5 border-b border-gray-100 bg-white sticky top-0 z-10">
-              <h3 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-2">Create Deal</h3>
-              <div className="p-1 hover:bg-gray-100 rounded-full transition-colors cursor-pointer" onClick={() => setIsCreateModalOpen(false)}>
-                <X size={20} className="text-gray-400 hover:text-red-500" />
-              </div>
+      {/* EXPORT POPUP */}
+      {isExportOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-80 shadow-lg">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-sm">Export Deals</h3>
+              <X size={16} onClick={()=>setIsExportOpen(false)} className="cursor-pointer"/>
             </div>
-            <form onSubmit={handleSaveDeal} className="p-8 grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-5 bg-white overflow-y-auto max-h-[75vh]">
-              {/* Org details */}
-              <div><label className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 block tracking-widest">Organization Name</label>
-              <input type="text" className="w-full border border-gray-200 p-2.5 rounded-lg bg-gray-50/50 text-sm outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-400 transition-all" value={formData.orgName} onChange={e=>setFormData({...formData, orgName:e.target.value})} /></div>
-              <div><label className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 block tracking-widest">Website</label>
-              <input type="text" className="w-full border border-gray-200 p-2.5 rounded-lg bg-gray-50/50 text-sm outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-400 transition-all" value={formData.website} onChange={e=>setFormData({...formData, website:e.target.value})} /></div>
-              <div><label className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 block tracking-widest">No. of Employees</label>
-              <select className="w-full border border-gray-200 p-2.5 rounded-lg bg-gray-50/50 text-sm outline-none" value={formData.employees} onChange={e=>setFormData({...formData, employees:e.target.value})}><option>1-10</option><option>11-50</option></select></div>
-
-              {/* Market Info */}
-              <div><label className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 block tracking-widest">Territory</label>
-              <select className="w-full border border-gray-200 p-2.5 rounded-lg bg-gray-50/50 text-sm outline-none" value={formData.territory} onChange={e=>setFormData({...formData, territory:e.target.value})}><option>Territory</option><option>Pakistan</option></select></div>
-              <div><label className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 block tracking-widest">Annual Revenue</label>
-              <input type="text" className="w-full border border-gray-200 p-2.5 rounded-lg bg-gray-50/50 text-sm outline-none" value={formData.revenue} onChange={e=>setFormData({...formData, revenue:e.target.value})} /></div>
-              <div><label className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 block tracking-widest">Industry</label>
-              <select className="w-full border border-gray-200 p-2.5 rounded-lg bg-gray-50/50 text-sm outline-none" value={formData.industry} onChange={e=>setFormData({...formData, industry:e.target.value})}><option>Industry</option><option>Software</option></select></div>
-
-              {/* Contact Info */}
-              <div><label className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 block tracking-widest">Salutation</label>
-              <select className="w-full border border-gray-200 p-2.5 rounded-lg bg-gray-50/50 text-sm outline-none" value={formData.salutation} onChange={e=>setFormData({...formData, salutation:e.target.value})}><option>Mr.</option><option>Ms.</option></select></div>
-              <div><label className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 block tracking-widest">First Name</label>
-              <input type="text" className="w-full border border-gray-200 p-2.5 rounded-lg bg-gray-50/50 text-sm outline-none" value={formData.firstName} onChange={e=>setFormData({...formData, firstName:e.target.value})} /></div>
-              <div><label className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 block tracking-widest">Last Name</label>
-              <input type="text" className="w-full border border-gray-200 p-2.5 rounded-lg bg-gray-50/50 text-sm outline-none" value={formData.lastName} onChange={e=>setFormData({...formData, lastName:e.target.value})} /></div>
-
-              {/* Sticky Footer */}
-              <div className="col-span-1 md:col-span-3 flex justify-end gap-3 pt-8 mt-4 border-t sticky bottom-0 bg-white">
-                <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-6 py-2.5 text-gray-500 font-bold text-sm hover:bg-gray-50 rounded-lg transition-colors">Discard</button>
-                <button type="submit" className="bg-black text-white px-10 py-2.5 rounded-lg font-bold text-sm shadow-xl hover:bg-gray-800 transform active:scale-95 transition-all tracking-tight">Create</button>
-              </div>
-            </form>
+            <button onClick={exportToExcel} className="w-full bg-black text-white py-2 rounded text-xs font-bold">Download Excel</button>
           </div>
         </div>
       )}
+{/* --- CREATE DEAL MODAL (Minimal Black/White/Grey, Compact) --- */}
+{isCreateModalOpen && (
+  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/20 backdrop-blur-sm font-sans p-3">
+    <div className="bg-white w-full max-w-2xl rounded-lg shadow-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
 
-      {/* 5. Export Modal */}
-      {isExportModalOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 text-center animate-in zoom-in duration-150">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 relative">
-            <X size={18} className="absolute right-4 top-4 cursor-pointer text-gray-400 hover:text-black" onClick={()=>setIsExportModalOpen(false)}/>
-            <h3 className="text-lg font-bold text-gray-800 text-left mb-4 border-b pb-2 tracking-tight">Export Deals</h3>
-            <div className="text-left space-y-4">
-               <div><label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Export Type</label><p className="text-sm font-bold text-gray-700">Excel</p></div>
-               <div className="flex items-center gap-3 py-2">
-                 <input type="checkbox" defaultChecked className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-gray-300"/><label className="text-sm text-gray-600 font-bold">Export All Records</label>
-               </div>
+      {/* Header */}
+      <div className="flex justify-between items-center px-5 py-2 border-b border-gray-200 sticky top-0 bg-white z-20">
+        <h3 className="text-md font-semibold text-gray-900">Create Deal</h3>
+        <RotateCcw
+          size={18}
+          className="cursor-pointer text-gray-400 hover:text-gray-700 p-1 rounded-full transition"
+          onClick={() => setIsCreateModalOpen(false)}
+        />
+      </div>
+
+      {/* Scrollable Form */}
+      <div className="overflow-y-auto max-h-[65vh] p-5">
+        <form onSubmit={handleSaveDeal} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+
+          {/* Generate Form Fields */}
+          {[
+            { label: 'Organization Name', type: 'text' },
+            { label: 'Website', type: 'text' },
+            { label: 'Employees', type: 'select', options: ['1-10', '11-50', '51-200', '201+'] },
+            { label: 'Territory', type: 'select', options: ['Option 1', 'Option 2'] },
+            { label: 'Revenue', type: 'text' },
+            { label: 'Industry', type: 'select', options: ['Option 1', 'Option 2'] },
+            { label: 'Salutation', type: 'select', options: ['Mr.', 'Ms.', 'Dr.'] },
+            { label: 'First Name', type: 'text' },
+            { label: 'Last Name', type: 'text' },
+            { label: 'Email', type: 'text' },
+            { label: 'Mobile', type: 'text' },
+          ].map((field, i) => (
+            <div key={i}>
+              <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">{field.label}</label>
+              {field.type === 'select' ? (
+                <select
+                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
+                  value={formData[field.label.replace(' ','').toLowerCase()]}
+                  onChange={e =>
+                    setFormData({...formData, [field.label.replace(' ','').toLowerCase()]: e.target.value})
+                  }
+                >
+                  {field.options.map((opt, idx) => (
+                    <option key={idx}>{opt}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
+                  value={formData[field.label.replace(' ','').toLowerCase()]}
+                  onChange={e =>
+                    setFormData({...formData, [field.label.replace(' ','').toLowerCase()]: e.target.value})
+                  }
+                />
+              )}
             </div>
-            <button onClick={exportToExcel} className="w-full mt-6 py-3 bg-[#2d3a60] text-white rounded-lg font-bold hover:bg-[#1e2a4a] transition-all shadow-xl active:scale-[0.98]">Download</button>
-          </div>
-        </div>
-      )}
+          ))}
+
+        </form>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex justify-end gap-2 px-5 py-2 border-t bg-white sticky bottom-0 z-20">
+        <button
+          type="button"
+          onClick={() => setIsCreateModalOpen(false)}
+          className="px-4 py-1.5 text-gray-600 font-medium text-sm hover:bg-gray-100 rounded-md transition"
+        >
+          Discard
+        </button>
+        <button
+          type="submit"
+          onClick={handleSaveDeal}
+          className="px-5 py-1.5 bg-gray-900 text-white font-medium text-sm rounded-md shadow hover:bg-gray-800 transition-all active:scale-95"
+        >
+          Create
+        </button>
+      </div>
+
+    </div>
+  </div>
+)}
+
     </div>
   );
 };

@@ -1,115 +1,112 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
-  LayoutDashboard, Users, Briefcase, Building2, 
-  ClipboardList, Check, ChevronLeft, ChevronRight, 
-  UserCircle, Bell, X, LogOut 
+  LayoutDashboard, Users, Briefcase, Building2, ClipboardList, 
+  Check, ChevronLeft, ChevronRight, UserCircle, Bell, X, LogOut 
 } from 'lucide-react';
 
-const Sidebar = () => {
+const Sidebar = ({ onLogout, user }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isNotifOpen, setIsNotifOpen] = useState(false); 
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
   const location = useLocation();
 
-  // Menu items minus Call Logs
   const menuItems = [
-    { name: 'Dashboard', icon: <LayoutDashboard size={20}/>, path: '/' },
-    { name: 'Leads', icon: <Users size={20}/>, path: '/leads' },
-    { name: 'Deals', icon: <Briefcase size={20}/>, path: '/deals' },
-    { name: 'Contacts', icon: <UserCircle size={20}/>, path: '/contacts' },
-    { name: 'Organizations', icon: <Building2 size={20}/>, path: '/orgs' },
-    { name: 'Notes', icon: <ClipboardList size={20}/>, path: '/tasks' },
-    { name: 'Tasks', icon: <Check size={20}/>, path: '/todo' },
+    { name: 'Dashboard', icon: <LayoutDashboard size={18}/>, path: '/' },
+    { name: 'Leads', icon: <Users size={18}/>, path: '/leads' },
+    { name: 'Deals', icon: <Briefcase size={18}/>, path: '/deals' },
+    { name: 'Contacts', icon: <UserCircle size={18}/>, path: '/contacts' },
+    { name: 'Organizations', icon: <Building2 size={18}/>, path: '/orgs' },
+    { name: 'Notes', icon: <ClipboardList size={18}/>, path: '/tasks' },
+    { name: 'Tasks', icon: <Check size={18}/>, path: '/todo' },
   ];
 
   return (
     <div className="relative flex">
-      {/* --- SIDEBAR --- */}
-      <div className={`${isCollapsed ? 'w-20' : 'w-64'} bg-white border-r border-gray-200 flex flex-col transition-all duration-300 relative h-screen shadow-sm`}>
-        
-        {/* User Profile Section */}
-        <div className="p-6 border-b border-gray-50">
-          <div className="flex items-center gap-3">
-            <div className="min-w-[40px] h-10 bg-purple-600 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-purple-100 transition-all">
-               CRM
-            </div>
-            {!isCollapsed && (
-              <div className="flex flex-col text-left animate-in fade-in duration-500">
-                <span className="text-sm font-black text-gray-800 tracking-tight leading-none mb-1">CRM</span>
-                <span className="text-[10px] font-bold text-gray-400">Administrator</span>
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Notifications Button */}
-        <div className="px-4 mt-4">
-          <button 
-            onClick={() => setIsNotifOpen(true)}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${isNotifOpen ? 'bg-purple-50 text-purple-700' : 'text-gray-500 hover:bg-gray-100'} ${isCollapsed && 'justify-center'}`}
+      {/* Sidebar */}
+      <div className={`${isCollapsed ? 'w-20' : 'w-60'} bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out h-screen shadow-sm`}>
+
+        {/* Logo */}
+        <div className="p-4 border-b border-gray-100 relative flex items-center gap-2">
+          <div className="w-9 h-9 bg-black text-white font-black flex items-center justify-center rounded-md shadow">
+            CRM
+          </div>
+          {!isCollapsed && (
+            <div>
+              <span className="text-sm font-semibold text-gray-900">CRM</span>
+              <p className="text-[10px] text-gray-500">{user?.name}</p>
+            </div>
+          )}
+          {/* Collapse Button */}
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="absolute -right-3 top-3 bg-white border border-gray-200 rounded-full p-1 shadow hover:scale-110 transition"
           >
-            <Bell size={20} className={isNotifOpen ? "animate-pulse" : ""}/>
-            {!isCollapsed && <span className="text-sm font-bold animate-in fade-in duration-300">Notifications</span>}
+            {isCollapsed ? <ChevronRight size={14}/> : <ChevronLeft size={14}/>}
           </button>
         </div>
-        
-        {/* Main Menu Items */}
-        <nav className="flex-1 px-4 mt-2 space-y-1 overflow-y-auto custom-scrollbar">
+
+        {/* Notifications */}
+        <div className="px-3 mt-3">
+          <button
+            onClick={() => setIsNotifOpen(true)}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-gray-600 hover:bg-gray-50 transition ${isCollapsed && 'justify-center'}`}
+          >
+            <Bell size={18}/>
+            {!isCollapsed && <span className="text-xs font-medium">Notifications</span>}
+          </button>
+        </div>
+
+        {/* Menu */}
+        <nav className="flex-1 mt-2 px-2 space-y-1 overflow-y-auto">
           {menuItems.map((item) => (
             <Link
               key={item.name}
               to={item.path}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                location.pathname === item.path 
-                ? 'bg-purple-50 text-purple-700 font-black shadow-sm' 
-                : 'text-gray-500 hover:bg-gray-50 font-medium'
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition ${
+                location.pathname === item.path
+                  ? 'bg-black text-white font-medium'
+                  : 'text-gray-600 hover:bg-gray-50'
               } ${isCollapsed && 'justify-center'}`}
             >
               {item.icon}
-              {!isCollapsed && <span className="text-sm animate-in fade-in duration-300">{item.name}</span>}
+              {!isCollapsed && <span className="text-xs">{item.name}</span>}
             </Link>
           ))}
         </nav>
 
-        {/* Bottom Collapse Action */}
-        <div className="p-4 border-t border-gray-100">
-           <button 
-             onClick={() => setIsCollapsed(!isCollapsed)} // Functional Collapse
-             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-all ${isCollapsed && 'justify-center'}`}
-           >
-             {isCollapsed ? <ChevronRight size={20}/> : <LogOut size={20}/>}
-             {!isCollapsed && <span className="text-sm font-bold">Collapse</span>}
-           </button>
+        {/* Logout */}
+        <div className="p-3 border-t border-gray-100">
+          <button
+            onClick={() => {
+              localStorage.removeItem("user");
+              onLogout();
+            }}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-red-500 hover:bg-red-50 transition ${isCollapsed && 'justify-center'}`}
+          >
+            <LogOut size={18}/>
+            {!isCollapsed && <span className="text-xs font-medium">Logout</span>}
+          </button>
         </div>
       </div>
 
-      {/* --- NOTIFICATIONS PANEL (Matches Screenshot 108) --- */}
+      {/* Notifications Panel */}
       {isNotifOpen && (
         <>
-          {/* Backdrop */}
           <div className="fixed inset-0 bg-black/5 z-[150]" onClick={() => setIsNotifOpen(false)} />
-          
-          {/* Panel - Alignment adjust according to sidebar width */}
-          <div className={`fixed ${isCollapsed ? 'left-20' : 'left-64'} top-0 h-screen w-96 bg-white shadow-2xl border-l border-gray-100 z-[160] animate-in slide-in-from-left duration-300`}>
-            {/* Header */}
-            <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
-               <h3 className="text-base font-black text-gray-800 tracking-tight">Notifications</h3>
-               <div className="flex items-center gap-4 text-gray-400">
-                  <Check size={18} className="hover:text-green-500 cursor-pointer transition-colors" title="Mark all as read" />
-                  <X size={18} className="hover:text-red-500 cursor-pointer transition-colors" onClick={() => setIsNotifOpen(false)} />
-               </div>
+          <div className={`fixed ${isCollapsed ? 'left-20' : 'left-60'} top-0 h-screen w-80 bg-white shadow-2xl border-l z-[160] p-5`}>
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="font-semibold text-gray-900 text-sm">Notifications</h3>
+              <X size={16} className="cursor-pointer text-gray-500 hover:text-gray-700" onClick={() => setIsNotifOpen(false)} />
             </div>
-
-            {/* Content (Empty State) */}
-            <div className="h-full flex flex-col items-center justify-center pb-32">
-               <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-200">
-                  <Bell size={32} />
-               </div>
-               <p className="text-sm font-bold text-gray-400 tracking-tight">No new notifications</p>
+            <div className="text-center text-gray-400 mt-16">
+              <Bell size={28} className="mx-auto mb-2"/>
+              No new notifications
             </div>
           </div>
         </>
       )}
+
     </div>
   );
 };
