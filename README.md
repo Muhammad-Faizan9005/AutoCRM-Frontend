@@ -115,9 +115,12 @@ This project is part of a Final Year Project (FYP).
 
 ## 👥 Authors
 
-- Muhammad Faizan Haider - Initial work
-- Muhammad Tayyab - Admin Panel
-- Iqra Mubarik - Client Side
+| | Name |
+|---|---|
+| 👤 | Muhammad Faizan Haider |
+| 👤 | Muhammad Tayyab |
+| 👤 | Umer Shahid |
+| 👤 | Iqra Mubarik |
 
 ## 📞 Support
 
