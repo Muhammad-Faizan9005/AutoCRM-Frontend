@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { apiFetch, setTokens } from '../api/client';
 
 export default function Login({ onLogin }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -8,23 +9,43 @@ export default function Login({ onLogin }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     if (!email || !password) {
-      setError('Please enter both email/username and password');
+      setError('Please enter both email and password');
       setLoading(false);
       return;
     }
 
-    setTimeout(() => {
-      const user = { name: email, role: 'User' };
-      localStorage.setItem('user', JSON.stringify(user));
-      onLogin(user);
+    try {
+      const payload = {
+        email: email.trim(),
+        password,
+      };
+
+      const data = await apiFetch(
+        '/api/auth/login',
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        },
+        { skipAuth: true, retryOn401: false }
+      );
+
+      setTokens({
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+      });
+      onLogin(data.user);
+    } catch (err) {
+      const message = err?.message || 'Login failed. Please try again.';
+      setError(message);
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const handleEmailLink = () => {
@@ -84,7 +105,7 @@ export default function Login({ onLogin }) {
     onClick={() => setShowPassword(!showPassword)}
     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 flex items-center justify-center"
   >
-    
+    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
   </button>
 </div>
 

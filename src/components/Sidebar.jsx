@@ -9,6 +9,7 @@ const Sidebar = ({ onLogout, user }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const location = useLocation();
+  const displayName = user?.full_name || user?.email || 'User';
 
   const menuItems = [
     { name: 'Dashboard', icon: <LayoutDashboard size={18}/>, path: '/' },
@@ -34,7 +35,7 @@ const Sidebar = ({ onLogout, user }) => {
           {!isCollapsed && (
             <div>
               <span className="text-sm font-semibold text-gray-900">AutoCRM</span>
-              <p className="text-[10px] text-gray-500">{user?.name}</p>
+              <p className="text-[10px] text-gray-500">{displayName}</p>
             </div>
           )}
           {/* Collapse Button */}
@@ -79,7 +80,6 @@ const Sidebar = ({ onLogout, user }) => {
         <div className="p-3 border-t border-gray-100">
           <button
             onClick={() => {
-              localStorage.removeItem("user");
               onLogout();
             }}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-red-500 hover:bg-red-50 transition ${isCollapsed && 'justify-center'}`}

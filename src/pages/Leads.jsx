@@ -140,7 +140,7 @@ const Leads = () => {
               {visibleColumns.modified && <div className="text-gray-400 italic">{l.modified}</div>}
                <div className="flex flex-col justify-end text-right h-full pr-10">
   <button
-    onClick={() => setDeals(deals.filter(x => x.id !== d.id))}
+    onClick={() => setLeads(leads.filter(x => x.id !== l.id))}
     className="text-red-500 text-xs"
   >
     Delete
