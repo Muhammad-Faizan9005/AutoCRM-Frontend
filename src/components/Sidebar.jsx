@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Briefcase, Building2, ClipboardList, 
-  Check, ChevronLeft, ChevronRight, UserCircle, Bell, X, LogOut 
+  Check, ChevronLeft, ChevronRight, UserCircle, Bell, X, LogOut, UploadCloud 
 } from 'lucide-react';
 
 const Sidebar = ({ onLogout, user }) => {
@@ -20,6 +20,12 @@ const Sidebar = ({ onLogout, user }) => {
     { name: 'Notes', icon: <ClipboardList size={18}/>, path: '/tasks' },
     { name: 'Tasks', icon: <Check size={18}/>, path: '/todo' },
   ];
+
+  const adminItems = user?.role === 'admin'
+    ? [{ name: 'Import', icon: <UploadCloud size={18} />, path: '/import' }]
+    : [];
+
+  const navItems = [...menuItems, ...adminItems];
 
   return (
     <div className="relative flex">
@@ -60,7 +66,7 @@ const Sidebar = ({ onLogout, user }) => {
 
         {/* Menu */}
         <nav className="flex-1 mt-2 px-2 space-y-1 overflow-y-auto">
-          {menuItems.map((item) => (
+          {navItems.map((item) => (
             <Link
               key={item.name}
               to={item.path}

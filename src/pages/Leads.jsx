@@ -1,16 +1,48 @@
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { 
   Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, X, List, KanbanSquare, RotateCcw 
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { apiFetch } from '../api/client';
 
-const Leads = () => {
+const STATUS_LABELS = {
+  new: 'New',
+  contacted: 'Contacted',
+  qualified: 'Qualified',
+  converted: 'Converted',
+};
+
+const normalizeStatus = (status) => (status || '').toString().trim().toLowerCase();
+
+const formatLeadStatus = (status) => {
+  const normalized = normalizeStatus(status);
+  return STATUS_LABELS[normalized] || status || 'Unknown';
+};
+
+const formatDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString();
+};
+
+const mapLeadToRow = (lead) => ({
+  id: lead.id,
+  name: lead.name,
+  org: lead.company || '-',
+  status: normalizeStatus(lead.status) || 'new',
+  email: lead.email || '-',
+  mobile: lead.phone || '-',
+  modified: formatDate(lead.updated_at),
+});
+
+const Leads = ({ user }) => {
   const [viewMode, setViewMode] = useState('Table');
-  const [leads, setLeads] = useState([
-    { id: 1, name: 'LinkedIn', org: 'Tech Solutions', status: 'New', email: 'messages@linkedin.com', mobile: '03001234567', modified: '2 hours ago' },
-    { id: 2, name: 'Bitget', org: 'Finance Corp', status: 'Contacted', email: 'support@bitget.com', mobile: '03219876543', modified: '5 hours ago' },
-    { id: 3, name: 'Binance', org: 'Crypto Inc', status: 'Qualified', email: 'noreply@binance.com', mobile: '03115556667', modified: '1 day ago' },
-  ]);
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const latestRequestId = useRef(0);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -19,13 +51,73 @@ const Leads = () => {
   const [visibleColumns, setVisibleColumns] = useState({ name: true, org: true, status: true, email: true, mobile: true, modified: true });
 
   const [formData, setFormData] = useState({
-    salutation: 'Salutation', firstName: '', lastName: '', email: '', mobile: '', gender: 'Gender', organization: '', website: '', employees: '1-10', territory: 'Territory', revenue: 'PKR 0.00', industry: 'Industry', status: 'New'
+    salutation: 'Salutation',
+    firstName: '',
+    lastName: '',
+    email: '',
+    mobile: '',
+    gender: 'Gender',
+    organization: '',
+    website: '',
+    employees: '1-10',
+    territory: 'Territory',
+    revenue: 'PKR 0.00',
+    industry: 'Industry',
+    status: 'New'
   });
 
-  const filteredLeads = useMemo(() => leads.filter(l => 
-    l.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    l.org.toLowerCase().includes(searchTerm.toLowerCase())
-  ), [leads, searchTerm]);
+  const canDelete = user?.role === 'admin';
+
+  const resetForm = () => {
+    setFormData({
+      salutation: 'Salutation',
+      firstName: '',
+      lastName: '',
+      email: '',
+      mobile: '',
+      gender: 'Gender',
+      organization: '',
+      website: '',
+      employees: '1-10',
+      territory: 'Territory',
+      revenue: 'PKR 0.00',
+      industry: 'Industry',
+      status: 'New'
+    });
+  };
+
+  const fetchLeads = useCallback(async () => {
+    const requestId = latestRequestId.current + 1;
+    latestRequestId.current = requestId;
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await apiFetch('/api/leads/');
+      if (requestId !== latestRequestId.current) return;
+      setLeads(data.map(mapLeadToRow));
+    } catch (err) {
+      if (requestId !== latestRequestId.current) return;
+      setError(err?.message || 'Unable to load leads.');
+    } finally {
+      if (requestId === latestRequestId.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLeads();
+  }, [fetchLeads]);
+
+  const filteredLeads = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return leads;
+
+    return leads.filter((lead) => [lead.name, lead.org, lead.email]
+      .some((value) => String(value).toLowerCase().includes(term))
+    );
+  }, [leads, searchTerm]);
 
   const handleSort = (key) => {
     const sorted = [...leads].sort((a, b) => String(a[key]).localeCompare(String(b[key])));
@@ -33,20 +125,57 @@ const Leads = () => {
     setActiveDropdown(null);
   };
 
-  const handleSaveLead = (e) => {
-    e.preventDefault();
-    const newEntry = {
-      id: Date.now(),
-      name: `${formData.firstName} ${formData.lastName}` || 'New Lead',
-      org: formData.organization || '-',
-      status: formData.status,
-      email: formData.email || '-',
-      mobile: formData.mobile || '-',
-      modified: 'Just now'
+  const handleSaveLead = async (e) => {
+    e?.preventDefault();
+    setError('');
+
+    const firstName = formData.firstName.trim();
+    const lastName = formData.lastName.trim();
+    const name = [firstName, lastName].filter(Boolean).join(' ').trim();
+
+    if (!name) {
+      setError('First name is required to create a lead.');
+      return;
+    }
+
+    const payload = {
+      name,
+      email: formData.email.trim() || undefined,
+      phone: formData.mobile.trim() || undefined,
+      company: formData.organization.trim() || undefined,
+      status: normalizeStatus(formData.status) || 'new',
+      source: formData.website.trim() || undefined,
     };
-    setLeads([newEntry, ...leads]);
-    setIsCreateModalOpen(false);
-    setFormData({ salutation: 'Salutation', firstName: '', lastName: '', email: '', mobile: '', gender: 'Gender', organization: '', website: '', employees: '1-10', territory: 'Territory', revenue: 'PKR 0.00', industry: 'Industry', status: 'New' });
+
+    setIsSaving(true);
+    try {
+      const created = await apiFetch('/api/leads/', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      setLeads((prev) => [mapLeadToRow(created), ...prev]);
+      setIsCreateModalOpen(false);
+      resetForm();
+    } catch (err) {
+      setError(err?.message || 'Unable to create lead.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteLead = async (id) => {
+    if (!canDelete) return;
+    const confirmed = window.confirm('Delete this lead?');
+    if (!confirmed) return;
+
+    setError('');
+    try {
+      await apiFetch(`/api/leads/${id}`, { method: 'DELETE' });
+      setLeads((prev) => prev.filter((lead) => lead.id !== id));
+    } catch (err) {
+      setError(err?.message || 'Unable to delete lead.');
+    }
   };
 
   const exportToExcel = () => {
@@ -57,11 +186,20 @@ const Leads = () => {
     setIsExportOpen(false);
   };
 
-  const groupedLeads = {
-    New: leads.filter(l => l.status === 'New'),
-    Contacted: leads.filter(l => l.status === 'Contacted'),
-    Qualified: leads.filter(l => l.status === 'Qualified')
-  };
+  const groupedLeads = useMemo(() => {
+    const groups = {
+      new: leads.filter((lead) => normalizeStatus(lead.status) === 'new'),
+      contacted: leads.filter((lead) => normalizeStatus(lead.status) === 'contacted'),
+      qualified: leads.filter((lead) => normalizeStatus(lead.status) === 'qualified'),
+    };
+
+    const other = leads.filter((lead) => !['new', 'contacted', 'qualified'].includes(normalizeStatus(lead.status)));
+    if (other.length) {
+      groups.other = other;
+    }
+
+    return groups;
+  }, [leads]);
 
   return (
     <div className="min-h-screen p-4 space-y-3 bg-gray-50 font-sans text-sm">
@@ -87,7 +225,7 @@ const Leads = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button onClick={() => setLeads([...leads])} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
+          <button onClick={fetchLeads} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
             <RotateCcw size={18} />
           </button>
           <button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold">
@@ -95,6 +233,16 @@ const Leads = () => {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-xs text-gray-500">Loading leads...</div>
+      )}
 
       {/* SEARCH + ACTIONS */}
       <div className="flex justify-between items-center">
@@ -116,7 +264,7 @@ const Leads = () => {
       </div>
 
       {/* TABLE VIEW */}
-      {viewMode === 'Table' && (
+      {viewMode === 'Table' && !loading && (
         <div className="mt-2 flex flex-col gap-1">
           <div className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_1fr_80px] bg-black text-white text-[10px] uppercase font-bold px-2 py-1 rounded-t-md">
             <div><input type="checkbox"/></div>
@@ -134,41 +282,49 @@ const Leads = () => {
               <div><input type="checkbox"/></div>
               {visibleColumns.name && <div className="font-bold">{l.name}</div>}
               {visibleColumns.org && <div>{l.org}</div>}
-              {visibleColumns.status && <div>{l.status}</div>}
+              {visibleColumns.status && <div>{formatLeadStatus(l.status)}</div>}
               {visibleColumns.email && <div>{l.email}</div>}
               {visibleColumns.mobile && <div>{l.mobile}</div>}
               {visibleColumns.modified && <div className="text-gray-400 italic">{l.modified}</div>}
-               <div className="flex flex-col justify-end text-right h-full pr-10">
-  <button
-    onClick={() => setLeads(leads.filter(x => x.id !== l.id))}
-    className="text-red-500 text-xs"
-  >
-    Delete
-  </button>
-</div>
+              <div className="flex flex-col justify-end text-right h-full pr-10">
+                {canDelete && (
+                  <button
+                    onClick={() => handleDeleteLead(l.id)}
+                    className="text-red-500 text-xs"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
       )}
 
       {/* KANBAN VIEW */}
-      {viewMode === 'Kanban' && (
+      {viewMode === 'Kanban' && !loading && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
           {Object.entries(groupedLeads).map(([status, items]) => (
             <div key={status} className="bg-gray-100 rounded-lg p-3">
-              <h3 className="text-xs font-bold mb-2">{status}</h3>
+              <h3 className="text-xs font-bold mb-2">{STATUS_LABELS[status] || 'Other'}</h3>
               <div className="space-y-2">
                 {items.map(l => (
                   <div key={l.id} className="bg-white p-2 rounded shadow text-xs border">
                     <div className="font-bold">{l.name}</div>
                     <div className="text-gray-500">{l.org}</div>
-                    <button onClick={()=>setLeads(leads.filter(x=>x.id!==l.id))} className="text-red-500 text-[10px] mt-1">Delete</button>
+                    {canDelete && (
+                      <button onClick={() => handleDeleteLead(l.id)} className="text-red-500 text-[10px] mt-1">Delete</button>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {!loading && filteredLeads.length === 0 && (
+        <div className="text-xs text-gray-500">No leads found.</div>
       )}
 
       {/* EXPORT POPUP */}
@@ -202,7 +358,7 @@ const Leads = () => {
 
       {/* Scrollable Form */}
       <div className="overflow-y-auto max-h-[65vh] p-5">
-        <form onSubmit={handleSaveLead} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <form id="create-lead-form" onSubmit={handleSaveLead} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
 
           {/* Personal Info */}
           <div className="col-span-1 md:col-span-2 bg-gray-50 p-3 rounded-md border border-gray-200">
@@ -339,9 +495,11 @@ const Leads = () => {
         </button>
         <button
           type="submit"
-          className="px-5 py-1.5 bg-gray-900 text-white font-medium text-sm rounded-md shadow hover:bg-gray-800 transition-all active:scale-95"
+          form="create-lead-form"
+          disabled={isSaving}
+          className="px-5 py-1.5 bg-gray-900 text-white font-medium text-sm rounded-md shadow hover:bg-gray-800 transition-all active:scale-95 disabled:opacity-60"
         >
-          Create
+          {isSaving ? 'Creating...' : 'Create'}
         </button>
       </div>
 

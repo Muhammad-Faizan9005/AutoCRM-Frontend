@@ -1,25 +1,101 @@
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, X, List as ListIcon, LayoutGrid, RotateCcw } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { apiFetch } from '../api/client';
 
-const Organizations = () => {
+const formatDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString();
+};
+
+const parseAmount = (value) => {
+  if (value === null || value === undefined || value === '') return undefined;
+  const normalized = String(value).replace(/[^0-9.-]+/g, '');
+  const parsed = Number(normalized);
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
+const formatRevenue = (value) => {
+  if (value === null || value === undefined || value === '') return '-';
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return String(value);
+  return numeric.toLocaleString();
+};
+
+const mapOrganizationToRow = (org) => ({
+  id: org.id,
+  org: org.name || '-',
+  website: org.website || '-',
+  industry: org.industry || '-',
+  revenue: formatRevenue(org.revenue),
+  modified: formatDate(org.updated_at),
+});
+
+const Organizations = ({ user }) => {
   // --- STATES ---
   const [viewMode, setViewMode] = useState('Table');
-  const [orgs, setOrgs] = useState([
-    { id: 1, org: 'Aslam Industries', website: 'aslam-industries.com', industry: 'Software', revenue: 'PKR 1,000,000.00', modified: '2 weeks ago' },
-    { id: 2, org: 'Umer Industries', website: 'umer-industries.com', industry: 'Sports', revenue: 'PKR 100,000.00', modified: '1 week ago' },
-  ]);
+  const [orgs, setOrgs] = useState([]);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [visibleColumns, setVisibleColumns] = useState({ org: true, website: true, industry: true, revenue: true, modified: true });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const latestRequestId = useRef(0);
 
   // --- FORM STATE ---
   const [formData, setFormData] = useState({
-    org: '', website: '', industry: 'Industry', revenue: 'PKR 0.00', address: 'Address'
+    name: '',
+    website: '',
+    industry: 'Industry',
+    revenue: '',
+    address: 'Address',
+    territory: 'Territory',
+    employees: '1-10'
   });
+
+  const canDelete = user?.role === 'admin';
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      website: '',
+      industry: 'Industry',
+      revenue: '',
+      address: 'Address',
+      territory: 'Territory',
+      employees: '1-10'
+    });
+  };
+
+  const fetchOrganizations = useCallback(async () => {
+    const requestId = latestRequestId.current + 1;
+    latestRequestId.current = requestId;
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await apiFetch('/api/organizations/');
+      if (requestId !== latestRequestId.current) return;
+      setOrgs(data.map(mapOrganizationToRow));
+    } catch (err) {
+      if (requestId !== latestRequestId.current) return;
+      setError(err?.message || 'Unable to load organizations.');
+    } finally {
+      if (requestId === latestRequestId.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchOrganizations();
+  }, [fetchOrganizations]);
 
   // --- LOGIC ---
   const filteredOrgs = useMemo(() => {
@@ -32,19 +108,53 @@ const Organizations = () => {
     setActiveDropdown(null);
   };
 
-  const handleSaveOrg = (e) => {
+  const handleSaveOrg = async (e) => {
     e.preventDefault();
-    const newOrg = {
-      id: Date.now(),
-      org: formData.org || 'Unnamed Org',
-      website: formData.website || '-',
-      industry: formData.industry !== 'Industry' ? formData.industry : '-',
-      revenue: formData.revenue || 'PKR 0.00',
-      modified: 'Just now'
+    setError('');
+
+    const name = formData.name.trim();
+    if (!name) {
+      setError('Organization name is required.');
+      return;
+    }
+
+    const payload = {
+      name,
+      website: formData.website.trim() || undefined,
+      industry: formData.industry !== 'Industry' ? formData.industry : undefined,
+      revenue: parseAmount(formData.revenue),
+      address: formData.address !== 'Address' ? formData.address : undefined,
     };
-    setOrgs([newOrg, ...orgs]);
-    setIsCreateModalOpen(false);
-    setFormData({ org: '', website: '', industry: 'Industry', revenue: 'PKR 0.00', address: 'Address' });
+
+    setIsSaving(true);
+    try {
+      const created = await apiFetch('/api/organizations/', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      setOrgs((prev) => [mapOrganizationToRow(created), ...prev]);
+      setIsCreateModalOpen(false);
+      resetForm();
+    } catch (err) {
+      setError(err?.message || 'Unable to create organization.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteOrg = async (id) => {
+    if (!canDelete) return;
+    const confirmed = window.confirm('Delete this organization?');
+    if (!confirmed) return;
+
+    setError('');
+    try {
+      await apiFetch(`/api/organizations/${id}`, { method: 'DELETE' });
+      setOrgs((prev) => prev.filter((org) => org.id !== id));
+    } catch (err) {
+      setError(err?.message || 'Unable to delete organization.');
+    }
   };
 
   const exportToExcel = () => {
@@ -78,7 +188,7 @@ const Organizations = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button onClick={() => setOrgs([...orgs])} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
+          <button onClick={fetchOrganizations} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
             <RotateCcw size={18} />
           </button>
           <button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold">
@@ -86,6 +196,16 @@ const Organizations = () => {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-xs text-gray-500">Loading organizations...</div>
+      )}
 
       {/* SEARCH + ACTIONS */}
       <div className="flex justify-between items-center">
@@ -141,7 +261,7 @@ const Organizations = () => {
       </div>
 
       {/* TABLE VIEW */}
-      {viewMode==='Table' && (
+      {viewMode==='Table' && !loading && (
         <div className="mt-2 flex flex-col gap-1">
           <div className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_80px] bg-black text-white text-[10px] uppercase font-bold px-2 py-1 rounded-t-md">
             <div><input type="checkbox"/></div>
@@ -161,18 +281,24 @@ const Organizations = () => {
               {visibleColumns.industry && <div>{o.industry}</div>}
               {visibleColumns.revenue && <div>{o.revenue}</div>}
               {visibleColumns.modified && <div className="text-gray-400 italic text-[10px]">{o.modified}</div>}
-             <div className="text-right pr-10">
-  <button
-    onClick={() => setOrgs(orgs.filter(x => x.id !== o.id))}
-    className="text-red-500 text-xs "
-  >
-    Delete
-  </button>
-</div>
+              <div className="text-right pr-10">
+                {canDelete && (
+                  <button
+                    onClick={() => handleDeleteOrg(o.id)}
+                    className="text-red-500 text-xs "
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
 
             </div>
           ))}
         </div>
+      )}
+
+      {!loading && filteredOrgs.length === 0 && (
+        <div className="text-xs text-gray-500">No organizations found.</div>
       )}
 
      {/* 4. NEW ORGANIZATION MODAL */}
@@ -201,8 +327,8 @@ const Organizations = () => {
             type="text"
             className="w-full border border-gray-300 p-2.5 rounded-lg bg-white text-sm outline-none focus:ring-1 focus:ring-black"
             placeholder="Organization Name"
-            value={formData.orgName}
-            onChange={e=>setFormData({...formData, orgName:e.target.value})}
+            value={formData.name}
+            onChange={e=>setFormData({...formData, name:e.target.value})}
           />
         </div>
 
@@ -289,9 +415,10 @@ const Organizations = () => {
         <div className="pt-6 flex justify-center">
           <button 
             type="submit" 
-            className="bg-black text-white px-20 py-2.5 rounded-lg font-bold text-sm shadow hover:bg-gray-900 transition-all tracking-tight uppercase"
+            disabled={isSaving}
+            className="bg-black text-white px-20 py-2.5 rounded-lg font-bold text-sm shadow hover:bg-gray-900 transition-all tracking-tight uppercase disabled:opacity-60"
           >
-            Create
+            {isSaving ? 'Creating...' : 'Create'}
           </button>
         </div>
 

@@ -1,12 +1,51 @@
-import React, { useState, useMemo } from 'react';
-import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, X, Check, MoreHorizontal, RotateCcw, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, X, Check, RotateCcw, Trash2 } from 'lucide-react';
+import { apiFetch } from '../api/client';
 
-const Notes = () => {
+const DEFAULT_ENTITY_TYPE = 'general';
+
+const formatDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString();
+};
+
+const formatAuthor = (authorId, currentUserId) => {
+  if (!authorId) return 'Unknown';
+  if (currentUserId && String(authorId) === String(currentUserId)) return 'You';
+  return String(authorId).slice(0, 8);
+};
+
+const buildTitle = (content) => {
+  const firstLine = String(content || '').split('\n')[0];
+  if (!firstLine) return 'Untitled note';
+  return firstLine.length > 60 ? `${firstLine.slice(0, 60)}...` : firstLine;
+};
+
+const splitContent = (content) => {
+  const [firstLine, ...rest] = String(content || '').split('\n');
+  return {
+    title: firstLine || '',
+    body: rest.join('\n').trim(),
+  };
+};
+
+const mapNoteToCard = (note, currentUserId) => ({
+  id: note.id,
+  title: buildTitle(note.content),
+  content: note.content,
+  author: formatAuthor(note.author_id, currentUserId),
+  time: formatDate(note.updated_at || note.created_at),
+});
+
+const Notes = ({ user }) => {
   // --- STATES ---
-  const [notes, setNotes] = useState([
-    { id: 1, title: 'Aslam Industries called', content: 'They asked about products', author: 'Admin', time: '1 week ago' },
-    { id: 2, title: 'Follow up with Binance', content: 'Discussed the Q1 roadmap', author: 'Admin', time: '2 days ago' },
-  ]);
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const latestRequestId = useRef(0);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -19,17 +58,137 @@ const Notes = () => {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const currentUserId = user?.id;
+
+  const resetForm = () => setFormData({ title: '', content: '' });
+
+  const fetchNotes = useCallback(async () => {
+    const requestId = latestRequestId.current + 1;
+    latestRequestId.current = requestId;
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await apiFetch('/api/notes/');
+      if (requestId !== latestRequestId.current) return;
+      setNotes(data.map((note) => mapNoteToCard(note, currentUserId)));
+    } catch (err) {
+      if (requestId !== latestRequestId.current) return;
+      setError(err?.message || 'Unable to load notes.');
+    } finally {
+      if (requestId === latestRequestId.current) {
+        setLoading(false);
+      }
+    }
+  }, [currentUserId]);
+
+  useEffect(() => {
+    fetchNotes();
+  }, [fetchNotes]);
+
   // --- FILTER / SORT ---
   const filteredNotes = useMemo(() => notes.filter(n => n.title.toLowerCase().includes(searchTerm.toLowerCase())), [notes, searchTerm]);
   const handleSort = (key) => setNotes([...notes].sort((a,b) => String(a[key]).localeCompare(String(b[key]))));
 
   // --- CRUD FUNCTIONS ---
-  const handleNoteClick = (note) => { setSelectedNote(note); setFormData({ title: note.title, content: note.content }); setIsEditModalOpen(true); };
-  const handleDeleteNote = (id) => { if(window.confirm('Delete this note?')) setNotes(notes.filter(n => n.id !== id)); setActiveDropdown(null); };
-  const handleSaveNote = (e) => { e.preventDefault(); setNotes([{ id: Date.now(), ...formData, author:'Admin', time:'Just now'}, ...notes]); setIsCreateModalOpen(false); setFormData({title:'',content:''}); };
-  const handleUpdateNote = (e) => { e.preventDefault(); setNotes(notes.map(n => n.id===selectedNote.id ? {...n,...formData} : n)); setIsEditModalOpen(false); };
+  const handleNoteClick = (note) => {
+    const { title, body } = splitContent(note.content);
+    setSelectedNote(note);
+    setFormData({ title, content: body });
+    setIsEditModalOpen(true);
+  };
 
-  const handleRefresh = () => { setIsRefreshing(true); setTimeout(() => setIsRefreshing(false),1000); };
+  const handleDeleteNote = async (id) => {
+    const confirmed = window.confirm('Delete this note?');
+    if (!confirmed) return;
+
+    setError('');
+    try {
+      await apiFetch(`/api/notes/${id}`, { method: 'DELETE' });
+      setNotes((prev) => prev.filter((note) => note.id !== id));
+      setActiveDropdown(null);
+    } catch (err) {
+      setError(err?.message || 'Unable to delete note.');
+    }
+  };
+
+  const handleSaveNote = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    const title = formData.title.trim();
+    const body = formData.content.trim();
+    const combinedContent = title ? [title, body].filter(Boolean).join('\n') : body;
+
+    if (!combinedContent) {
+      setError('Note content is required.');
+      return;
+    }
+    if (!currentUserId) {
+      setError('Unable to identify current user for notes.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const payload = {
+        entity_type: DEFAULT_ENTITY_TYPE,
+        entity_id: currentUserId,
+        content: combinedContent,
+      };
+
+      const created = await apiFetch('/api/notes/', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      setNotes((prev) => [mapNoteToCard(created, currentUserId), ...prev]);
+      setIsCreateModalOpen(false);
+      resetForm();
+    } catch (err) {
+      setError(err?.message || 'Unable to create note.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUpdateNote = async (e) => {
+    e.preventDefault();
+    if (!selectedNote?.id) return;
+    setError('');
+
+    const title = formData.title.trim();
+    const body = formData.content.trim();
+    const combinedContent = title ? [title, body].filter(Boolean).join('\n') : body;
+
+    if (!combinedContent) {
+      setError('Note content is required.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updated = await apiFetch(`/api/notes/${selectedNote.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ content: combinedContent }),
+      });
+
+      setNotes((prev) => prev.map((note) => (
+        note.id === selectedNote.id ? mapNoteToCard(updated, currentUserId) : note
+      )));
+      setIsEditModalOpen(false);
+    } catch (err) {
+      setError(err?.message || 'Unable to update note.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchNotes();
+    setIsRefreshing(false);
+  };
 
   return (
     <div className="min-h-screen p-4 bg-gray-50 font-sans space-y-4 text-sm">
@@ -42,6 +201,16 @@ const Notes = () => {
           <button onClick={()=>setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold"><Plus size={16}/> Create</button>
         </div>
       </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-xs text-gray-500">Loading notes...</div>
+      )}
 
       {/* SEARCH + ACTIONS */}
       <div className="flex justify-between items-center">
@@ -104,6 +273,10 @@ const Notes = () => {
         ))}
       </div>
 
+      {!loading && filteredNotes.length === 0 && (
+        <div className="text-xs text-gray-500">No notes found.</div>
+      )}
+
       {/* CREATE NOTE MODAL (SMALLER) */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -121,7 +294,7 @@ const Notes = () => {
                 <label className="text-[10px] font-bold uppercase mb-1 block">Content</label>
                 <textarea className="w-full border p-3 rounded-lg text-sm outline-none min-h-[120px]" value={formData.content} onChange={e=>setFormData({...formData,content:e.target.value})}></textarea>
               </div>
-              <div className="flex justify-end"><button type="submit" className="bg-black text-white px-8 py-2 rounded-lg font-bold text-sm">Create</button></div>
+              <div className="flex justify-end"><button type="submit" disabled={isSaving} className="bg-black text-white px-8 py-2 rounded-lg font-bold text-sm disabled:opacity-60">{isSaving ? 'Creating...' : 'Create'}</button></div>
             </form>
           </div>
         </div>
@@ -144,7 +317,7 @@ const Notes = () => {
                 <label className="text-[10px] font-bold uppercase mb-1 block">Content</label>
                 <textarea className="w-full border p-3 rounded-lg text-sm outline-none min-h-[120px]" value={formData.content} onChange={e=>setFormData({...formData,content:e.target.value})}></textarea>
               </div>
-              <div className="flex justify-end"><button type="submit" className="bg-black text-white px-8 py-2 rounded-lg font-bold text-sm">Update</button></div>
+              <div className="flex justify-end"><button type="submit" disabled={isSaving} className="bg-black text-white px-8 py-2 rounded-lg font-bold text-sm disabled:opacity-60">{isSaving ? 'Updating...' : 'Update'}</button></div>
             </form>
           </div>
         </div>

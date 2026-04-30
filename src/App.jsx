@@ -9,6 +9,7 @@ import Contacts from './pages/Contacts';
 import Organizations from './pages/Organizations';
 import Notes from './pages/Notes';
 import Tasks from './pages/Tasks';
+import ImportData from './pages/ImportData';
 import { apiFetch, clearTokens, getAccessToken, getRefreshToken } from './api/client';
 
 const USER_PROFILE_KEY = 'user_profile';
@@ -121,12 +122,16 @@ function App() {
           <main className="flex-1 overflow-x-hidden overflow-y-auto p-6">
             <Routes>
               <Route path="/" element={<Dashboard />} />
-              <Route path="/leads" element={<Leads />} />
-              <Route path="/deals" element={<Deals />} />
+              <Route path="/leads" element={<Leads user={user} />} />
+              <Route path="/deals" element={<Deals user={user} />} />
               <Route path="/contacts" element={<Contacts user={user} />} />
-              <Route path="/orgs" element={<Organizations />} />
-              <Route path="/tasks" element={<Notes />} />
-              <Route path="/todo" element={<Tasks />} />
+              <Route path="/orgs" element={<Organizations user={user} />} />
+              <Route path="/tasks" element={<Notes user={user} />} />
+              <Route path="/todo" element={<Tasks user={user} />} />
+              <Route
+                path="/import"
+                element={user?.role === 'admin' ? <ImportData /> : <Navigate to="/" replace />}
+              />
               {/* Redirect any unknown route to dashboard */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

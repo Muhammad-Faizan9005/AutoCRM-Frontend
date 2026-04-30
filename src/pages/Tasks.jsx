@@ -1,25 +1,84 @@
-import React, { useState, useMemo } from 'react';
-import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, X, Check, MoreHorizontal, RotateCcw } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, X, Check, RotateCcw } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { apiFetch } from '../api/client';
 
-const Tasks = () => {
+const DEFAULT_ENTITY_TYPE = 'general';
+
+const formatDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString();
+};
+
+const formatAssignee = (assignedTo, currentUser) => {
+  if (!assignedTo) return 'Unassigned';
+  if (currentUser?.id && String(assignedTo) === String(currentUser.id)) {
+    return currentUser.full_name || currentUser.email || 'You';
+  }
+  return String(assignedTo).slice(0, 8);
+};
+
+const mapTaskToRow = (task, currentUser) => ({
+  id: task.id,
+  title: task.title,
+  status: task.status || 'open',
+  priority: task.priority || 'medium',
+  dueDate: formatDate(task.due_at),
+  assignedTo: formatAssignee(task.assigned_to, currentUser),
+  modified: formatDate(task.updated_at || task.created_at),
+  description: task.description || '',
+});
+
+const Tasks = ({ user }) => {
   // --- STATES ---
-  const [tasks, setTasks] = useState([
-    { id: 1, title: 'Call with Aslam', status: 'Done', priority: 'Low', dueDate: '2024-04-01', assignedTo: 'Abbbccd', modified: '1 week ago' },
-    { id: 2, title: 'Project Documentation', status: 'Backlog', priority: 'High', dueDate: '2024-04-05', assignedTo: 'Abbbccd', modified: '2 days ago' },
-  ]);
+  const [tasks, setTasks] = useState([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [visibleColumns, setVisibleColumns] = useState({ title: true, status: true, priority: true, dueDate: true, assignedTo: true, modified: true });
-  const [formData, setFormData] = useState({ title: '', description: '', status: 'Backlog', priority: 'Low', assignedTo: 'Abbbccd', dueDate: '2024-04-01' });
+  const [formData, setFormData] = useState({ title: '', description: '', status: 'open', priority: 'medium', dueDate: '' });
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const latestRequestId = useRef(0);
+
+  const canDelete = user?.role === 'admin';
+
+  const resetForm = () => setFormData({ title: '', description: '', status: 'open', priority: 'medium', dueDate: '' });
+
+  const fetchTasks = useCallback(async () => {
+    const requestId = latestRequestId.current + 1;
+    latestRequestId.current = requestId;
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await apiFetch('/api/tasks/');
+      if (requestId !== latestRequestId.current) return;
+      setTasks(data.map((task) => mapTaskToRow(task, user)));
+    } catch (err) {
+      if (requestId !== latestRequestId.current) return;
+      setError(err?.message || 'Unable to load tasks.');
+    } finally {
+      if (requestId === latestRequestId.current) {
+        setLoading(false);
+      }
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
 
   // --- FUNCTIONS ---
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 1000);
+    await fetchTasks();
+    setIsRefreshing(false);
   };
 
   const filteredTasks = useMemo(() => tasks.filter(t => t.title.toLowerCase().includes(searchTerm.toLowerCase())), [tasks, searchTerm]);
@@ -29,18 +88,79 @@ const Tasks = () => {
     setActiveDropdown(null);
   };
 
-  const toggleStatus = (id, currentStatus) => {
-    const nextStatus = currentStatus === 'Done' ? 'Backlog' : 'Done';
-    setTasks(tasks.map(t=>t.id===id?{...t,status:nextStatus}:t));
+  const toggleStatus = async (id, currentStatus) => {
+    const nextStatus = currentStatus === 'done' ? 'open' : 'done';
     setActiveDropdown(null);
+    setError('');
+
+    try {
+      const updated = await apiFetch(`/api/tasks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      setTasks((prev) => prev.map((task) => (
+        task.id === id ? mapTaskToRow(updated, user) : task
+      )));
+    } catch (err) {
+      setError(err?.message || 'Unable to update task status.');
+    }
   };
 
-  const handleSaveTask = (e) => {
+  const handleSaveTask = async (e) => {
     e.preventDefault();
-    const newTask = { id: Date.now(), ...formData, modified: 'Just now' };
-    setTasks([newTask,...tasks]);
-    setIsCreateModalOpen(false);
-    setFormData({ title: '', description: '', status: 'Backlog', priority: 'Low', assignedTo: 'Abbbccd', dueDate: '2024-04-01' });
+    setError('');
+
+    const title = formData.title.trim();
+    if (!title) {
+      setError('Task title is required.');
+      return;
+    }
+
+    if (!user?.id) {
+      setError('Unable to identify current user for tasks.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const payload = {
+        entity_type: DEFAULT_ENTITY_TYPE,
+        entity_id: user.id,
+        title,
+        description: formData.description.trim() || undefined,
+        assigned_to: user.id,
+        status: formData.status || 'open',
+        priority: formData.priority || 'medium',
+        due_at: formData.dueDate || undefined,
+      };
+
+      const created = await apiFetch('/api/tasks/', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      setTasks((prev) => [mapTaskToRow(created, user), ...prev]);
+      setIsCreateModalOpen(false);
+      resetForm();
+    } catch (err) {
+      setError(err?.message || 'Unable to create task.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteTask = async (id) => {
+    if (!canDelete) return;
+    const confirmed = window.confirm('Delete this task?');
+    if (!confirmed) return;
+
+    setError('');
+    try {
+      await apiFetch(`/api/tasks/${id}`, { method: 'DELETE' });
+      setTasks((prev) => prev.filter((task) => task.id !== id));
+    } catch (err) {
+      setError(err?.message || 'Unable to delete task.');
+    }
   };
 
   const exportToExcel = () => {
@@ -62,6 +182,16 @@ const Tasks = () => {
           <button onClick={()=>setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold"><Plus size={16}/> Create</button>
         </div>
       </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-xs text-gray-500">Loading tasks...</div>
+      )}
 
       {/* SEARCH + ACTIONS */}
       <div className="flex justify-between items-center">
@@ -130,17 +260,35 @@ const Tasks = () => {
               <tr key={task.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-2 py-2"><input type="checkbox"/></td>
                 {visibleColumns.title && <td className="px-2 py-2 font-bold">{task.title}</td>}
-                {visibleColumns.status && <td className="px-2 py-2">{task.status}</td>}
+                {visibleColumns.status && (
+                  <td className="px-2 py-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleStatus(task.id, task.status)}
+                      className="text-left"
+                    >
+                      {task.status}
+                    </button>
+                  </td>
+                )}
                 {visibleColumns.priority && <td className="px-2 py-2">{task.priority}</td>}
                 {visibleColumns.dueDate && <td className="px-2 py-2 text-center">{task.dueDate}</td>}
                 {visibleColumns.assignedTo && <td className="px-2 py-2">{task.assignedTo}</td>}
                 {visibleColumns.modified && <td className="px-2 py-2 text-gray-400 italic">{task.modified}</td>}
-                <td className="px-2 py-2 text-right"><button onClick={()=>setTasks(tasks.filter(t=>t.id!==task.id))} className="text-red-500 text-xs">Delete</button></td>
+                <td className="px-2 py-2 text-right">
+                  {canDelete && (
+                    <button onClick={() => handleDeleteTask(task.id)} className="text-red-500 text-xs">Delete</button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {!loading && filteredTasks.length === 0 && (
+        <div className="text-xs text-gray-500">No tasks found.</div>
+      )}
 
       {/* CREATE TASK MODAL */}
       {isCreateModalOpen && (
@@ -160,12 +308,20 @@ const Tasks = () => {
                 <textarea className="w-full border p-3 rounded text-sm outline-none min-h-[100px]" value={formData.description} onChange={e=>setFormData({...formData,description:e.target.value})}></textarea>
               </div>
               <div className="flex gap-2">
-                <input type="text" placeholder="Status" className="border p-2 rounded text-xs w-1/3" value={formData.status} onChange={e=>setFormData({...formData,status:e.target.value})}/>
-                <input type="text" placeholder="Priority" className="border p-2 rounded text-xs w-1/3" value={formData.priority} onChange={e=>setFormData({...formData,priority:e.target.value})}/>
-                <input type="text" placeholder="Due Date" className="border p-2 rounded text-xs w-1/3" value={formData.dueDate} onChange={e=>setFormData({...formData,dueDate:e.target.value})}/>
+                <select className="border p-2 rounded text-xs w-1/3" value={formData.status} onChange={e=>setFormData({...formData,status:e.target.value})}>
+                  <option value="open">Open</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="done">Done</option>
+                </select>
+                <select className="border p-2 rounded text-xs w-1/3" value={formData.priority} onChange={e=>setFormData({...formData,priority:e.target.value})}>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+                <input type="date" className="border p-2 rounded text-xs w-1/3" value={formData.dueDate} onChange={e=>setFormData({...formData,dueDate:e.target.value})}/>
               </div>
               <div className="flex justify-end">
-                <button type="submit" className="bg-black text-white px-6 py-2 rounded-lg font-bold text-sm hover:bg-gray-900">Create</button>
+                <button type="submit" disabled={isSaving} className="bg-black text-white px-6 py-2 rounded-lg font-bold text-sm hover:bg-gray-900 disabled:opacity-60">{isSaving ? 'Creating...' : 'Create'}</button>
               </div>
             </form>
           </div>
