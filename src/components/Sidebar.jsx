@@ -33,7 +33,7 @@ const Sidebar = ({ onLogout, user }) => {
           </div>
           {!isCollapsed && (
             <div>
-              <span className="text-sm font-semibold text-gray-900">CRM</span>
+              <span className="text-sm font-semibold text-gray-900">AutoCRM</span>
               <p className="text-[10px] text-gray-500">{user?.name}</p>
             </div>
           )}
