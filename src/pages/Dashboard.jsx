@@ -1,10 +1,35 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Calendar, RefreshCcw, ChevronDown } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement,
   PointElement, LineElement, Title, Tooltip, Legend, ArcElement
 } from 'chart.js';
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
+import { apiFetch } from '../api/client';
+
+const DASHBOARD_TIMEOUT_MS = 20000;
+
+const formatCurrency = (value) => {
+  if (value === null || value === undefined) return '-';
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return String(value);
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0,
+    }).format(numeric);
+  } catch (error) {
+    return `USD ${numeric.toLocaleString()}`;
+  }
+};
+
+const formatDateLabel = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, ArcElement);
 
@@ -13,45 +38,135 @@ const Dashboard = () => {
   const [timeRange, setTimeRange] = useState('Last 7 Days');
   const [activeDropdown, setActiveDropdown] = useState(null);
   const [userDropdown, setUserDropdown] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const [activity, setActivity] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const handleRefresh = () => {
+  const daysMap = {
+    'Last 7 Days': 7,
+    'Last 30 Days': 30,
+    'Last 90 Days': 90,
+  };
+
+  const selectedDays = daysMap[timeRange] || 7;
+
+  const fetchDashboard = useCallback(async (showLoader = true) => {
+    if (showLoader) {
+      setLoading(true);
+    }
+    setError('');
+
+    try {
+      const [summaryResult, activityResult] = await Promise.allSettled([
+        apiFetch('/api/dashboard/summary', {}, { timeoutMs: DASHBOARD_TIMEOUT_MS }),
+        apiFetch(`/api/dashboard/activity?days=${selectedDays}`, {}, { timeoutMs: DASHBOARD_TIMEOUT_MS }),
+      ]);
+
+      let nextError = '';
+
+      if (summaryResult.status === 'fulfilled') {
+        setSummary(summaryResult.value);
+      } else {
+        nextError = summaryResult.reason?.message || 'Unable to load summary metrics.';
+      }
+
+      if (activityResult.status === 'fulfilled') {
+        setActivity(activityResult.value);
+      } else {
+        const activityError = activityResult.reason?.message || 'Unable to load activity metrics.';
+        nextError = nextError ? `${nextError} ${activityError}` : activityError;
+      }
+
+      if (nextError) {
+        setError(nextError);
+      }
+    } catch (err) {
+      setError(err?.message || 'Unable to load dashboard metrics.');
+    } finally {
+      if (showLoader) {
+        setLoading(false);
+      }
+    }
+  }, [selectedDays]);
+
+  useEffect(() => {
+    fetchDashboard(true);
+  }, [fetchDashboard]);
+
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 1000);
+    await fetchDashboard(false);
+    setIsRefreshing(false);
   };
 
-  const topStats = [
-    { label: 'Leads', value: '42' },
-    { label: 'Deals', value: '12' },
-    { label: 'Won', value: '5' },
-    { label: 'Avg Value', value: 'Rs 15k' },
-    { label: 'Forecast', value: 'Rs 50k' },
-  ];
+  const topStats = useMemo(() => {
+    if (!summary) {
+      return [
+        { label: 'Leads', value: '-' },
+        { label: 'Deals', value: '-' },
+        { label: 'Organizations', value: '-' },
+        { label: 'Tasks', value: '-' },
+        { label: 'Revenue', value: '-' },
+      ];
+    }
 
-  const salesTrendData = {
-    labels: ['25 Jan', '26 Jan', '27 Jan', '28 Jan', '29 Jan'],
+    return [
+      { label: 'Leads', value: summary.leads_total },
+      { label: 'Deals', value: summary.deals_total },
+      { label: 'Organizations', value: summary.organizations_total },
+      { label: 'Tasks', value: summary.tasks_total },
+      { label: 'Revenue', value: formatCurrency(summary.revenue_total) },
+    ];
+  }, [summary]);
+
+  const activitySeries = activity?.series || [];
+  const salesTrendData = useMemo(() => ({
+    labels: activitySeries.map((point) => formatDateLabel(point.day)),
     datasets: [
-      { label: 'Leads', data: [10, 15, 8, 20, 12], borderColor: '#000', backgroundColor: 'rgba(0,0,0,0.06)', tension: 0.4, fill: true },
-      { label: 'Deals', data: [2, 5, 3, 7, 4], borderColor: '#6b7280', backgroundColor: 'rgba(107,114,128,0.08)', tension: 0.4, fill: true },
+      { label: 'Leads', data: activitySeries.map((point) => point.leads), borderColor: '#000', backgroundColor: 'rgba(0,0,0,0.06)', tension: 0.4, fill: true },
+      { label: 'Deals', data: activitySeries.map((point) => point.deals), borderColor: '#6b7280', backgroundColor: 'rgba(107,114,128,0.08)', tension: 0.4, fill: true },
     ]
-  };
+  }), [activitySeries]);
 
-  const revenueData = {
-    labels: ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5'],
+  const pipelineStages = summary?.pipeline || [];
+  const revenueData = useMemo(() => ({
+    labels: pipelineStages.map((stage) => stage.stage),
     datasets: [
-      { label: 'Actual', data: [12000, 19000, 15000, 25000, 22000], backgroundColor: '#000', borderRadius: 6 },
-      { label: 'Forecast', data: [15000, 22000, 18000, 28000, 25000], backgroundColor: '#e5e7eb', borderRadius: 6 }
+      { label: 'Pipeline Value', data: pipelineStages.map((stage) => stage.value_total || 0), backgroundColor: '#000', borderRadius: 6 }
     ]
-  };
+  }), [pipelineStages]);
 
-  const pipelineData = {
-    labels: ['New', 'Qualified', 'Proposal', 'Negotiation'],
-    datasets: [{ label: 'Deals', data: [14, 9, 6, 3], backgroundColor: '#000', borderRadius: 6 }]
-  };
+  const pipelineData = useMemo(() => ({
+    labels: pipelineStages.map((stage) => stage.stage),
+    datasets: [{ label: 'Deals', data: pipelineStages.map((stage) => stage.count || 0), backgroundColor: '#000', borderRadius: 6 }]
+  }), [pipelineStages]);
 
-  const activityDonutData = {
-    labels: ['Calls', 'Emails', 'Meetings', 'Follow-ups'],
-    datasets: [{ data: [12, 19, 7, 10], backgroundColor: ['#000', '#404040', '#808080', '#e5e7eb'], borderWidth: 0 }]
-  };
+  const activityDonutData = useMemo(() => ({
+    labels: ['Leads', 'Deals', 'Tasks', 'Notes'],
+    datasets: [{
+      data: [summary?.leads_total || 0, summary?.deals_total || 0, summary?.tasks_total || 0, summary?.notes_total || 0],
+      backgroundColor: ['#000', '#404040', '#808080', '#e5e7eb'],
+      borderWidth: 0
+    }]
+  }), [summary]);
+
+  const leadsByStatus = summary?.leads_by_status || [];
+
+  const leadsByStatusDonutData = useMemo(() => {
+    const labels = leadsByStatus.map((stat) => stat.status);
+    const data = leadsByStatus.map((stat) => stat.count);
+    const palette = ['#000', '#6b7280', '#9ca3af', '#d1d5db', '#e5e7eb'];
+
+    return {
+      labels: labels.length ? labels : ['No data'],
+      datasets: [{
+        data: data.length ? data : [1],
+        backgroundColor: labels.length ? palette.slice(0, labels.length) : ['#e5e7eb'],
+        borderWidth: 0,
+      }]
+    };
+  }, [leadsByStatus]);
 
   const commonOptions = {
     maintainAspectRatio: false,
@@ -127,6 +242,16 @@ const Dashboard = () => {
         </div>
       </div>
 
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-xs text-gray-500">Loading dashboard metrics...</div>
+      )}
+
       {/* TOP STATS */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
         {topStats.map((stat, i) => (
@@ -145,7 +270,7 @@ const Dashboard = () => {
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-          <h3 className="text-sm font-semibold text-black mb-2">Forecasted Revenue</h3>
+          <h3 className="text-sm font-semibold text-black mb-2">Pipeline Value by Stage</h3>
           <div className="h-[180px]"><Bar data={revenueData} options={commonOptions} /></div>
         </div>
 
@@ -167,20 +292,24 @@ const Dashboard = () => {
         <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
           <h3 className="text-sm font-semibold text-black mb-2">Funnel Conversion</h3>
           <div className="space-y-2">
-            {['Leads', 'Opportunities', 'Won Deals'].map(step => (
-              <div key={step} className="bg-gray-100 h-7 rounded-md flex items-center px-3 text-xs text-gray-700">{step}</div>
-            ))}
+            {leadsByStatus.length ? (
+              leadsByStatus.map((stat) => (
+                <div key={stat.status} className="bg-gray-100 h-7 rounded-md flex items-center justify-between px-3 text-xs text-gray-700">
+                  <span className="capitalize">{stat.status}</span>
+                  <span className="text-gray-500">{stat.count}</span>
+                </div>
+              ))
+            ) : (
+              <div className="text-xs text-gray-400">No funnel data</div>
+            )}
           </div>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm lg:col-span-2">
-          <h3 className="text-sm font-semibold text-black mb-2">Leads by Source</h3>
+          <h3 className="text-sm font-semibold text-black mb-2">Leads by Status</h3>
           <div className="h-[160px]">
             <Doughnut
-              data={{
-                labels: ['LinkedIn', 'Organic', 'Social'],
-                datasets: [{ data: [15, 8, 5], backgroundColor: ['#000', '#6b7280', '#e5e7eb'], borderWidth: 0 }]
-              }}
+              data={leadsByStatusDonutData}
               options={{ ...commonOptions, cutout: '75%' }}
             />
           </div>

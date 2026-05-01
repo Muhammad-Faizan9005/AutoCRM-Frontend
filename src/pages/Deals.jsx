@@ -1,44 +1,300 @@
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, RotateCcw, List, KanbanSquare, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { apiFetch } from '../api/client';
 
-const Deals = () => {
+const STAGE_LABELS = {
+  prospecting: 'Prospecting',
+  qualification: 'Qualification',
+  proposal: 'Proposal',
+  negotiation: 'Negotiation',
+  closed: 'Closed',
+  closed_won: 'Closed Won',
+  closed_lost: 'Closed Lost',
+};
+
+const normalizeStage = (stage) => {
+  const normalized = (stage || '').toString().trim().toLowerCase().replace(/\s+/g, '_');
+  return normalized || 'prospecting';
+};
+
+const formatStage = (stage) => STAGE_LABELS[normalizeStage(stage)] || stage || 'Unknown';
+
+const formatDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString();
+};
+
+const inferCurrency = (value) => {
+  const text = String(value || '').toUpperCase();
+  if (text.includes('PKR') || text.includes('RS')) return 'PKR';
+  if (text.includes('EUR') || text.includes('€')) return 'EUR';
+  if (text.includes('GBP') || text.includes('£')) return 'GBP';
+  if (text.includes('USD') || text.includes('$')) return 'USD';
+  return 'USD';
+};
+
+const parseAmount = (value) => {
+  if (value === null || value === undefined || value === '') return undefined;
+  const normalized = String(value).replace(/[^0-9.-]+/g, '');
+  const parsed = Number(normalized);
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
+const formatMoney = (value, currency) => {
+  if (value === null || value === undefined || value === '') return '-';
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return String(value);
+
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency || 'USD',
+      maximumFractionDigits: 2,
+    }).format(numeric);
+  } catch (error) {
+    return `${currency || 'USD'} ${numeric.toFixed(2)}`;
+  }
+};
+
+const mapDealToRow = (deal, organizationIndex) => {
+  const orgName = organizationIndex.get(deal.organization_id) || deal.organization_id || '-';
+  return {
+    id: deal.id,
+    org: orgName,
+    revenue: formatMoney(deal.value, deal.currency),
+    status: normalizeStage(deal.stage),
+    email: '-',
+    mobile: '-',
+    modified: formatDate(deal.updated_at),
+  };
+};
+
+const Deals = ({ user }) => {
   const [viewMode, setViewMode] = useState('Table');
-  const [deals, setDeals] = useState([
-    { id: 1, org: 'Aslam industries', revenue: 'PKR 1,000,000.00', status: 'Qualification', email: 'aslam.ali@gmail.com', mobile: '03004567890', modified: '1 week ago' },
-  ]);
+  const [dealRecords, setDealRecords] = useState([]);
+  const [organizations, setOrganizations] = useState([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [visibleColumns, setVisibleColumns] = useState({ org: true, revenue: true, status: true, email: true, mobile: true, modified: true });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [totalLoaded, setTotalLoaded] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const latestRequestId = useRef(0);
 
   const [formData, setFormData] = useState({
-    orgName: '', website: '', employees: '1-10', territory: 'Territory', revenue: 'PKR 0.00', industry: 'Industry',
-    salutation: 'Salutation', firstName: '', lastName: '', email: '', mobile: '', status: 'Qualification'
+    orgName: '',
+    website: '',
+    revenue: '',
+    industry: 'Industry',
+    firstName: '',
+    lastName: '',
+    email: '',
+    mobile: '',
+    status: 'Qualification'
   });
 
-  const filteredDeals = useMemo(() => deals.filter(d => d.org.toLowerCase().includes(searchTerm.toLowerCase())), [deals, searchTerm]);
+  const organizationIndex = useMemo(() => {
+    const entries = organizations.map((org) => [org.id, org.name || '-']);
+    return new Map(entries);
+  }, [organizations]);
+
+  const deals = useMemo(
+    () => dealRecords.map((deal) => mapDealToRow(deal, organizationIndex)),
+    [dealRecords, organizationIndex]
+  );
+
+  const canDelete = user?.role === 'admin';
+
+  const resetForm = () => {
+    setFormData({
+      orgName: '',
+      website: '',
+      revenue: '',
+      industry: 'Industry',
+      firstName: '',
+      lastName: '',
+      email: '',
+      mobile: '',
+      status: 'Qualification'
+    });
+  };
+
+  const fetchDeals = useCallback(async (skip = 0, append = false) => {
+    const requestId = latestRequestId.current + 1;
+    latestRequestId.current = requestId;
+    
+    if (!append) {
+      setLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
+    setError('');
+
+    try {
+      const limit = append ? 10 : 20;
+      const data = await apiFetch(`/api/deals/?skip=${skip}&limit=${limit}`);
+      if (requestId !== latestRequestId.current) return;
+      
+      if (append) {
+        setDealRecords((prev) => [...prev, ...data]);
+      } else {
+        setDealRecords(data);
+      }
+      
+      setTotalLoaded((prev) => prev + data.length);
+      setHasMore(data.length === limit);
+    } catch (err) {
+      if (requestId !== latestRequestId.current) return;
+      setError(err?.message || 'Unable to load deals.');
+    } finally {
+      if (requestId === latestRequestId.current) {
+        if (!append) {
+          setLoading(false);
+        } else {
+          setIsLoadingMore(false);
+        }
+      }
+    }
+  }, []);
+
+  const fetchOrganizations = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/organizations/');
+      setOrganizations(data);
+    } catch (err) {
+      setError(err?.message || 'Unable to load organizations.');
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDeals(0, false);
+    fetchOrganizations();
+  }, [fetchDeals, fetchOrganizations]);
+
+  const handleLoadMore = async () => {
+    await fetchDeals(totalLoaded, true);
+  };
+
+  const ensureOrganizationId = async () => {
+    const name = formData.orgName.trim();
+    if (!name) return null;
+
+    const existing = organizations.find(
+      (org) => org.name && org.name.toLowerCase() === name.toLowerCase()
+    );
+    if (existing) return existing.id;
+
+    const payload = {
+      name,
+      website: formData.website.trim() || undefined,
+      industry: formData.industry !== 'Industry' ? formData.industry : undefined,
+      revenue: parseAmount(formData.revenue),
+    };
+
+    const created = await apiFetch('/api/organizations/', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    setOrganizations((prev) => [created, ...prev]);
+    return created.id;
+  };
+
+  const ensureLeadId = async () => {
+    const firstName = formData.firstName.trim();
+    const lastName = formData.lastName.trim();
+    const name = [firstName, lastName].filter(Boolean).join(' ').trim();
+    const email = formData.email.trim();
+    const phone = formData.mobile.trim();
+
+    if (!name && !email && !phone) return null;
+
+    const payload = {
+      name: name || 'New Lead',
+      email: email || undefined,
+      phone: phone || undefined,
+      company: formData.orgName.trim() || undefined,
+      status: 'new',
+    };
+
+    const created = await apiFetch('/api/leads/', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    return created.id;
+  };
+
+  const filteredDeals = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return deals;
+
+    return deals.filter((deal) => String(deal.org).toLowerCase().includes(term));
+  }, [deals, searchTerm]);
 
   const handleSort = (key) => {
-    const sorted = [...deals].sort((a, b) => String(a[key]).localeCompare(String(b[key])));
-    setDeals(sorted);
+    const sorted = [...dealRecords].sort((a, b) => {
+      const mappedA = mapDealToRow(a, organizationIndex);
+      const mappedB = mapDealToRow(b, organizationIndex);
+      return String(mappedA[key]).localeCompare(String(mappedB[key]));
+    });
+    setDealRecords(sorted);
     setActiveDropdown(null);
   };
 
-  const handleSaveDeal = (e) => {
+  const handleSaveDeal = async (e) => {
     e.preventDefault();
-    const newEntry = {
-      id: Date.now(),
-      org: formData.orgName || 'Unnamed Org',
-      revenue: formData.revenue,
-      status: formData.status,
-      email: formData.email || '-',
-      mobile: formData.mobile || '-',
-      modified: 'Just now'
-    };
-    setDeals([newEntry, ...deals]);
-    setIsCreateModalOpen(false);
+    setError('');
+
+    setIsSaving(true);
+    try {
+      const organizationId = await ensureOrganizationId();
+      const leadId = await ensureLeadId();
+      const amount = parseAmount(formData.revenue);
+
+      const payload = {
+        organization_id: organizationId || undefined,
+        lead_id: leadId || undefined,
+        stage: normalizeStage(formData.status),
+        value: amount,
+        currency: inferCurrency(formData.revenue),
+      };
+
+      const created = await apiFetch('/api/deals/', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      setDealRecords((prev) => [created, ...prev]);
+      setIsCreateModalOpen(false);
+      resetForm();
+    } catch (err) {
+      setError(err?.message || 'Unable to create deal.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteDeal = async (id) => {
+    if (!canDelete) return;
+    const confirmed = window.confirm('Delete this deal?');
+    if (!confirmed) return;
+
+    setError('');
+    try {
+      await apiFetch(`/api/deals/${id}`, { method: 'DELETE' });
+      setDealRecords((prev) => prev.filter((deal) => deal.id !== id));
+    } catch (err) {
+      setError(err?.message || 'Unable to delete deal.');
+    }
   };
 
   const exportToExcel = () => {
@@ -49,11 +305,20 @@ const Deals = () => {
     setIsExportOpen(false);
   };
 
-  const groupedDeals = {
-    Qualification: deals.filter(d => d.status === 'Qualification'),
-    Proposal: deals.filter(d => d.status === 'Proposal'),
-    Closed: deals.filter(d => d.status === 'Closed')
-  };
+  const groupedDeals = useMemo(() => {
+    const groups = {
+      qualification: deals.filter((deal) => normalizeStage(deal.status) === 'qualification'),
+      proposal: deals.filter((deal) => normalizeStage(deal.status) === 'proposal'),
+      closed: deals.filter((deal) => normalizeStage(deal.status) === 'closed'),
+    };
+
+    const other = deals.filter((deal) => !['qualification', 'proposal', 'closed'].includes(normalizeStage(deal.status)));
+    if (other.length) {
+      groups.other = other;
+    }
+
+    return groups;
+  }, [deals]);
 
   return (
     <div className="min-h-screen p-4 space-y-3 bg-gray-50 font-sans text-sm">
@@ -79,7 +344,7 @@ const Deals = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button onClick={() => setDeals([...deals])} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
+          <button onClick={() => { setTotalLoaded(0); fetchDeals(0, false); }} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
             <RotateCcw size={18} />
           </button>
           <button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold">
@@ -87,6 +352,16 @@ const Deals = () => {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-xs text-gray-500">Loading deals...</div>
+      )}
 
       {/* SEARCH + ACTIONS */}
 <div className="flex justify-between items-center">
@@ -180,7 +455,7 @@ const Deals = () => {
 
 
       {/* TABLE VIEW */}
-      {viewMode === 'Table' && (
+      {viewMode === 'Table' && !loading && (
         <div className="mt-2 flex flex-col gap-1">
           <div className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_1fr_80px] bg-black text-white text-[10px] uppercase font-bold px-2 py-1 rounded-t-md">
             <div><input type="checkbox"/></div>
@@ -198,42 +473,76 @@ const Deals = () => {
               <div><input type="checkbox"/></div>
               {visibleColumns.org && <div className="font-bold">{d.org}</div>}
               {visibleColumns.revenue && <div>{d.revenue}</div>}
-              {visibleColumns.status && <div>{d.status}</div>}
+              {visibleColumns.status && <div>{formatStage(d.status)}</div>}
               {visibleColumns.email && <div>{d.email}</div>}
               {visibleColumns.mobile && <div>{d.mobile}</div>}
               {visibleColumns.modified && <div className="text-gray-400 italic">{d.modified}</div>}
-             <div className="flex flex-col justify-end text-right h-full pr-10">
-  <button
-    onClick={() => setDeals(deals.filter(x => x.id !== d.id))}
-    className="text-red-500 text-xs"
-  >
-    Delete
-  </button>
-</div>
+              <div className="flex flex-col justify-end text-right h-full pr-10">
+                {canDelete && (
+                  <button
+                    onClick={() => handleDeleteDeal(d.id)}
+                    className="text-red-500 text-xs"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
 
             </div>
           ))}
         </div>
       )}
 
+      {/* LOAD MORE BUTTON */}
+      {!loading && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
+          >
+            {isLoadingMore ? 'Loading more...' : 'Load More'}
+          </button>
+        </div>
+      )}
+
       {/* KANBAN VIEW */}
-      {viewMode === 'Kanban' && (
+      {viewMode === 'Kanban' && !loading && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
           {Object.entries(groupedDeals).map(([status, items]) => (
             <div key={status} className="bg-gray-100 rounded-lg p-3">
-              <h3 className="text-xs font-bold mb-2">{status}</h3>
+              <h3 className="text-xs font-bold mb-2">{STAGE_LABELS[status] || 'Other'}</h3>
               <div className="space-y-2">
                 {items.map(d => (
                   <div key={d.id} className="bg-white p-2 rounded shadow text-xs border">
                     <div className="font-bold">{d.org}</div>
                     <div className="text-gray-500">{d.revenue}</div>
-                    <button onClick={()=>setDeals(deals.filter(x=>x.id!==d.id))} className="text-red-500 text-[10px] mt-1">Delete</button>
+                    {canDelete && (
+                      <button onClick={() => handleDeleteDeal(d.id)} className="text-red-500 text-[10px] mt-1">Delete</button>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {/* LOAD MORE BUTTON (Kanban Mode) */}
+      {viewMode === 'Kanban' && !loading && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
+          >
+            {isLoadingMore ? 'Loading more...' : 'Load More'}
+          </button>
+        </div>
+      )}
+
+      {!loading && filteredDeals.length === 0 && (
+        <div className="text-xs text-gray-500">No deals found.</div>
       )}
 
       {/* EXPORT POPUP */}
@@ -265,49 +574,107 @@ const Deals = () => {
 
       {/* Scrollable Form */}
       <div className="overflow-y-auto max-h-[65vh] p-5">
-        <form onSubmit={handleSaveDeal} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <form id="create-deal-form" onSubmit={handleSaveDeal} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <div className="col-span-1 md:col-span-2">
+            <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Organization Name</label>
+            <input
+              type="text"
+              className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
+              value={formData.orgName}
+              onChange={(e) => setFormData({ ...formData, orgName: e.target.value })}
+            />
+          </div>
 
-          {/* Generate Form Fields */}
-          {[
-            { label: 'Organization Name', type: 'text' },
-            { label: 'Website', type: 'text' },
-            { label: 'Employees', type: 'select', options: ['1-10', '11-50', '51-200', '201+'] },
-            { label: 'Territory', type: 'select', options: ['Option 1', 'Option 2'] },
-            { label: 'Revenue', type: 'text' },
-            { label: 'Industry', type: 'select', options: ['Option 1', 'Option 2'] },
-            { label: 'Salutation', type: 'select', options: ['Mr.', 'Ms.', 'Dr.'] },
-            { label: 'First Name', type: 'text' },
-            { label: 'Last Name', type: 'text' },
-            { label: 'Email', type: 'text' },
-            { label: 'Mobile', type: 'text' },
-          ].map((field, i) => (
-            <div key={i}>
-              <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">{field.label}</label>
-              {field.type === 'select' ? (
-                <select
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData[field.label.replace(' ','').toLowerCase()]}
-                  onChange={e =>
-                    setFormData({...formData, [field.label.replace(' ','').toLowerCase()]: e.target.value})
-                  }
-                >
-                  {field.options.map((opt, idx) => (
-                    <option key={idx}>{opt}</option>
-                  ))}
-                </select>
-              ) : (
+          <div>
+            <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Website</label>
+            <input
+              type="text"
+              className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
+              value={formData.website}
+              onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Industry</label>
+            <select
+              className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
+              value={formData.industry}
+              onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
+            >
+              <option>Industry</option>
+              <option>Software</option>
+              <option>Finance</option>
+              <option>Manufacturing</option>
+              <option>Retail</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Revenue</label>
+            <input
+              type="text"
+              className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
+              value={formData.revenue}
+              onChange={(e) => setFormData({ ...formData, revenue: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Stage</label>
+            <select
+              className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
+              value={formData.status}
+              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+            >
+              <option>Prospecting</option>
+              <option>Qualification</option>
+              <option>Proposal</option>
+              <option>Closed</option>
+            </select>
+          </div>
+
+          <div className="col-span-1 md:col-span-2 bg-gray-50 p-3 rounded-md border border-gray-200">
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Primary Contact (Optional)</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div>
+                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">First Name</label>
                 <input
                   type="text"
                   className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData[field.label.replace(' ','').toLowerCase()]}
-                  onChange={e =>
-                    setFormData({...formData, [field.label.replace(' ','').toLowerCase()]: e.target.value})
-                  }
+                  value={formData.firstName}
+                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                 />
-              )}
+              </div>
+              <div>
+                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Last Name</label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
+                  value={formData.lastName}
+                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Email</label>
+                <input
+                  type="email"
+                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Mobile</label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
+                  value={formData.mobile}
+                  onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
+                />
+              </div>
             </div>
-          ))}
-
+          </div>
         </form>
       </div>
 
@@ -322,10 +689,11 @@ const Deals = () => {
         </button>
         <button
           type="submit"
-          onClick={handleSaveDeal}
-          className="px-5 py-1.5 bg-gray-900 text-white font-medium text-sm rounded-md shadow hover:bg-gray-800 transition-all active:scale-95"
+          form="create-deal-form"
+          disabled={isSaving}
+          className="px-5 py-1.5 bg-gray-900 text-white font-medium text-sm rounded-md shadow hover:bg-gray-800 transition-all active:scale-95 disabled:opacity-60"
         >
-          Create
+          {isSaving ? 'Creating...' : 'Create'}
         </button>
       </div>
 
