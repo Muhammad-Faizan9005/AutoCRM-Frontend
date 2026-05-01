@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Briefcase, Building2, ClipboardList, 
-  Check, ChevronLeft, ChevronRight, UserCircle, Bell, X, LogOut 
+  Check, ChevronLeft, ChevronRight, UserCircle, Bell, X, LogOut, UploadCloud 
 } from 'lucide-react';
 
 const Sidebar = ({ onLogout, user }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const location = useLocation();
+  const displayName = user?.full_name || user?.email || 'User';
 
   const menuItems = [
     { name: 'Dashboard', icon: <LayoutDashboard size={18}/>, path: '/' },
@@ -19,6 +20,12 @@ const Sidebar = ({ onLogout, user }) => {
     { name: 'Notes', icon: <ClipboardList size={18}/>, path: '/tasks' },
     { name: 'Tasks', icon: <Check size={18}/>, path: '/todo' },
   ];
+
+  const adminItems = user?.role === 'admin'
+    ? [{ name: 'Import', icon: <UploadCloud size={18} />, path: '/import' }]
+    : [];
+
+  const navItems = [...menuItems, ...adminItems];
 
   return (
     <div className="relative flex">
@@ -33,8 +40,8 @@ const Sidebar = ({ onLogout, user }) => {
           </div>
           {!isCollapsed && (
             <div>
-              <span className="text-sm font-semibold text-gray-900">CRM</span>
-              <p className="text-[10px] text-gray-500">{user?.name}</p>
+              <span className="text-sm font-semibold text-gray-900">AutoCRM</span>
+              <p className="text-[10px] text-gray-500">{displayName}</p>
             </div>
           )}
           {/* Collapse Button */}
@@ -59,7 +66,7 @@ const Sidebar = ({ onLogout, user }) => {
 
         {/* Menu */}
         <nav className="flex-1 mt-2 px-2 space-y-1 overflow-y-auto">
-          {menuItems.map((item) => (
+          {navItems.map((item) => (
             <Link
               key={item.name}
               to={item.path}
@@ -79,7 +86,6 @@ const Sidebar = ({ onLogout, user }) => {
         <div className="p-3 border-t border-gray-100">
           <button
             onClick={() => {
-              localStorage.removeItem("user");
               onLogout();
             }}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-red-500 hover:bg-red-50 transition ${isCollapsed && 'justify-center'}`}

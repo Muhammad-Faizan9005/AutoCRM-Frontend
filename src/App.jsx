@@ -9,6 +9,10 @@ import Contacts from './pages/Contacts';
 import Organizations from './pages/Organizations';
 import Notes from './pages/Notes';
 import Tasks from './pages/Tasks';
+import ImportData from './pages/ImportData';
+import { apiFetch, clearTokens, getAccessToken, getRefreshToken } from './api/client';
+
+const USER_PROFILE_KEY = 'user_profile';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -16,19 +20,79 @@ function App() {
 
   // Check if user is already logged in
   useEffect(() => {
-    const savedUser = localStorage.getItem('user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
-    setLoading(false);
+    let isMounted = true;
+
+    const bootstrapSession = async () => {
+      const accessToken = getAccessToken();
+      const refreshToken = getRefreshToken();
+      const cachedProfile = localStorage.getItem(USER_PROFILE_KEY);
+      const cachedUser = cachedProfile ? JSON.parse(cachedProfile) : null;
+
+      if (!accessToken && !refreshToken) {
+        if (isMounted) {
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const me = await apiFetch('/api/auth/me', {}, { timeoutMs: 3000 });
+        if (isMounted) {
+          setUser(me);
+          localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(me));
+        }
+      } catch (error) {
+        const status = error?.status;
+
+        if (status === 401 || status === 403) {
+          clearTokens();
+          localStorage.removeItem(USER_PROFILE_KEY);
+          if (isMounted) {
+            setUser(null);
+          }
+        } else if (cachedUser) {
+          if (isMounted) {
+            setUser(cachedUser);
+          }
+        } else if (isMounted) {
+          setUser(null);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    bootstrapSession();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleLogin = (userData) => {
     setUser(userData);
+    localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(userData));
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('user');
+  const handleLogout = async () => {
+    try {
+      const refreshToken = getRefreshToken();
+      await apiFetch(
+        '/api/auth/logout',
+        {
+          method: 'POST',
+          body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : undefined,
+        },
+        { timeoutMs: 3000 }
+      );
+    } catch (error) {
+      // Ignore logout errors and clear local session.
+    }
+
+    clearTokens();
+    localStorage.removeItem(USER_PROFILE_KEY);
     setUser(null);
   };
 
@@ -58,12 +122,16 @@ function App() {
           <main className="flex-1 overflow-x-hidden overflow-y-auto p-6">
             <Routes>
               <Route path="/" element={<Dashboard />} />
-              <Route path="/leads" element={<Leads />} />
-              <Route path="/deals" element={<Deals />} />
-              <Route path="/contacts" element={<Contacts />} />
-              <Route path="/orgs" element={<Organizations />} />
-              <Route path="/tasks" element={<Notes />} />
-              <Route path="/todo" element={<Tasks />} />
+              <Route path="/leads" element={<Leads user={user} />} />
+              <Route path="/deals" element={<Deals user={user} />} />
+              <Route path="/contacts" element={<Contacts user={user} />} />
+              <Route path="/orgs" element={<Organizations user={user} />} />
+              <Route path="/tasks" element={<Notes user={user} />} />
+              <Route path="/todo" element={<Tasks user={user} />} />
+              <Route
+                path="/import"
+                element={user?.role === 'admin' ? <ImportData /> : <Navigate to="/" replace />}
+              />
               {/* Redirect any unknown route to dashboard */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
