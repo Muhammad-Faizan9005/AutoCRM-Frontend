@@ -44,41 +44,69 @@ const Tasks = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [totalLoaded, setTotalLoaded] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const latestRequestId = useRef(0);
 
   const canDelete = user?.role === 'admin';
 
   const resetForm = () => setFormData({ title: '', description: '', status: 'open', priority: 'medium', dueDate: '' });
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (skip = 0, append = false) => {
     const requestId = latestRequestId.current + 1;
     latestRequestId.current = requestId;
-    setLoading(true);
+    
+    if (!append) {
+      setLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
     setError('');
 
     try {
-      const data = await apiFetch('/api/tasks/');
+      const limit = append ? 10 : 20;
+      const data = await apiFetch(`/api/tasks/?skip=${skip}&limit=${limit}`);
       if (requestId !== latestRequestId.current) return;
-      setTasks(data.map((task) => mapTaskToRow(task, user)));
+      
+      const mappedData = data.map((task) => mapTaskToRow(task, user));
+      
+      if (append) {
+        setTasks((prev) => [...prev, ...mappedData]);
+      } else {
+        setTasks(mappedData);
+      }
+      
+      setTotalLoaded((prev) => prev + mappedData.length);
+      setHasMore(mappedData.length === limit);
     } catch (err) {
       if (requestId !== latestRequestId.current) return;
       setError(err?.message || 'Unable to load tasks.');
     } finally {
       if (requestId === latestRequestId.current) {
-        setLoading(false);
+        if (!append) {
+          setLoading(false);
+        } else {
+          setIsLoadingMore(false);
+        }
       }
     }
   }, [user]);
 
   useEffect(() => {
-    fetchTasks();
+    fetchTasks(0, false);
   }, [fetchTasks]);
 
   // --- FUNCTIONS ---
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await fetchTasks();
+    setTotalLoaded(0);
+    await fetchTasks(0, false);
     setIsRefreshing(false);
+  };
+
+  const handleLoadMore = async () => {
+    await fetchTasks(totalLoaded, true);
   };
 
   const filteredTasks = useMemo(() => tasks.filter(t => t.title.toLowerCase().includes(searchTerm.toLowerCase())), [tasks, searchTerm]);
@@ -285,6 +313,19 @@ const Tasks = ({ user }) => {
           </tbody>
         </table>
       </div>
+
+      {/* LOAD MORE BUTTON */}
+      {!loading && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
+          >
+            {isLoadingMore ? 'Loading more...' : 'Load More'}
+          </button>
+        </div>
+      )}
 
       {!loading && filteredTasks.length === 0 && (
         <div className="text-xs text-gray-500">No tasks found.</div>

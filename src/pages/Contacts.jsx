@@ -47,6 +47,9 @@ const Contacts = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [totalLoaded, setTotalLoaded] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const canDelete = user?.role === 'admin';
   const latestRequestId = useRef(0);
 
@@ -77,33 +80,54 @@ const Contacts = ({ user }) => {
     });
   };
 
-  const fetchContacts = useCallback(async () => {
+  const fetchContacts = useCallback(async (skip = 0, append = false) => {
     const requestId = latestRequestId.current + 1;
     latestRequestId.current = requestId;
 
-    setLoading(true);
+    if (!append) {
+      setLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
     setError('');
 
     try {
-      const data = await apiFetch('/api/customers/');
+      const limit = append ? 10 : 20;
+      const data = await apiFetch(`/api/customers/?skip=${skip}&limit=${limit}`);
       if (requestId !== latestRequestId.current) return;
 
       const mapped = data.map(mapCustomerToContact);
-      setContacts(mapped);
+      
+      if (append) {
+        setContacts((prev) => [...prev, ...mapped]);
+      } else {
+        setContacts(mapped);
+      }
+      
+      setTotalLoaded((prev) => prev + mapped.length);
+      setHasMore(mapped.length === limit);
       setError('');
     } catch (err) {
       if (requestId !== latestRequestId.current) return;
       setError(err?.message || 'Unable to load contacts.');
     } finally {
       if (requestId === latestRequestId.current) {
-        setLoading(false);
+        if (!append) {
+          setLoading(false);
+        } else {
+          setIsLoadingMore(false);
+        }
       }
     }
   }, []);
 
   useEffect(() => {
-    fetchContacts();
+    fetchContacts(0, false);
   }, [fetchContacts]);
+
+  const handleLoadMore = async () => {
+    await fetchContacts(totalLoaded, true);
+  };
 
   // --- FILTERED CONTACTS ---
   const filteredContacts = useMemo(() => {
@@ -244,7 +268,7 @@ const Contacts = ({ user }) => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button onClick={fetchContacts} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
+          <button onClick={() => { setTotalLoaded(0); fetchContacts(0, false); }} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
             <RotateCcw size={18} />
           </button>
           <button onClick={()=>setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold">
@@ -360,6 +384,18 @@ const Contacts = ({ user }) => {
   </div>
 )}
 
+      {/* LOAD MORE BUTTON (Table Mode) */}
+      {viewMode === 'Table' && !loading && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
+          >
+            {isLoadingMore ? 'Loading more...' : 'Load More'}
+          </button>
+        </div>
+      )}
 
       {/* KANBAN VIEW */}
       {viewMode==='Kanban' && !loading && (
@@ -383,6 +419,19 @@ const Contacts = ({ user }) => {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* LOAD MORE BUTTON (Kanban Mode) */}
+      {viewMode === 'Kanban' && !loading && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
+          >
+            {isLoadingMore ? 'Loading more...' : 'Load More'}
+          </button>
         </div>
       )}
 

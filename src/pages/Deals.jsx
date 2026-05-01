@@ -84,6 +84,9 @@ const Deals = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [totalLoaded, setTotalLoaded] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const latestRequestId = useRef(0);
 
   const [formData, setFormData] = useState({
@@ -124,22 +127,40 @@ const Deals = ({ user }) => {
     });
   };
 
-  const fetchDeals = useCallback(async () => {
+  const fetchDeals = useCallback(async (skip = 0, append = false) => {
     const requestId = latestRequestId.current + 1;
     latestRequestId.current = requestId;
-    setLoading(true);
+    
+    if (!append) {
+      setLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
     setError('');
 
     try {
-      const data = await apiFetch('/api/deals/');
+      const limit = append ? 10 : 20;
+      const data = await apiFetch(`/api/deals/?skip=${skip}&limit=${limit}`);
       if (requestId !== latestRequestId.current) return;
-      setDealRecords(data);
+      
+      if (append) {
+        setDealRecords((prev) => [...prev, ...data]);
+      } else {
+        setDealRecords(data);
+      }
+      
+      setTotalLoaded((prev) => prev + data.length);
+      setHasMore(data.length === limit);
     } catch (err) {
       if (requestId !== latestRequestId.current) return;
       setError(err?.message || 'Unable to load deals.');
     } finally {
       if (requestId === latestRequestId.current) {
-        setLoading(false);
+        if (!append) {
+          setLoading(false);
+        } else {
+          setIsLoadingMore(false);
+        }
       }
     }
   }, []);
@@ -154,9 +175,13 @@ const Deals = ({ user }) => {
   }, []);
 
   useEffect(() => {
-    fetchDeals();
+    fetchDeals(0, false);
     fetchOrganizations();
   }, [fetchDeals, fetchOrganizations]);
+
+  const handleLoadMore = async () => {
+    await fetchDeals(totalLoaded, true);
+  };
 
   const ensureOrganizationId = async () => {
     const name = formData.orgName.trim();
@@ -319,7 +344,7 @@ const Deals = ({ user }) => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button onClick={fetchDeals} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
+          <button onClick={() => { setTotalLoaded(0); fetchDeals(0, false); }} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
             <RotateCcw size={18} />
           </button>
           <button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold">
@@ -468,6 +493,19 @@ const Deals = ({ user }) => {
         </div>
       )}
 
+      {/* LOAD MORE BUTTON */}
+      {!loading && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
+          >
+            {isLoadingMore ? 'Loading more...' : 'Load More'}
+          </button>
+        </div>
+      )}
+
       {/* KANBAN VIEW */}
       {viewMode === 'Kanban' && !loading && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
@@ -487,6 +525,19 @@ const Deals = ({ user }) => {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* LOAD MORE BUTTON (Kanban Mode) */}
+      {viewMode === 'Kanban' && !loading && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
+          >
+            {isLoadingMore ? 'Loading more...' : 'Load More'}
+          </button>
         </div>
       )}
 
