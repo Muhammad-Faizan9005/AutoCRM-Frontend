@@ -15,7 +15,7 @@ const Sidebar = ({ onLogout, user }) => {
     { name: 'Dashboard', icon: <LayoutDashboard size={18}/>, path: '/' },
     { name: 'Leads', icon: <Users size={18}/>, path: '/leads' },
     { name: 'Deals', icon: <Briefcase size={18}/>, path: '/deals' },
-    { name: 'Contacts', icon: <UserCircle size={18}/>, path: '/contacts' },
+    { name: 'Customers', icon: <UserCircle size={18}/>, path: '/contacts' },
     { name: 'Organizations', icon: <Building2 size={18}/>, path: '/orgs' },
     { name: 'Notes', icon: <ClipboardList size={18}/>, path: '/tasks' },
     { name: 'Tasks', icon: <Check size={18}/>, path: '/todo' },

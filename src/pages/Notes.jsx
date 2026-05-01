@@ -45,6 +45,9 @@ const Notes = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [totalLoaded, setTotalLoaded] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const latestRequestId = useRef(0);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -62,35 +65,57 @@ const Notes = ({ user }) => {
 
   const resetForm = () => setFormData({ title: '', content: '' });
 
-  const fetchNotes = useCallback(async () => {
+  const fetchNotes = useCallback(async (skip = 0, append = false) => {
     const requestId = latestRequestId.current + 1;
     latestRequestId.current = requestId;
-    setLoading(true);
+    
+    if (!append) {
+      setLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
     setError('');
 
     try {
-      const data = await apiFetch('/api/notes/');
+      const limit = append ? 10 : 20;
+      const data = await apiFetch(`/api/notes/?skip=${skip}&limit=${limit}`);
       if (requestId !== latestRequestId.current) return;
-      setNotes(data.map((note) => mapNoteToCard(note, currentUserId)));
+      
+      const mappedData = data.map((note) => mapNoteToCard(note, currentUserId));
+      
+      if (append) {
+        setNotes((prev) => [...prev, ...mappedData]);
+      } else {
+        setNotes(mappedData);
+      }
+      
+      setTotalLoaded((prev) => prev + mappedData.length);
+      setHasMore(mappedData.length === limit);
     } catch (err) {
       if (requestId !== latestRequestId.current) return;
       setError(err?.message || 'Unable to load notes.');
     } finally {
       if (requestId === latestRequestId.current) {
-        setLoading(false);
+        if (!append) {
+          setLoading(false);
+        } else {
+          setIsLoadingMore(false);
+        }
       }
     }
   }, [currentUserId]);
 
   useEffect(() => {
-    fetchNotes();
+    fetchNotes(0, false);
   }, [fetchNotes]);
 
   // --- FILTER / SORT ---
   const filteredNotes = useMemo(() => notes.filter(n => n.title.toLowerCase().includes(searchTerm.toLowerCase())), [notes, searchTerm]);
   const handleSort = (key) => setNotes([...notes].sort((a,b) => String(a[key]).localeCompare(String(b[key]))));
 
-  // --- CRUD FUNCTIONS ---
+  const handleLoadMore = async () => {
+    await fetchNotes(totalLoaded, true);
+  };
   const handleNoteClick = (note) => {
     const { title, body } = splitContent(note.content);
     setSelectedNote(note);
@@ -272,6 +297,19 @@ const Notes = ({ user }) => {
           </div>
         ))}
       </div>
+
+      {/* LOAD MORE BUTTON */}
+      {!loading && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
+          >
+            {isLoadingMore ? 'Loading more...' : 'Load More'}
+          </button>
+        </div>
+      )}
 
       {!loading && filteredNotes.length === 0 && (
         <div className="text-xs text-gray-500">No notes found.</div>
