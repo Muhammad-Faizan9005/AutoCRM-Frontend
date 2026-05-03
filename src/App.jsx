@@ -13,6 +13,7 @@ import ImportData from './pages/ImportData';
 import AdminLayout from './admin/AdminLayout';
 import { apiFetch, clearTokens, getAccessToken, getRefreshToken } from './api/client';
 import { getPermissionsForUser } from './admin/permissionsStore';
+import { logger } from './utils/logger';
 
 const USER_PROFILE_KEY = 'user_profile';
 
@@ -20,6 +21,13 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState(() => getPermissionsForUser(null));
+
+  const clearSession = () => {
+    clearTokens();
+    localStorage.removeItem(USER_PROFILE_KEY);
+    setUser(null);
+    setPermissions(getPermissionsForUser(null));
+  };
 
   // Check if user is already logged in
   useEffect(() => {
@@ -49,10 +57,8 @@ function App() {
         const status = error?.status;
 
         if (status === 401 || status === 403) {
-          clearTokens();
-          localStorage.removeItem(USER_PROFILE_KEY);
           if (isMounted) {
-            setUser(null);
+            clearSession();
           }
         } else if (cachedUser) {
           if (isMounted) {
@@ -90,6 +96,17 @@ function App() {
     };
   }, [user]);
 
+  useEffect(() => {
+    const handleAutoLogout = () => {
+      clearSession();
+    };
+
+    window.addEventListener('autocrm-logout', handleAutoLogout);
+    return () => {
+      window.removeEventListener('autocrm-logout', handleAutoLogout);
+    };
+  }, []);
+
   const handleLogin = (userData) => {
     setUser(userData);
     setPermissions(getPermissionsForUser(userData));
@@ -108,13 +125,12 @@ function App() {
         { timeoutMs: 3000 }
       );
     } catch (error) {
+      logger.warn('auth.logout.request_failed', { message: error?.message });
       // Ignore logout errors and clear local session.
     }
 
-    clearTokens();
-    localStorage.removeItem(USER_PROFILE_KEY);
-    setUser(null);
-    setPermissions(getPermissionsForUser(null));
+    clearSession();
+    logger.info('auth.logout', { reason: 'user' });
   };
 
   const canAccess = (permissionKey) => permissions?.[permissionKey] !== false;
@@ -187,26 +203,31 @@ function App() {
     );
   }
 
-  // If not logged in, show login page
-  if (!user) {
-    return <Login onLogin={handleLogin} />;
-  }
-
-  // If logged in, show main app with routing
   return (
     <Router>
       <Routes>
         <Route
+          path="/login"
+          element={user ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />}
+        />
+        <Route
           path="/admin/*"
           element={
-            <AdminLayout
-              user={user}
-              onLogout={handleLogout}
-              permissions={permissions}
-            />
+            user ? (
+              <AdminLayout
+                user={user}
+                onLogout={handleLogout}
+                permissions={permissions}
+              />
+            ) : (
+              <Navigate to="/login" replace />
+            )
           }
         />
-        <Route path="/*" element={<CrmShell />} />
+        <Route
+          path="/*"
+          element={user ? <CrmShell /> : <Navigate to="/login" replace />}
+        />
       </Routes>
     </Router>
   );
