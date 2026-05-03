@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
@@ -10,13 +10,16 @@ import Organizations from './pages/Organizations';
 import Notes from './pages/Notes';
 import Tasks from './pages/Tasks';
 import ImportData from './pages/ImportData';
+import AdminLayout from './admin/AdminLayout';
 import { apiFetch, clearTokens, getAccessToken, getRefreshToken } from './api/client';
+import { getPermissionsForUser } from './admin/permissionsStore';
 
 const USER_PROFILE_KEY = 'user_profile';
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [permissions, setPermissions] = useState(() => getPermissionsForUser(null));
 
   // Check if user is already logged in
   useEffect(() => {
@@ -39,6 +42,7 @@ function App() {
         const me = await apiFetch('/api/auth/me', {}, { timeoutMs: 3000 });
         if (isMounted) {
           setUser(me);
+          setPermissions(getPermissionsForUser(me));
           localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(me));
         }
       } catch (error) {
@@ -53,6 +57,7 @@ function App() {
         } else if (cachedUser) {
           if (isMounted) {
             setUser(cachedUser);
+            setPermissions(getPermissionsForUser(cachedUser));
           }
         } else if (isMounted) {
           setUser(null);
@@ -71,8 +76,23 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    setPermissions(getPermissionsForUser(user));
+  }, [user]);
+
+  useEffect(() => {
+    const handlePermissionsUpdate = () => {
+      setPermissions(getPermissionsForUser(user));
+    };
+    window.addEventListener('autocrm-permissions-updated', handlePermissionsUpdate);
+    return () => {
+      window.removeEventListener('autocrm-permissions-updated', handlePermissionsUpdate);
+    };
+  }, [user]);
+
   const handleLogin = (userData) => {
     setUser(userData);
+    setPermissions(getPermissionsForUser(userData));
     localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(userData));
   };
 
@@ -94,6 +114,68 @@ function App() {
     clearTokens();
     localStorage.removeItem(USER_PROFILE_KEY);
     setUser(null);
+    setPermissions(getPermissionsForUser(null));
+  };
+
+  const canAccess = (permissionKey) => permissions?.[permissionKey] !== false;
+
+  const crmRoutes = [
+    { permission: 'dashboard', path: '/' },
+    { permission: 'leads', path: '/leads' },
+    { permission: 'deals', path: '/deals' },
+    { permission: 'contacts', path: '/contacts' },
+    { permission: 'organizations', path: '/orgs' },
+    { permission: 'notes', path: '/tasks' },
+    { permission: 'tasks', path: '/todo' },
+    { permission: 'import_data', path: '/import' },
+  ];
+
+  const NoAccess = () => (
+    <div className="flex min-h-[70vh] items-center justify-center text-center text-sm text-gray-500">
+      No modules are enabled for this account yet.
+    </div>
+  );
+
+  const CrmShell = () => {
+    const location = useLocation();
+    const fallbackRoute =
+      crmRoutes.find((route) => canAccess(route.permission))?.path || null;
+
+    const guardRoute = (permissionKey, element) => {
+      if (canAccess(permissionKey)) return element;
+      if (!fallbackRoute || location.pathname === fallbackRoute) {
+        return <NoAccess />;
+      }
+      return <Navigate to={fallbackRoute} replace />;
+    };
+
+    return (
+      <div className="flex h-screen bg-gray-100">
+        <Sidebar onLogout={handleLogout} user={user} permissions={permissions} />
+
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <main className="flex-1 overflow-x-hidden overflow-y-auto p-6">
+            <Routes>
+              <Route path="/" element={guardRoute('dashboard', <Dashboard />)} />
+              <Route path="/leads" element={guardRoute('leads', <Leads user={user} />)} />
+              <Route path="/deals" element={guardRoute('deals', <Deals user={user} />)} />
+              <Route
+                path="/contacts"
+                element={guardRoute('contacts', <Contacts user={user} />)}
+              />
+              <Route
+                path="/orgs"
+                element={guardRoute('organizations', <Organizations user={user} />)}
+              />
+              <Route path="/tasks" element={guardRoute('notes', <Notes user={user} />)} />
+              <Route path="/todo" element={guardRoute('tasks', <Tasks user={user} />)} />
+              <Route path="/import" element={guardRoute('import_data', <ImportData />)} />
+              <Route path="*" element={<Navigate to={fallbackRoute || '/'} replace />} />
+            </Routes>
+          </main>
+        </div>
+      </div>
+    );
   };
 
   // Show loading state
@@ -113,31 +195,19 @@ function App() {
   // If logged in, show main app with routing
   return (
     <Router>
-      <div className="flex h-screen bg-gray-100">
-        {/* Sidebar hamesha fixed rahega */}
-        <Sidebar onLogout={handleLogout} user={user} />
-        
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <main className="flex-1 overflow-x-hidden overflow-y-auto p-6">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/leads" element={<Leads user={user} />} />
-              <Route path="/deals" element={<Deals user={user} />} />
-              <Route path="/contacts" element={<Contacts user={user} />} />
-              <Route path="/orgs" element={<Organizations user={user} />} />
-              <Route path="/tasks" element={<Notes user={user} />} />
-              <Route path="/todo" element={<Tasks user={user} />} />
-              <Route
-                path="/import"
-                element={user?.role === 'admin' ? <ImportData /> : <Navigate to="/" replace />}
-              />
-              {/* Redirect any unknown route to dashboard */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </main>
-        </div>
-      </div>
+      <Routes>
+        <Route
+          path="/admin/*"
+          element={
+            <AdminLayout
+              user={user}
+              onLogout={handleLogout}
+              permissions={permissions}
+            />
+          }
+        />
+        <Route path="/*" element={<CrmShell />} />
+      </Routes>
     </Router>
   );
 }
