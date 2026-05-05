@@ -1,1 +1,152 @@
 @import "tailwindcss";
+
+:root {
+	--admin-bg: #f3f4f6;
+	--admin-panel: #ffffff;
+	--admin-ink: #111827;
+	--admin-muted: #6b7280;
+	--admin-accent: #111827;
+	--admin-accent-2: #ef4444;
+	--admin-border: #e5e7eb;
+}
+
+.admin-theme {
+	color: var(--admin-ink);
+	background: var(--admin-bg);
+	min-height: 100vh;
+}
+
+.admin-backdrop {
+	display: none;
+}
+
+.admin-title {
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+
+.admin-panel {
+	background: var(--admin-panel);
+	border: 1px solid var(--admin-border);
+	border-radius: 16px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.admin-rise {
+	animation: adminRise 0.4s ease forwards;
+}
+
+.admin-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 14px;
+	border-radius: 10px;
+	background: #ffffff;
+	border: 1px solid var(--admin-border);
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--admin-ink);
+	transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.admin-pill:hover {
+	background: #f9fafb;
+	transform: translateY(-1px);
+}
+
+.admin-pill-accent {
+	background: #000000;
+	color: #ffffff;
+	border-color: #000000;
+}
+
+.admin-pill-muted {
+	background: #f3f4f6;
+	color: var(--admin-muted);
+}
+
+.admin-input,
+.admin-select {
+	width: 100%;
+	margin-top: 6px;
+	padding: 10px 12px;
+	border-radius: 10px;
+	border: 1px solid var(--admin-border);
+	background: #ffffff;
+	font-size: 14px;
+	color: var(--admin-ink);
+}
+
+.admin-inline-input {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 12px;
+	border-radius: 10px;
+	border: 1px solid var(--admin-border);
+	background: #ffffff;
+}
+
+.admin-inline-input input {
+	background: transparent;
+	outline: none;
+	border: none;
+	font-size: 13px;
+	width: 220px;
+}
+
+.admin-toggle {
+	width: 44px;
+	height: 24px;
+	border-radius: 999px;
+	border: 1px solid var(--admin-border);
+	background: #e5e7eb;
+	display: flex;
+	align-items: center;
+	padding: 3px;
+	transition: background 0.2s ease, border 0.2s ease;
+}
+
+.admin-toggle span {
+	height: 18px;
+	width: 18px;
+	border-radius: 999px;
+	background: #ffffff;
+	transform: translateX(0);
+	transition: transform 0.2s ease;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.admin-toggle.is-on {
+	background: #111827;
+	border-color: #111827;
+}
+
+.admin-toggle.is-on span {
+	transform: translateX(20px);
+	background: #ffffff;
+}
+
+.admin-modal {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.35);
+	backdrop-filter: blur(4px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	z-index: 50;
+}
+
+@keyframes adminRise {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}

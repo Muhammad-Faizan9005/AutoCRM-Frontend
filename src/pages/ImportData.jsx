@@ -28,12 +28,26 @@ const entityColumns = {
   ],
 };
 
-const ImportData = () => {
+const ImportData = ({ variant = 'default' }) => {
   const [entity, setEntity] = useState('customers');
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const isAdmin = variant === 'admin';
+  const pageClassName = isAdmin
+    ? 'space-y-6'
+    : 'min-h-screen p-6 bg-gray-50 font-sans text-sm space-y-6';
+  const panelClassName = isAdmin
+    ? 'admin-panel p-6'
+    : 'bg-white border border-gray-200 rounded-2xl shadow-sm p-6';
+  const pillClassName = isAdmin
+    ? 'admin-panel px-3 py-2 text-xs text-[color:var(--admin-muted)]'
+    : 'flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-600';
+  const statsCardClassName = isAdmin
+    ? 'rounded-2xl border border-[color:var(--admin-border)]/60 p-3'
+    : 'bg-gray-50 border border-gray-200 rounded-lg p-3';
 
   const allowedTypes = '.csv,.xlsx,.xlsm';
 
@@ -80,19 +94,19 @@ const ImportData = () => {
   };
 
   return (
-    <div className="min-h-screen p-6 bg-gray-50 font-sans text-sm space-y-6">
+    <div className={pageClassName}>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-black tracking-tight">Import Data</h1>
           <p className="text-xs text-gray-500 mt-1">Admin-only CSV or Excel import for CRM data.</p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-600">
+        <div className={pillClassName}>
           <FileSpreadsheet size={16} />
           Supported: CSV, XLSX, XLSM
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
+      <div className={panelClassName}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -136,7 +150,7 @@ const ImportData = () => {
         </form>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
+      <div className={panelClassName}>
         <h2 className="text-sm font-semibold text-black mb-3">Required Columns</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           {columns.map((column) => (
@@ -148,30 +162,30 @@ const ImportData = () => {
       </div>
 
       {result && (
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 space-y-4">
+        <div className={`${panelClassName} space-y-4`}>
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-black">Import Summary</h2>
             <span className="text-xs text-gray-500">{result.file_name}</span>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <div className={statsCardClassName}>
               <p className="text-[10px] text-gray-500 uppercase">Total Rows</p>
               <p className="text-sm font-semibold text-gray-900">{result.total_rows}</p>
             </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <div className={statsCardClassName}>
               <p className="text-[10px] text-gray-500 uppercase">Successful</p>
               <p className="text-sm font-semibold text-gray-900">{result.successful_rows}</p>
             </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <div className={statsCardClassName}>
               <p className="text-[10px] text-gray-500 uppercase">Created</p>
               <p className="text-sm font-semibold text-gray-900">{result.created_count}</p>
             </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <div className={statsCardClassName}>
               <p className="text-[10px] text-gray-500 uppercase">Updated</p>
               <p className="text-sm font-semibold text-gray-900">{result.updated_count}</p>
             </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <div className={statsCardClassName}>
               <p className="text-[10px] text-gray-500 uppercase">Failed</p>
               <p className="text-sm font-semibold text-gray-900">{result.failed_count}</p>
             </div>

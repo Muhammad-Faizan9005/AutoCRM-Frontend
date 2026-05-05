@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { apiFetch, setTokens } from '../api/client';
+import { logger } from '../utils/logger';
 
 export default function Login({ onLogin }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -40,7 +41,9 @@ export default function Login({ onLogin }) {
         refreshToken: data.refresh_token,
       });
       onLogin(data.user);
+      logger.info('auth.login.success');
     } catch (err) {
+      logger.warn('auth.login.failed', { status: err?.status || 'unknown' });
       const message = err?.message || 'Login failed. Please try again.';
       setError(message);
     } finally {

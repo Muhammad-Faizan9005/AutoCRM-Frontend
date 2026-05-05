@@ -2,30 +2,38 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Briefcase, Building2, ClipboardList, 
-  Check, ChevronLeft, ChevronRight, UserCircle, Bell, X, LogOut, UploadCloud 
+  Check, ChevronLeft, ChevronRight, UserCircle, Bell, X, LogOut, Shield
 } from 'lucide-react';
 
-const Sidebar = ({ onLogout, user }) => {
+const Sidebar = ({ onLogout, user, permissions }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const location = useLocation();
   const displayName = user?.full_name || user?.email || 'User';
+  const isAdminRoute = location.pathname.startsWith('/admin');
 
   const menuItems = [
-    { name: 'Dashboard', icon: <LayoutDashboard size={18}/>, path: '/' },
-    { name: 'Leads', icon: <Users size={18}/>, path: '/leads' },
-    { name: 'Deals', icon: <Briefcase size={18}/>, path: '/deals' },
-    { name: 'Customers', icon: <UserCircle size={18}/>, path: '/contacts' },
-    { name: 'Organizations', icon: <Building2 size={18}/>, path: '/orgs' },
-    { name: 'Notes', icon: <ClipboardList size={18}/>, path: '/tasks' },
-    { name: 'Tasks', icon: <Check size={18}/>, path: '/todo' },
+    { name: 'Dashboard', icon: <LayoutDashboard size={18}/>, path: '/', permission: 'dashboard' },
+    { name: 'Leads', icon: <Users size={18}/>, path: '/leads', permission: 'leads' },
+    { name: 'Deals', icon: <Briefcase size={18}/>, path: '/deals', permission: 'deals' },
+    { name: 'Customers', icon: <UserCircle size={18}/>, path: '/contacts', permission: 'contacts' },
+    { name: 'Organizations', icon: <Building2 size={18}/>, path: '/orgs', permission: 'organizations' },
+    { name: 'Notes', icon: <ClipboardList size={18}/>, path: '/tasks', permission: 'notes' },
+    { name: 'Tasks', icon: <Check size={18}/>, path: '/todo', permission: 'tasks' },
   ];
 
-  const adminItems = user?.role === 'admin'
-    ? [{ name: 'Import', icon: <UploadCloud size={18} />, path: '/import' }]
-    : [];
+  const canAccess = (permissionKey) => permissions?.[permissionKey] !== false;
+  const adminItems = [
+    { name: 'Admin Center', icon: <Shield size={18} />, path: '/admin', permission: 'admin_panel' },
+    { name: 'Users', icon: <Users size={18} />, path: '/admin/users', permission: 'admin_users' },
+    { name: 'Permissions', icon: <LayoutDashboard size={18} />, path: '/admin/permissions', permission: 'admin_permissions' },
+    { name: 'Imports', icon: <Users size={18} />, path: '/admin/imports', permission: 'import_data' },
+  ];
 
-  const navItems = [...menuItems, ...adminItems];
+  const navItems = (isAdminRoute ? adminItems : menuItems).filter((item) =>
+    canAccess(item.permission),
+  );
+  const showAdminCenter = permissions?.admin_panel !== false;
 
   return (
     <div className="relative flex">
@@ -53,16 +61,17 @@ const Sidebar = ({ onLogout, user }) => {
           </button>
         </div>
 
-        {/* Notifications */}
-        <div className="px-3 mt-3">
-          <button
-            onClick={() => setIsNotifOpen(true)}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-gray-600 hover:bg-gray-50 transition ${isCollapsed && 'justify-center'}`}
-          >
-            <Bell size={18}/>
-            {!isCollapsed && <span className="text-xs font-medium">Notifications</span>}
-          </button>
-        </div>
+        {!isAdminRoute && (
+          <div className="px-3 mt-3">
+            <button
+              onClick={() => setIsNotifOpen(true)}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-gray-600 hover:bg-gray-50 transition ${isCollapsed && 'justify-center'}`}
+            >
+              <Bell size={18}/>
+              {!isCollapsed && <span className="text-xs font-medium">Notifications</span>}
+            </button>
+          </div>
+        )}
 
         {/* Menu */}
         <nav className="flex-1 mt-2 px-2 space-y-1 overflow-y-auto">
@@ -84,6 +93,24 @@ const Sidebar = ({ onLogout, user }) => {
 
         {/* Logout */}
         <div className="p-3 border-t border-gray-100">
+          {showAdminCenter && !isAdminRoute && (
+            <Link
+              to="/admin"
+              className={`mb-2 w-full flex items-center gap-2 px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 transition ${isCollapsed && 'justify-center'}`}
+            >
+              <Shield size={18} />
+              {!isCollapsed && <span className="text-xs font-medium">Admin Center</span>}
+            </Link>
+          )}
+          {isAdminRoute && (
+            <Link
+              to="/"
+              className={`mb-2 w-full flex items-center gap-2 px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 transition ${isCollapsed && 'justify-center'}`}
+            >
+              <LayoutDashboard size={18} />
+              {!isCollapsed && <span className="text-xs font-medium">CRM Home</span>}
+            </Link>
+          )}
           <button
             onClick={() => {
               onLogout();
