@@ -1,39 +1,126 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ShieldCheck, UserCheck } from 'lucide-react';
+import { Loader2, ShieldCheck, UserCheck } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { getStoredUsers, getUserKey } from './adminStorage';
+import { DEFAULT_PERMISSIONS, PERMISSION_GROUPS } from './permissionsStore';
 import {
-  PERMISSION_GROUPS,
-  getPermissionsForUser,
-  setPermissionsForUser,
-} from './permissionsStore';
+  getAdminUserPermissions,
+  listAdminUsers,
+  updateAdminUserPermissions,
+} from './adminApi';
 
-const AdminPermissions = ({ currentUser }) => {
+const getErrorMessage = (error, fallback) =>
+  error?.message || error?.data?.detail || fallback;
+
+const AdminPermissions = () => {
   const [searchParams] = useSearchParams();
-  const [users] = useState(() => getStoredUsers(currentUser));
-  const initialUserKey = searchParams.get('user');
-  const [activeUserKey, setActiveUserKey] = useState(
-    initialUserKey || getUserKey(users[0]),
-  );
-  const activeUser = useMemo(
-    () => users.find((user) => getUserKey(user) === activeUserKey) || users[0],
-    [users, activeUserKey],
-  );
-
-  const [permissions, setPermissions] = useState(() =>
-    getPermissionsForUser(activeUser),
-  );
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [activeUserId, setActiveUserId] = useState('');
+  const [permissions, setPermissions] = useState({ ...DEFAULT_PERMISSIONS });
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    setPermissions(getPermissionsForUser(activeUser));
+    let mounted = true;
+    const initialUserId = searchParams.get('user');
+
+    const loadUsers = async () => {
+      setUsersLoading(true);
+      setError('');
+      try {
+        const data = await listAdminUsers({ page: 1, pageSize: 200 });
+        if (!mounted) return;
+        setUsers(data.items);
+
+        if (data.items.length === 0) {
+          setActiveUserId('');
+          return;
+        }
+
+        const matched = data.items.find((user) => String(user.id) === String(initialUserId));
+        setActiveUserId(String((matched || data.items[0]).id));
+      } catch (loadError) {
+        if (mounted) {
+          setError(getErrorMessage(loadError, 'Failed to load users.'));
+        }
+      } finally {
+        if (mounted) {
+          setUsersLoading(false);
+        }
+      }
+    };
+
+    loadUsers();
+    return () => {
+      mounted = false;
+    };
+  }, [searchParams]);
+
+  const activeUser = useMemo(
+    () => users.find((user) => String(user.id) === String(activeUserId)) || null,
+    [users, activeUserId],
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    const loadPermissions = async () => {
+      if (!activeUser?.id) {
+        setPermissions({ ...DEFAULT_PERMISSIONS });
+        return;
+      }
+
+      setPermissionsLoading(true);
+      setError('');
+      try {
+        const data = await getAdminUserPermissions(activeUser.id);
+        if (mounted) {
+          setPermissions({ ...DEFAULT_PERMISSIONS, ...(data?.permissions || {}) });
+          setSavedAt(null);
+        }
+      } catch (loadError) {
+        if (mounted) {
+          setError(getErrorMessage(loadError, 'Failed to load permissions.'));
+          setPermissions({ ...DEFAULT_PERMISSIONS });
+        }
+      } finally {
+        if (mounted) {
+          setPermissionsLoading(false);
+        }
+      }
+    };
+
+    loadPermissions();
+    return () => {
+      mounted = false;
+    };
   }, [activeUser]);
 
-  const savePermissions = (nextPermissions) => {
-    const key = getUserKey(activeUser);
-    setPermissionsForUser(key, nextPermissions);
-    setSavedAt(new Date());
-    window.dispatchEvent(new Event('autocrm-permissions-updated'));
+  const savePermissions = async (nextPermissions) => {
+    if (!activeUser?.id) return;
+
+    setSaving(true);
+    setError('');
+    try {
+      const response = await updateAdminUserPermissions(activeUser.id, nextPermissions);
+      const saved = { ...DEFAULT_PERMISSIONS, ...(response?.permissions || nextPermissions) };
+      setPermissions(saved);
+      setSavedAt(new Date());
+
+      window.dispatchEvent(
+        new CustomEvent('autocrm-permissions-updated', {
+          detail: {
+            userId: activeUser.id,
+            permissions: saved,
+          },
+        }),
+      );
+    } catch (saveError) {
+      setError(getErrorMessage(saveError, 'Failed to save permissions.'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const togglePermission = (permissionKey) => {
@@ -70,14 +157,24 @@ const AdminPermissions = ({ currentUser }) => {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button className="admin-pill" onClick={() => setAll(true)}>
+          <button className="admin-pill" onClick={() => setAll(true)} disabled={!activeUser || saving}>
             Enable all
           </button>
-          <button className="admin-pill admin-pill-muted" onClick={() => setAll(false)}>
+          <button
+            className="admin-pill admin-pill-muted"
+            onClick={() => setAll(false)}
+            disabled={!activeUser || saving}
+          >
             Lock down
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         <div className="admin-panel p-5">
@@ -86,26 +183,40 @@ const AdminPermissions = ({ currentUser }) => {
             Select operator
           </div>
           <div className="mt-4 space-y-2">
-            {users.map((user) => {
-              const key = getUserKey(user);
-              const isActive = key === activeUserKey;
-              return (
-                <button
-                  key={key}
-                  className={`w-full rounded-2xl px-4 py-3 text-left text-sm transition ${
-                    isActive
-                      ? 'bg-[color:var(--admin-ink)] text-white'
-                      : 'bg-[color:var(--admin-panel)] text-[color:var(--admin-ink)]'
-                  }`}
-                  onClick={() => setActiveUserKey(key)}
-                >
-                  <div className="font-semibold">{user.full_name}</div>
-                  <div className={`text-xs ${isActive ? 'text-white/70' : 'text-[color:var(--admin-muted)]'}`}>
-                    {user.email}
-                  </div>
-                </button>
-              );
-            })}
+            {usersLoading && (
+              <div className="flex items-center gap-2 text-xs text-[color:var(--admin-muted)]">
+                <Loader2 size={14} className="animate-spin" />
+                Loading users...
+              </div>
+            )}
+
+            {!usersLoading &&
+              users.map((user) => {
+                const key = String(user.id);
+                const isActive = key === String(activeUserId);
+                return (
+                  <button
+                    key={key}
+                    className={`w-full rounded-2xl px-4 py-3 text-left text-sm transition ${
+                      isActive
+                        ? 'bg-[color:var(--admin-ink)] text-white'
+                        : 'bg-[color:var(--admin-panel)] text-[color:var(--admin-ink)]'
+                    }`}
+                    onClick={() => setActiveUserId(key)}
+                  >
+                    <div className="font-semibold">{user.full_name}</div>
+                    <div className={`text-xs ${isActive ? 'text-white/70' : 'text-[color:var(--admin-muted)]'}`}>
+                      {user.email}
+                    </div>
+                  </button>
+                );
+              })}
+
+            {!usersLoading && users.length === 0 && (
+              <div className="text-xs text-[color:var(--admin-muted)]">
+                No users available.
+              </div>
+            )}
           </div>
         </div>
 
@@ -115,9 +226,13 @@ const AdminPermissions = ({ currentUser }) => {
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold">{group.label}</h3>
                 <div className="text-xs text-[color:var(--admin-muted)]">
-                  {savedAt
-                    ? `Saved ${savedAt.toLocaleTimeString()}`
-                    : 'Not saved yet'}
+                  {permissionsLoading
+                    ? 'Loading permissions...'
+                    : saving
+                      ? 'Saving...'
+                      : savedAt
+                        ? `Saved ${savedAt.toLocaleTimeString()}`
+                        : 'Ready'}
                 </div>
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -140,6 +255,7 @@ const AdminPermissions = ({ currentUser }) => {
                       }`}
                       onClick={() => togglePermission(permission.key)}
                       aria-pressed={Boolean(permissions?.[permission.key])}
+                      disabled={!activeUser || permissionsLoading || saving}
                     >
                       <span />
                     </button>
@@ -152,10 +268,11 @@ const AdminPermissions = ({ currentUser }) => {
           <div className="admin-panel p-5 flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-[color:var(--admin-muted)]">
               <ShieldCheck size={16} />
-              Permission changes are stored locally until backend wiring is
-              completed.
+              Changes are persisted to backend permission records.
             </div>
-            <button className="admin-pill">Export matrix</button>
+            <button className="admin-pill" disabled>
+              Export matrix
+            </button>
           </div>
         </div>
       </div>

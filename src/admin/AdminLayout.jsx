@@ -6,10 +6,40 @@ import AdminUsers from './AdminUsers';
 import AdminPermissions from './AdminPermissions';
 import AdminImports from './AdminImports';
 
+const isAdminUser = (user) => {
+  if (!user) return false;
+  if (user.is_admin || user.is_superuser) return true;
+  const role = (user.role || '').toString().toLowerCase();
+  return ['admin', 'administrator', 'system manager', 'superuser'].includes(role);
+};
+
 const AdminLayout = ({ user, onLogout, permissions }) => {
-  if (!permissions?.admin_panel) {
+  const canOpenConsole =
+    permissions?.admin_panel === true ||
+    permissions?.admin_users === true ||
+    permissions?.admin_permissions === true ||
+    permissions?.import_data === true;
+
+  if (!canOpenConsole) {
     return <Navigate to="/" replace />;
   }
+
+  const adminUser = isAdminUser(user);
+  const canManageUsers = permissions?.admin_users === true;
+  const canManagePermissions = permissions?.admin_permissions === true;
+  const canImport = permissions?.import_data === true;
+
+  const firstAllowedPath = canManageUsers
+    ? '/admin/users'
+    : canManagePermissions
+      ? '/admin/permissions'
+      : canImport
+        ? '/admin/imports'
+        : permissions?.admin_panel === true
+          ? '/admin'
+          : '/';
+
+  const showDashboard = adminUser;
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -17,38 +47,47 @@ const AdminLayout = ({ user, onLogout, permissions }) => {
       <div className="flex-1 flex flex-col overflow-hidden">
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-6">
           <Routes>
-            <Route index element={<AdminDashboard />} />
+            <Route
+              index
+              element={
+                showDashboard ? (
+                  <AdminDashboard />
+                ) : (
+                  <Navigate to={firstAllowedPath} replace />
+                )
+              }
+            />
             <Route
               path="users"
               element={
-                permissions?.admin_users ? (
+                canManageUsers ? (
                   <AdminUsers currentUser={user} />
                 ) : (
-                  <Navigate to="/admin" replace />
+                  <Navigate to={firstAllowedPath} replace />
                 )
               }
             />
             <Route
               path="permissions"
               element={
-                permissions?.admin_permissions ? (
+                canManagePermissions ? (
                   <AdminPermissions currentUser={user} />
                 ) : (
-                  <Navigate to="/admin" replace />
+                  <Navigate to={firstAllowedPath} replace />
                 )
               }
             />
             <Route
               path="imports"
               element={
-                permissions?.import_data ? (
+                canImport ? (
                   <AdminImports />
                 ) : (
-                  <Navigate to="/admin" replace />
+                  <Navigate to={firstAllowedPath} replace />
                 )
               }
             />
-            <Route path="*" element={<Navigate to="/admin" replace />} />
+            <Route path="*" element={<Navigate to={firstAllowedPath} replace />} />
           </Routes>
         </main>
       </div>

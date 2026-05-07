@@ -5,12 +5,21 @@ import {
   Check, ChevronLeft, ChevronRight, UserCircle, Bell, X, LogOut, Shield
 } from 'lucide-react';
 
+const isAdminUser = (user) => {
+  if (!user) return false;
+  if (user.is_admin || user.is_superuser) return true;
+  const role = (user.role || '').toString().toLowerCase();
+  return ['admin', 'administrator', 'system manager', 'superuser'].includes(role);
+};
+
 const Sidebar = ({ onLogout, user, permissions }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const location = useLocation();
   const displayName = user?.full_name || user?.email || 'User';
   const isAdminRoute = location.pathname.startsWith('/admin');
+  const adminUser = isAdminUser(user);
+  const consoleLabel = adminUser ? 'Admin Console' : 'Manager Console';
 
   const menuItems = [
     { name: 'Dashboard', icon: <LayoutDashboard size={18}/>, path: '/', permission: 'dashboard' },
@@ -22,9 +31,26 @@ const Sidebar = ({ onLogout, user, permissions }) => {
     { name: 'Tasks', icon: <Check size={18}/>, path: '/todo', permission: 'tasks' },
   ];
 
-  const canAccess = (permissionKey) => permissions?.[permissionKey] !== false;
+  const canAccess = (permissionKey) => permissions?.[permissionKey] === true;
+  const canOpenConsole =
+    permissions?.admin_panel === true ||
+    permissions?.admin_users === true ||
+    permissions?.admin_permissions === true ||
+    permissions?.import_data === true;
+  const adminHomePath = adminUser
+    ? '/admin'
+    : permissions?.admin_users === true
+      ? '/admin/users'
+      : permissions?.admin_permissions === true
+        ? '/admin/permissions'
+        : permissions?.import_data === true
+          ? '/admin/imports'
+          : '/';
+
   const adminItems = [
-    { name: 'Admin Center', icon: <Shield size={18} />, path: '/admin', permission: 'admin_panel' },
+    ...(adminUser
+      ? [{ name: consoleLabel, icon: <Shield size={18} />, path: '/admin', permission: 'admin_panel' }]
+      : []),
     { name: 'Users', icon: <Users size={18} />, path: '/admin/users', permission: 'admin_users' },
     { name: 'Permissions', icon: <LayoutDashboard size={18} />, path: '/admin/permissions', permission: 'admin_permissions' },
     { name: 'Imports', icon: <Users size={18} />, path: '/admin/imports', permission: 'import_data' },
@@ -33,7 +59,7 @@ const Sidebar = ({ onLogout, user, permissions }) => {
   const navItems = (isAdminRoute ? adminItems : menuItems).filter((item) =>
     canAccess(item.permission),
   );
-  const showAdminCenter = permissions?.admin_panel !== false;
+  const showAdminCenter = canOpenConsole;
 
   return (
     <div className="relative flex">
@@ -95,11 +121,11 @@ const Sidebar = ({ onLogout, user, permissions }) => {
         <div className="p-3 border-t border-gray-100">
           {showAdminCenter && !isAdminRoute && (
             <Link
-              to="/admin"
+              to={adminHomePath}
               className={`mb-2 w-full flex items-center gap-2 px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 transition ${isCollapsed && 'justify-center'}`}
             >
               <Shield size={18} />
-              {!isCollapsed && <span className="text-xs font-medium">Admin Center</span>}
+              {!isCollapsed && <span className="text-xs font-medium">{consoleLabel}</span>}
             </Link>
           )}
           {isAdminRoute && (

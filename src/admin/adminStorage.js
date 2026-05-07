@@ -22,7 +22,7 @@ export const getStoredUsers = (currentUser) => {
   if (raw) {
     try {
       users = JSON.parse(raw);
-    } catch (error) {
+    } catch {
       users = [];
     }
   }

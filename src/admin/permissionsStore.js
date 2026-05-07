@@ -96,7 +96,7 @@ const getStoredPermissions = () => {
   try {
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (error) {
+  } catch {
     return {};
   }
 };
@@ -130,6 +130,10 @@ const applyDefaultPermissions = (user, storedPermissions) => {
 
 export const getPermissionsForUser = (user) => {
   if (!user) return { ...DEFAULT_PERMISSIONS };
+
+  if (user.permissions && typeof user.permissions === 'object') {
+    return applyDefaultPermissions(user, user.permissions);
+  }
 
   const allPermissions = getStoredPermissions();
   const userKey = getUserKey(user);

@@ -87,7 +87,30 @@ function App() {
   }, [user]);
 
   useEffect(() => {
-    const handlePermissionsUpdate = () => {
+    const handlePermissionsUpdate = (event) => {
+      const detail = event?.detail;
+      const updatedUserId = detail?.userId ? String(detail.userId) : '';
+      const currentUserId = user?.id ? String(user.id) : '';
+      const updatedPermissions = detail?.permissions;
+
+      if (
+        user &&
+        updatedUserId &&
+        currentUserId &&
+        updatedUserId === currentUserId &&
+        updatedPermissions &&
+        typeof updatedPermissions === 'object'
+      ) {
+        const nextUser = {
+          ...user,
+          permissions: { ...updatedPermissions },
+        };
+        setUser(nextUser);
+        setPermissions(getPermissionsForUser(nextUser));
+        localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(nextUser));
+        return;
+      }
+
       setPermissions(getPermissionsForUser(user));
     };
     window.addEventListener('autocrm-permissions-updated', handlePermissionsUpdate);
@@ -133,7 +156,7 @@ function App() {
     logger.info('auth.logout', { reason: 'user' });
   };
 
-  const canAccess = (permissionKey) => permissions?.[permissionKey] !== false;
+  const canAccess = (permissionKey) => permissions?.[permissionKey] === true;
 
   const crmRoutes = [
     { permission: 'dashboard', path: '/' },
