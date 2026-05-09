@@ -3,6 +3,7 @@ import { NavLink, Link } from 'react-router-dom';
 import {
   Shield,
   Users,
+  UsersRound,
   SlidersHorizontal,
   UploadCloud,
   Command,
@@ -10,19 +11,49 @@ import {
   LogOut,
 } from 'lucide-react';
 
+const isAdminUser = (user) => {
+  if (!user) return false;
+  if (user.is_admin || user.is_superuser) return true;
+  const role = (user.role || '').toString().toLowerCase();
+  return ['admin', 'administrator', 'system manager', 'superuser'].includes(role);
+};
+
+const isManagerUser = (user) => {
+  const role = (user?.role || '').toString().toLowerCase();
+  return role === 'sales_manager' || role === 'manager';
+};
+
 const AdminSidebar = ({ user, onLogout, permissions }) => {
+  const adminActor = isAdminUser(user);
+  const managerActor = isManagerUser(user);
+
   const navItems = [
     {
       label: 'Command',
       path: '/admin',
       icon: <Command size={18} />,
       permission: 'admin_panel',
+      adminOnly: true,
     },
     {
       label: 'Users',
       path: '/admin/users',
       icon: <Users size={18} />,
       permission: 'admin_users',
+    },
+    {
+      label: 'Teams',
+      path: '/admin/teams',
+      icon: <UsersRound size={18} />,
+      permission: 'admin_users',
+      adminOnly: true,
+    },
+    {
+      label: 'My Team',
+      path: '/admin/team',
+      icon: <UsersRound size={18} />,
+      permission: 'admin_users',
+      managerOnly: true,
     },
     {
       label: 'Permissions',
@@ -38,8 +69,11 @@ const AdminSidebar = ({ user, onLogout, permissions }) => {
     },
   ];
 
-  const canAccess = (permission) =>
-    permission ? permissions?.[permission] !== false : true;
+  const canAccess = (item) => {
+    if (item.adminOnly && !adminActor) return false;
+    if (item.managerOnly && !managerActor) return false;
+    return item.permission ? permissions?.[item.permission] !== false : true;
+  };
 
   return (
     <aside className="w-full md:w-64 p-6 md:pt-8 md:pb-6">
@@ -62,16 +96,26 @@ const AdminSidebar = ({ user, onLogout, permissions }) => {
           <div className="text-sm text-[color:var(--admin-ink)] font-semibold">
             {user?.full_name || user?.email || 'Admin'}
           </div>
+          {user?.role && (
+            <div className="mt-1 text-[10px] uppercase tracking-widest opacity-60">
+              {user.role === 'sales_manager' || user.role === 'manager'
+                ? 'Sales Manager'
+                : user.role === 'admin'
+                  ? 'Administrator'
+                  : user.role}
+            </div>
+          )}
         </div>
       </div>
 
       <nav className="mt-6 space-y-2">
         {navItems
-          .filter((item) => canAccess(item.permission))
+          .filter((item) => canAccess(item))
           .map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
+              end={item.path === '/admin'}
               className={({ isActive }) =>
                 `flex items-center justify-between rounded-2xl px-4 py-3 text-sm transition ${
                   isActive
