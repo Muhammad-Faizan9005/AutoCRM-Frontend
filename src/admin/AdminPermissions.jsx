@@ -11,7 +11,14 @@ import {
 const getErrorMessage = (error, fallback) =>
   error?.message || error?.data?.detail || fallback;
 
-const AdminPermissions = () => {
+const isAdminUser = (user) => {
+  if (!user) return false;
+  if (user.is_admin || user.is_superuser) return true;
+  const role = (user.role || '').toString().toLowerCase();
+  return ['admin', 'administrator', 'system manager', 'superuser'].includes(role);
+};
+
+const AdminPermissions = ({ currentUser }) => {
   const [searchParams] = useSearchParams();
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -21,6 +28,15 @@ const AdminPermissions = () => {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [error, setError] = useState('');
+
+  // Managers only see CRM Core + Data Operations; admins see everything
+  const adminActor = isAdminUser(currentUser);
+  const visibleGroups = useMemo(
+    () => adminActor
+      ? PERMISSION_GROUPS
+      : PERMISSION_GROUPS.filter((g) => g.label !== 'Admin Panel'),
+    [adminActor]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -133,12 +149,12 @@ const AdminPermissions = () => {
   };
 
   const setAll = (value) => {
-    const next = PERMISSION_GROUPS.reduce((acc, group) => {
+    const next = visibleGroups.reduce((acc, group) => {
       group.permissions.forEach((permission) => {
         acc[permission.key] = value;
       });
       return acc;
-    }, {});
+    }, { ...permissions });
     setPermissions(next);
     savePermissions(next);
   };
@@ -221,7 +237,7 @@ const AdminPermissions = () => {
         </div>
 
         <div className="space-y-4">
-          {PERMISSION_GROUPS.map((group) => (
+          {visibleGroups.map((group) => (
             <div key={group.label} className="admin-panel p-6">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold">{group.label}</h3>

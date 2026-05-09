@@ -7,6 +7,7 @@ import {
   listAdminUsers,
   updateAdminUser,
 } from './adminApi';
+import { listTeams } from './teamsApi';
 
 const ROLE_OPTIONS = ['admin', 'manager', 'agent'];
 const STATUS_OPTIONS = ['active', 'invited', 'disabled'];
@@ -17,6 +18,7 @@ const INITIAL_FORM = {
   role: 'manager',
   status: 'invited',
   password: '',
+  team_id: '',
 };
 
 const getErrorMessage = (error, fallback) =>
@@ -53,6 +55,20 @@ const AdminUsers = ({ currentUser }) => {
   const [busyUserId, setBusyUserId] = useState('');
   const [form, setForm] = useState(() => ({ ...INITIAL_FORM, role: defaultRole }));
   const [error, setError] = useState('');
+  const [teams, setTeams] = useState([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+
+  // Load teams list (for admin team dropdown when adding a sales rep)
+  useEffect(() => {
+    if (!adminActor) return;
+    setTeamsLoading(true);
+    listTeams()
+      .then((data) => setTeams(data.items || []))
+      .catch(() => {})
+      .finally(() => setTeamsLoading(false));
+  }, [adminActor]);
+
+  const isRepRole = (role) => ['agent', 'sales_rep'].includes(role);
 
   const loadUsers = useCallback(async (searchTerm = '') => {
     setError('');
@@ -104,6 +120,12 @@ const AdminUsers = ({ currentUser }) => {
       return;
     }
 
+    // Admin creating a sales rep must pick a team
+    if (adminActor && isRepRole(form.role) && !form.team_id) {
+      setError('Please select a team for the sales rep.');
+      return;
+    }
+
     const payload = {
       full_name: fullName,
       email,
@@ -112,6 +134,9 @@ const AdminUsers = ({ currentUser }) => {
     };
     if (password) {
       payload.password = password;
+    }
+    if (isRepRole(form.role) && form.team_id) {
+      payload.team_id = form.team_id;
     }
 
     setIsSubmitting(true);
@@ -378,6 +403,26 @@ const AdminUsers = ({ currentUser }) => {
                   ))}
                 </select>
               </label>
+              {adminActor && isRepRole(form.role) && (
+                <label className="text-xs text-[color:var(--admin-muted)]">
+                  Assign to team
+                  <select
+                    value={form.team_id}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, team_id: event.target.value }))
+                    }
+                    className="admin-select"
+                    disabled={teamsLoading}
+                  >
+                    <option value="">{teamsLoading ? 'Loading teams...' : '— Select a team —'}</option>
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {team.name} ({team.manager_name || 'unknown manager'})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="text-xs text-[color:var(--admin-muted)] md:col-span-2">
                 Password
                 <input
