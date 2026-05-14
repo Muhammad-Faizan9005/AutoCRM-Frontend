@@ -56,7 +56,8 @@ const AdminLayout = ({ user, onLogout, permissions }) => {
     <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg-base)' }}>
       <Sidebar onLogout={onLogout} user={user} permissions={permissions} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <main className="flex-1 overflow-x-hidden overflow-y-auto p-6">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto pt-10 pb-8 px-10">
+          <div style={{ maxWidth: 1280, margin: '0 auto' }}>
           <Routes>
             {/* Admin command dashboard */}
             <Route
@@ -132,6 +133,7 @@ const AdminLayout = ({ user, onLogout, permissions }) => {
 
             <Route path="*" element={<Navigate to={firstAllowedPath} replace />} />
           </Routes>
+          </div>
         </main>
       </div>
     </div>

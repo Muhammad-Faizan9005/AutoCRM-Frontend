@@ -54,26 +54,27 @@ const CreateTeamModal = ({ onClose, onCreated }) => {
   };
 
   return (
-    <div className="admin-modal">
-      <div className="admin-panel p-6 max-w-md mx-auto">
-        <div className="flex items-center justify-between">
-          <h3 className="admin-title text-xl">Create team</h3>
-          <button className="admin-pill admin-pill-muted" onClick={onClose}><X size={14} /> Close</button>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px', borderBottom: '1px solid var(--color-border)' }}>
+          <h3 className="section-title">Create team</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
-        <label className="block mt-5 text-xs text-[color:var(--admin-muted)]">
-          Team name
+        <div style={{ padding: '20px 24px' }}>
+          <label className="label">Team name</label>
           <input
-            className="admin-input mt-1"
+            className="input"
             placeholder="e.g. East Coast Sales"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submit()}
+            style={{ marginTop: 6 }}
           />
-        </label>
-        {err && <p className="mt-2 text-xs text-[color:var(--admin-accent-2)]">{err}</p>}
-        <div className="mt-5 flex justify-end gap-3">
-          <button className="admin-pill admin-pill-muted" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="admin-pill admin-pill-accent" onClick={submit} disabled={busy}>
+          {err && <div style={{ marginTop: 10, padding: '8px 12px', background: 'var(--color-danger-subtle)', borderRadius: 'var(--radius)', fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>{err}</div>}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 24px', borderTop: '1px solid var(--color-border)' }}>
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
             {busy ? 'Creating…' : 'Create'}
           </button>
@@ -101,25 +102,26 @@ const RenameTeamModal = ({ team, onClose, onRenamed }) => {
   };
 
   return (
-    <div className="admin-modal">
-      <div className="admin-panel p-6 max-w-md mx-auto">
-        <div className="flex items-center justify-between">
-          <h3 className="admin-title text-xl">Rename team</h3>
-          <button className="admin-pill admin-pill-muted" onClick={onClose}><X size={14} /> Close</button>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px', borderBottom: '1px solid var(--color-border)' }}>
+          <h3 className="section-title">Rename team</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
-        <label className="block mt-5 text-xs text-[color:var(--admin-muted)]">
-          New name
+        <div style={{ padding: '20px 24px' }}>
+          <label className="label">New name</label>
           <input
-            className="admin-input mt-1"
+            className="input"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submit()}
+            style={{ marginTop: 6 }}
           />
-        </label>
-        {err && <p className="mt-2 text-xs text-[color:var(--admin-accent-2)]">{err}</p>}
-        <div className="mt-5 flex justify-end gap-3">
-          <button className="admin-pill admin-pill-muted" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="admin-pill admin-pill-accent" onClick={submit} disabled={busy}>
+          {err && <div style={{ marginTop: 10, padding: '8px 12px', background: 'var(--color-danger-subtle)', borderRadius: 'var(--radius)', fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>{err}</div>}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 24px', borderTop: '1px solid var(--color-border)' }}>
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : 'Save'}
           </button>
         </div>
@@ -161,39 +163,40 @@ const AddMemberModal = ({ team, onClose, onAdded }) => {
   };
 
   return (
-    <div className="admin-modal">
-      <div className="admin-panel p-6 max-w-md mx-auto">
-        <div className="flex items-center justify-between">
-          <h3 className="admin-title text-xl">Add rep to team</h3>
-          <button className="admin-pill admin-pill-muted" onClick={onClose}><X size={14} /> Close</button>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px', borderBottom: '1px solid var(--color-border)' }}>
+          <h3 className="section-title">Add rep to team</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
-        <div className="mt-5">
+        <div style={{ padding: '20px 24px' }}>
           {loading ? (
-            <div className="flex items-center gap-2 text-sm text-[color:var(--admin-muted)]">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
               <Loader2 size={14} className="animate-spin" /> Loading agents…
             </div>
           ) : agents.length === 0 ? (
-            <p className="text-sm text-[color:var(--admin-muted)]">No unassigned sales reps available.</p>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>No unassigned sales reps available.</p>
           ) : (
-            <label className="text-xs text-[color:var(--admin-muted)]">
-              Select sales rep
+            <>
+              <label className="label">Select sales rep</label>
               <select
-                className="admin-select w-full mt-1"
+                className="input"
                 value={selectedId}
                 onChange={(e) => setSelectedId(e.target.value)}
+                style={{ marginTop: 6 }}
               >
                 <option value="">— Choose a rep —</option>
                 {agents.map((u) => (
                   <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
                 ))}
               </select>
-            </label>
+            </>
           )}
+          {err && <div style={{ marginTop: 10, padding: '8px 12px', background: 'var(--color-danger-subtle)', borderRadius: 'var(--radius)', fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>{err}</div>}
         </div>
-        {err && <p className="mt-2 text-xs text-[color:var(--admin-accent-2)]">{err}</p>}
-        <div className="mt-5 flex justify-end gap-3">
-          <button className="admin-pill admin-pill-muted" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="admin-pill admin-pill-accent" onClick={submit} disabled={busy || loading || agents.length === 0}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 24px', borderTop: '1px solid var(--color-border)' }}>
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy || loading || agents.length === 0}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
             {busy ? 'Adding…' : 'Add rep'}
           </button>
@@ -240,50 +243,39 @@ const TeamCard = ({ team: initialTeam, onRename }) => {
   };
 
   return (
-    <div className="admin-panel overflow-hidden transition hover:ring-1 hover:ring-[color:var(--admin-accent)]/30">
+    <div className="card" style={{ overflow: 'hidden', transition: 'box-shadow 0.2s' }}>
       {/* Team header row */}
-      <div className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        flexWrap: 'wrap', gap: 12, padding: '14px 20px',
+      }}>
         {/* Avatar + info */}
-        <div className="flex items-center gap-4">
-          <div
-            className="h-12 w-12 rounded-2xl flex items-center justify-center text-white text-xl font-bold flex-shrink-0"
-            style={{ background: 'var(--admin-accent)' }}
-          >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="avatar avatar-lg" style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)', fontSize: 16, borderRadius: 'var(--radius)' }}>
             {team.name?.[0]?.toUpperCase() ?? '?'}
           </div>
           <div>
-            <p className="text-sm font-semibold">{team.name}</p>
-            <p className="text-xs text-[color:var(--admin-muted)] flex items-center gap-1 mt-0.5">
+            <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)' }}>{team.name}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 2 }}>
               <User size={11} /> {team.manager_name ?? 'Unknown manager'}
-              <span className="mx-1 opacity-40">·</span>
+              <span style={{ opacity: 0.4 }}>·</span>
               <Mail size={11} /> {team.manager_email ?? ''}
-            </p>
+            </div>
           </div>
         </div>
 
         {/* Right side: count + actions */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs rounded-xl border border-[color:var(--admin-border)]/60 px-3 py-1.5">
-            <Users size={12} style={{ color: '#8b5cf6' }} />
-            <span className="font-semibold" style={{ color: '#8b5cf6' }}>{team.member_count ?? 0}</span>
-            <span className="text-[color:var(--admin-muted)]">reps</span>
-          </div>
-          <button
-            className="admin-pill"
-            onClick={() => onRename(team)}
-          >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span className="badge badge-accent" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Users size={12} /> {team.member_count ?? 0} reps
+          </span>
+          <button className="btn btn-secondary" onClick={() => onRename(team)}>
             <Edit2 size={13} /> Rename
           </button>
-          <button
-            className="admin-pill admin-pill-accent"
-            onClick={() => { setShowAddMember(true); if (!expanded) { setExpanded(true); loadMembers(); } }}
-          >
+          <button className="btn btn-primary" onClick={() => { setShowAddMember(true); if (!expanded) { setExpanded(true); loadMembers(); } }}>
             <Plus size={13} /> Add rep
           </button>
-          <button
-            className="admin-pill admin-pill-muted"
-            onClick={handleExpand}
-          >
+          <button className="btn btn-ghost" onClick={handleExpand}>
             {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             {expanded ? 'Collapse' : 'View members'}
           </button>
@@ -292,69 +284,62 @@ const TeamCard = ({ team: initialTeam, onRename }) => {
 
       {/* Members panel */}
       {expanded && (
-        <div className="border-t border-[color:var(--admin-border)]/40 px-5 py-4 space-y-3 bg-[color:var(--admin-panel)]/40">
+        <div style={{ borderTop: '1px solid var(--color-border)', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--color-bg-elevated)' }}>
           {err && (
-            <div className="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">{err}</div>
+            <div style={{ padding: '8px 12px', background: 'var(--color-danger-subtle)', borderRadius: 'var(--radius)', fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>{err}</div>
           )}
           {loadingMembers ? (
-            <div className="flex items-center gap-2 text-sm text-[color:var(--admin-muted)]">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
               <Loader2 size={14} className="animate-spin" /> Loading members…
             </div>
           ) : members.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[color:var(--admin-border)]/60 px-4 py-6 text-center text-sm text-[color:var(--admin-muted)]">
+            <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-lg)' }}>
               No reps in this team yet.
             </div>
           ) : (
             members.map((member) => (
               <div
                 key={member.id}
-                className="flex flex-col gap-3 rounded-2xl border border-[color:var(--admin-border)]/50 px-4 py-3 md:flex-row md:items-center md:justify-between"
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12,
+                  padding: '12px 16px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)',
+                  transition: 'background 0.1s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               >
                 {/* Identity */}
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-xl bg-[color:var(--admin-ink)]/10 flex items-center justify-center flex-shrink-0">
-                    <User size={16} />
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div className="avatar avatar-md avatar-accent"><User size={16} /></div>
                   <div>
-                    <p className="text-sm font-semibold">{member.full_name}</p>
-                    <p className="text-xs text-[color:var(--admin-muted)] flex items-center gap-1">
+                    <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)' }}>{member.full_name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
                       <Mail size={10} /> {member.email}
-                    </p>
+                    </div>
                   </div>
-                  <span
-                    className={`ml-2 text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                      member.status === 'active'
-                        ? 'bg-emerald-50 text-emerald-700'
-                        : member.status === 'invited'
-                          ? 'bg-amber-50 text-amber-700'
-                          : 'bg-gray-100 text-gray-500'
-                    }`}
-                  >
+                  <span className={`badge ${
+                    member.status === 'active' ? 'badge-success' :
+                    member.status === 'invited' ? 'badge-warning' : 'badge-muted'
+                  }`}>
                     {member.status}
                   </span>
                 </div>
 
                 {/* Stats + actions */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <Stat icon={TrendingUp} value={member.leads_count} label="Leads" color="var(--admin-accent)" />
-                  <Stat icon={Briefcase} value={member.deals_count} label="Deals" color="#10b981" />
-                  <Stat icon={CheckCircle2} value={member.tasks_open} label="Tasks" color="#f59e0b" />
-                  <button
-                    className="admin-pill"
-                    onClick={() =>
-                      navigate(`/admin/permissions?user=${encodeURIComponent(String(member.id))}`)
-                    }
-                  >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span className="badge badge-accent" style={{ gap: 4 }}><TrendingUp size={11} /> {member.leads_count ?? 0} Leads</span>
+                  <span className="badge badge-success" style={{ gap: 4 }}><Briefcase size={11} /> {member.deals_count ?? 0} Deals</span>
+                  <span className="badge badge-warning" style={{ gap: 4 }}><CheckCircle2 size={11} /> {member.tasks_open ?? 0} Tasks</span>
+                  <button className="btn btn-secondary" onClick={() => navigate(`/admin/permissions?user=${encodeURIComponent(String(member.id))}`)}>
                     <ShieldCheck size={13} /> Permissions
                   </button>
                   <button
-                    className="admin-pill admin-pill-muted"
+                    className="btn btn-ghost"
+                    style={{ color: 'var(--color-danger)' }}
                     onClick={() => handleRemove(member.id)}
                     disabled={removingId === String(member.id)}
                   >
-                    {removingId === String(member.id)
-                      ? <Loader2 size={13} className="animate-spin" />
-                      : <Trash2 size={13} />}
+                    {removingId === String(member.id) ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
                     Remove
                   </button>
                 </div>
@@ -404,28 +389,30 @@ const AdminTeams = ({ currentUser }) => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="admin-panel p-6 admin-rise flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--admin-muted)]">
-            Team Management
-          </p>
-          <h2 className="admin-title text-2xl mt-2">Sales Teams</h2>
-          <p className="text-sm text-[color:var(--admin-muted)] mt-2">
-            Each sales manager runs their own team. Expand a team to see reps,
-            progress stats, and manage permissions.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button className="admin-pill admin-pill-accent" onClick={() => setShowCreate(true)}>
-            <Plus size={16} /> New team
-          </button>
+      <div className="card" style={{ padding: '28px 32px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
+              Team Management
+            </div>
+            <h1 className="page-title">Sales Teams</h1>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 6, maxWidth: 500 }}>
+              Each sales manager runs their own team. Expand a team to see reps,
+              progress stats, and manage permissions.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              <Plus size={16} /> New team
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Summary strip */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
         {[
-          { label: 'Total Teams', value: teams.length, icon: Users, color: 'var(--admin-accent)' },
+          { label: 'Total Teams', value: teams.length, icon: Users, color: 'var(--color-accent)' },
           {
             label: 'Total Reps',
             value: teams.reduce((s, t) => s + (t.member_count ?? 0), 0),
@@ -439,17 +426,14 @@ const AdminTeams = ({ currentUser }) => {
             color: '#f59e0b',
           },
         ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="admin-panel p-5 admin-rise">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[color:var(--admin-muted)]">{label}</span>
-              <div
-                className="h-9 w-9 rounded-2xl flex items-center justify-center"
-                style={{ background: `${color}18`, color }}
-              >
+          <div key={label} className="card card-padding">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{label}</div>
+              <div style={{ width: 36, height: 36, borderRadius: 'var(--radius)', background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', color }}>
                 <Icon size={18} />
               </div>
             </div>
-            <div className="mt-4 text-3xl font-semibold">{value}</div>
+            <div style={{ fontSize: 'var(--text-3xl)', fontWeight: 'var(--weight-bold)', fontFamily: 'var(--font-display)', marginTop: 8 }}>{value}</div>
           </div>
         ))}
       </div>
@@ -462,13 +446,13 @@ const AdminTeams = ({ currentUser }) => {
 
       {/* Teams list */}
       {loading ? (
-        <div className="admin-panel p-6 flex items-center gap-2 text-sm text-[color:var(--admin-muted)]">
+        <div className="card card-padding" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
           <Loader2 size={16} className="animate-spin" /> Loading teams…
         </div>
       ) : teams.length === 0 ? (
-        <div className="admin-panel p-10 text-center">
-          <Users size={40} className="mx-auto mb-4 opacity-20" />
-          <p className="text-sm text-[color:var(--admin-muted)]">
+        <div className="card" style={{ padding: 40, textAlign: 'center' }}>
+          <Users size={40} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>
             No teams created yet. Create one to get started.
           </p>
         </div>

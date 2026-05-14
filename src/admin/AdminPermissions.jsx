@@ -103,17 +103,10 @@ const AdminPermissions = ({ currentUser }) => {
   };
 
   const toggle = (key) => { const n = { ...permissions, [key]: !permissions[key] }; setPermissions(n); save(n); };
-  const setAll = (v) => { const n = PERMISSION_GROUPS.reduce((a, g) => { g.permissions.forEach(p => { a[p.key] = v; }); return a; }, {}); setPermissions(n); save(n); };
-
-  const setAll = (value) => {
-    const next = visibleGroups.reduce((acc, group) => {
-      group.permissions.forEach((permission) => {
-        acc[permission.key] = value;
-      });
-      return acc;
-    }, { ...permissions });
-    setPermissions(next);
-    savePermissions(next);
+  const setAll = (v) => {
+    const n = visibleGroups.reduce((a, g) => { g.permissions.forEach(p => { a[p.key] = v; }); return a; }, { ...permissions });
+    setPermissions(n);
+    save(n);
   };
 
   return (
@@ -163,19 +156,21 @@ const AdminPermissions = ({ currentUser }) => {
             </div>
           </div>
 
-        <div className="space-y-4">
-          {visibleGroups.map((group) => (
-            <div key={group.label} className="admin-panel p-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">{group.label}</h3>
-                <div className="text-xs text-[color:var(--admin-muted)]">
-                  {permissionsLoading
-                    ? 'Loading permissions...'
-                    : saving
-                      ? 'Saving...'
-                      : savedAt
-                        ? `Saved ${savedAt.toLocaleTimeString()}`
-                        : 'Ready'}
+          {/* Permission Groups */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {visibleGroups.map((group) => (
+              <div key={group.label} className="card card-padding">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--weight-semibold)' }}>{group.label}</h3>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+                    {permissionsLoading
+                      ? 'Loading permissions...'
+                      : saving
+                        ? 'Saving...'
+                        : savedAt
+                          ? `Saved ${savedAt.toLocaleTimeString()}`
+                          : 'Ready'}
+                  </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   {group.permissions.map(perm => (
@@ -191,7 +186,7 @@ const AdminPermissions = ({ currentUser }) => {
                     </div>
                   ))}
                 </div>
-              </motion.div>
+              </div>
             ))}
 
             <div className="card" style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -9,9 +9,11 @@ import {
   listAdminUsers,
   updateAdminUser,
 } from './adminApi';
+import { PageTransition } from '../components/PageTransition';
 import { listTeams } from './teamsApi';
 
 const ROLE_OPTIONS = ['admin', 'manager', 'agent'];
+const ROLE_BADGE = { admin: 'badge-accent', manager: 'badge-success', agent: 'badge-muted' };
 const STATUS_OPTIONS = ['active', 'invited', 'disabled'];
 
 const INITIAL_FORM = {
@@ -45,7 +47,7 @@ const isCurrentUserRecord = (record, currentUser) => {
 
 const AdminUsers = ({ currentUser }) => {
   const navigate = useNavigate();
-  const adminActor = isAdmin(currentUser);
+  const adminActor = isAdminUser(currentUser);
   const allowedRoles = adminActor ? ROLE_OPTIONS : ['agent'];
   const defaultRole = adminActor ? 'manager' : 'agent';
   const [users, setUsers] = useState([]);
@@ -59,6 +61,7 @@ const AdminUsers = ({ currentUser }) => {
   const [error, setError] = useState('');
   const [teams, setTeams] = useState([]);
   const [teamsLoading, setTeamsLoading] = useState(false);
+  const [listRef] = useAutoAnimate();
 
   // Load teams list (for admin team dropdown when adding a sales rep)
   useEffect(() => {
@@ -75,7 +78,7 @@ const AdminUsers = ({ currentUser }) => {
   const load = useCallback(async (s = '') => {
     setError(''); setIsLoading(true);
     try { const d = await listAdminUsers({ search: s, page: 1, pageSize: 200 }); setUsers(d.items); setTotal(d.total); }
-    catch (e) { setError(getErr(e, 'Failed to load users.')); }
+    catch (e) { setError(getErrorMessage(e, 'Failed to load users.')); }
     finally { setIsLoading(false); }
   }, []);
 
@@ -125,9 +128,9 @@ const AdminUsers = ({ currentUser }) => {
     setError('');
     try {
       await createAdminUser(payload);
-      await loadUsers(query);
+      await load(query);
       setIsAdding(false);
-      resetForm();
+      setForm({ ...INITIAL_FORM, role: defaultRole });
     } catch (createError) {
       setError(getErrorMessage(createError, 'Failed to create user.'));
     } finally {
@@ -138,14 +141,14 @@ const AdminUsers = ({ currentUser }) => {
   const patch = async (id, upd) => {
     setBusyId(String(id)); setError('');
     try { const u = await updateAdminUser(id, upd); setUsers(p => p.map(r => String(r.id) === String(id) ? u : r)); }
-    catch (e) { setError(getErr(e, 'Failed to update.')); }
+    catch (e) { setError(getErrorMessage(e, 'Failed to update.')); }
     finally { setBusyId(''); }
   };
 
   const disable = async (id) => {
     setBusyId(String(id)); setError('');
     try { await deactivateAdminUser(id); setUsers(p => p.map(r => String(r.id) === String(id) ? { ...r, status: 'disabled' } : r)); }
-    catch (e) { setError(getErr(e, 'Failed to disable.')); }
+    catch (e) { setError(getErrorMessage(e, 'Failed to disable.')); }
     finally { setBusyId(''); }
   };
 
@@ -177,98 +180,14 @@ const AdminUsers = ({ currentUser }) => {
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{filtered.length} users shown of {total}</div>
               </div>
             </div>
-
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <label className="text-xs text-[color:var(--admin-muted)]">
-                Full name
-                <input
-                  value={form.full_name}
-                  onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      full_name: event.target.value,
-                    }))
-                  }
-                  className="admin-input"
-                  placeholder="e.g. Noor Ibrahim"
-                />
-              </label>
-              <label className="text-xs text-[color:var(--admin-muted)]">
-                Email
-                <input
-                  value={form.email}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, email: event.target.value }))
-                  }
-                  className="admin-input"
-                  placeholder="user@company.com"
-                />
-              </label>
-              <label className="text-xs text-[color:var(--admin-muted)]">
-                Role
-                <select
-                  value={form.role}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, role: event.target.value }))
-                  }
-                  className="admin-select"
-                  disabled={!adminActor}
-                >
-                  {allowedCreateRoles.map((role) => (
-                    <option key={role} value={role}>
-                      {role}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs text-[color:var(--admin-muted)]">
-                Status
-                <select
-                  value={form.status}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, status: event.target.value }))
-                  }
-                  className="admin-select"
-                >
-                  {STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {adminActor && isRepRole(form.role) && (
-                <label className="text-xs text-[color:var(--admin-muted)]">
-                  Assign to team
-                  <select
-                    value={form.team_id}
-                    onChange={(event) =>
-                      setForm((prev) => ({ ...prev, team_id: event.target.value }))
-                    }
-                    className="admin-select"
-                    disabled={teamsLoading}
-                  >
-                    <option value="">{teamsLoading ? 'Loading teams...' : '— Select a team —'}</option>
-                    {teams.map((team) => (
-                      <option key={team.id} value={team.id}>
-                        {team.name} ({team.manager_name || 'unknown manager'})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <label className="text-xs text-[color:var(--admin-muted)] md:col-span-2">
-                Password
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, password: event.target.value }))
-                  }
-                  className="admin-input"
-                  placeholder="Optional for invited users, required for active users"
-                />
-              </label>
+            <div style={{ flex: 1, maxWidth: 300 }}>
+              <input
+                className="input input-sm"
+                placeholder="Search by name or email..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                style={{ width: '100%' }}
+              />
             </div>
           </div>
 
@@ -292,23 +211,29 @@ const AdminUsers = ({ currentUser }) => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}><Mail size={11} /> {user.email}</div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginBottom: 3 }}>Role</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}>Role</span>
                     {adminActor ? (
-                      <select className="input" style={{ padding: '4px 8px', fontSize: 'var(--text-xs)', minWidth: 90 }} value={user.role} onChange={e => patch(user.id, { role: e.target.value })} disabled={busyId === String(user.id)}>
+                      <select className="input" style={{ padding: '6px 10px', fontSize: 'var(--text-sm)', minWidth: 100 }} value={user.role} onChange={e => patch(user.id, { role: e.target.value })} disabled={busyId === String(user.id)}>
                         {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
                       </select>
                     ) : <span className={`badge ${ROLE_BADGE[user.role] || 'badge-muted'}`}>{user.role}</span>}
                   </div>
-                  <div>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginBottom: 3 }}>Status</div>
-                    <select className="input" style={{ padding: '4px 8px', fontSize: 'var(--text-xs)', minWidth: 90 }} value={user.status} onChange={e => patch(user.id, { status: e.target.value })} disabled={busyId === String(user.id)}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}>Status</span>
+                    <select className="input" style={{ padding: '6px 10px', fontSize: 'var(--text-sm)', minWidth: 100 }} value={user.status} onChange={e => patch(user.id, { status: e.target.value })} disabled={busyId === String(user.id)}>
                       {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
-                  <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/admin/permissions?user=${encodeURIComponent(String(user.id))}`)}><Shield size={13} /> Permissions</button>
-                  {!isSelf(user, currentUser) && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--color-danger)' }} onClick={() => disable(user.id)} disabled={busyId === String(user.id)}>Disable</button>}
+                  <button className="btn btn-secondary" onClick={() => navigate(`/admin/permissions?user=${encodeURIComponent(String(user.id))}`)}>
+                    <Shield size={13} /> Permissions
+                  </button>
+                  {!isCurrentUserRecord(user, currentUser) && (
+                    <button className="btn btn-ghost" style={{ color: 'var(--color-danger)' }} onClick={() => disable(user.id)} disabled={busyId === String(user.id)}>
+                      Disable
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

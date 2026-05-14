@@ -79,15 +79,15 @@ const Sidebar = ({ onLogout, user, permissions }) => {
     ...(adminUser
       ? [{ name: consoleLabel, icon: Shield, path: '/admin', permission: 'admin_panel' }]
       : []),
-    { name: 'Users', icon: <Users size={18} />, path: '/admin/users', permission: 'admin_users' },
+    { name: 'Users', icon: Users, path: '/admin/users', permission: 'admin_users' },
     ...(adminUser
-      ? [{ name: 'Teams', icon: <Users size={18} />, path: '/admin/teams', permission: 'admin_users' }]
+      ? [{ name: 'Teams', icon: Users, path: '/admin/teams', permission: 'admin_users' }]
       : []),
     ...(isManager
-      ? [{ name: 'My Team', icon: <Users size={18} />, path: '/admin/team', permission: 'admin_users' }]
+      ? [{ name: 'My Team', icon: Users, path: '/admin/team', permission: 'admin_users' }]
       : []),
-    { name: 'Permissions', icon: <LayoutDashboard size={18} />, path: '/admin/permissions', permission: 'admin_users' },
-    { name: 'Imports', icon: <Users size={18} />, path: '/admin/imports', permission: 'import_data' },
+    { name: 'Permissions', icon: LayoutDashboard, path: '/admin/permissions', permission: 'admin_users' },
+    { name: 'Imports', icon: Users, path: '/admin/imports', permission: 'import_data' },
   ];
 
   const navItems = (isAdminRoute ? adminItems : menuItems).filter((item) =>
