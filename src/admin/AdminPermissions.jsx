@@ -29,7 +29,14 @@ const ToggleSwitch = ({ checked, onChange, disabled }) => (
   </button>
 );
 
-const AdminPermissions = () => {
+const isAdminUser = (user) => {
+  if (!user) return false;
+  if (user.is_admin || user.is_superuser) return true;
+  const role = (user.role || '').toString().toLowerCase();
+  return ['admin', 'administrator', 'system manager', 'superuser'].includes(role);
+};
+
+const AdminPermissions = ({ currentUser }) => {
   const [searchParams] = useSearchParams();
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -39,6 +46,15 @@ const AdminPermissions = () => {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [error, setError] = useState('');
+
+  // Managers only see CRM Core + Data Operations; admins see everything
+  const adminActor = isAdminUser(currentUser);
+  const visibleGroups = useMemo(
+    () => adminActor
+      ? PERMISSION_GROUPS
+      : PERMISSION_GROUPS.filter((g) => g.label !== 'Admin Panel'),
+    [adminActor]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -89,7 +105,16 @@ const AdminPermissions = () => {
   const toggle = (key) => { const n = { ...permissions, [key]: !permissions[key] }; setPermissions(n); save(n); };
   const setAll = (v) => { const n = PERMISSION_GROUPS.reduce((a, g) => { g.permissions.forEach(p => { a[p.key] = v; }); return a; }, {}); setPermissions(n); save(n); };
 
-  const statusText = permissionsLoading ? 'Loading...' : saving ? 'Saving...' : savedAt ? `Saved ${savedAt.toLocaleTimeString()}` : 'Ready';
+  const setAll = (value) => {
+    const next = visibleGroups.reduce((acc, group) => {
+      group.permissions.forEach((permission) => {
+        acc[permission.key] = value;
+      });
+      return acc;
+    }, { ...permissions });
+    setPermissions(next);
+    savePermissions(next);
+  };
 
   return (
     <PageTransition>
@@ -138,15 +163,19 @@ const AdminPermissions = () => {
             </div>
           </div>
 
-          {/* Permission Groups */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {PERMISSION_GROUPS.map(group => (
-              <motion.div key={group.label} className="card card-padding" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <h3 className="section-title">{group.label}</h3>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: saving ? 'var(--color-warning)' : savedAt ? 'var(--color-success)' : 'var(--color-text-tertiary)' }}>
-                    {savedAt && !saving && <CheckCircle size={12} />} {statusText}
-                  </div>
+        <div className="space-y-4">
+          {visibleGroups.map((group) => (
+            <div key={group.label} className="admin-panel p-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">{group.label}</h3>
+                <div className="text-xs text-[color:var(--admin-muted)]">
+                  {permissionsLoading
+                    ? 'Loading permissions...'
+                    : saving
+                      ? 'Saving...'
+                      : savedAt
+                        ? `Saved ${savedAt.toLocaleTimeString()}`
+                        : 'Ready'}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   {group.permissions.map(perm => (

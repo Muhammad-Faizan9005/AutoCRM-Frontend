@@ -115,12 +115,22 @@ const isAdminUser = (user) => {
   return ['admin', 'administrator', 'system manager', 'superuser'].includes(role);
 };
 
+const isManagerUser = (user) => {
+  if (!user) return false;
+  const role = (user.role || '').toString().toLowerCase();
+  return ['sales_manager', 'manager'].includes(role);
+};
+
 const applyDefaultPermissions = (user, storedPermissions) => {
   const defaults = { ...DEFAULT_PERMISSIONS };
 
   if (isAdminUser(user)) {
     defaults.import_data = true;
     defaults.admin_panel = true;
+    defaults.admin_users = true;
+    defaults.admin_permissions = true;
+  } else if (isManagerUser(user)) {
+    defaults.import_data = true;
     defaults.admin_users = true;
     defaults.admin_permissions = true;
   }

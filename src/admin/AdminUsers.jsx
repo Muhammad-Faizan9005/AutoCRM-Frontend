@@ -3,17 +3,45 @@ import { Loader2, Mail, Plus, Search, Shield, User, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
-import { createAdminUser, deactivateAdminUser, listAdminUsers, updateAdminUser } from './adminApi';
-import { PageTransition } from '../components/PageTransition';
+import {
+  createAdminUser,
+  deactivateAdminUser,
+  listAdminUsers,
+  updateAdminUser,
+} from './adminApi';
+import { listTeams } from './teamsApi';
 
 const ROLE_OPTIONS = ['admin', 'manager', 'agent'];
 const STATUS_OPTIONS = ['active', 'invited', 'disabled'];
-const ROLE_BADGE = { admin: 'badge-danger', manager: 'badge-warning', agent: 'badge-accent' };
-const STATUS_BADGE = { active: 'badge-success', invited: 'badge-accent', disabled: 'badge-muted' };
-const INITIAL_FORM = { full_name: '', email: '', role: 'manager', status: 'invited', password: '' };
-const getErr = (e, f) => e?.message || e?.data?.detail || f;
-const isAdmin = (u) => { if (!u) return false; if (u.is_admin || u.is_superuser) return true; return ['admin', 'administrator', 'system manager', 'superuser'].includes((u.role || '').toString().toLowerCase()); };
-const isSelf = (rec, cur) => { const rId = String(rec?.id || ''); const cId = String(cur?.id || ''); if (rId && cId && rId === cId) return true; return (rec?.email || '').toLowerCase() === (cur?.email || '').toLowerCase() && rec?.email; };
+
+const INITIAL_FORM = {
+  full_name: '',
+  email: '',
+  role: 'manager',
+  status: 'invited',
+  password: '',
+  team_id: '',
+};
+
+const getErrorMessage = (error, fallback) =>
+  error?.message || error?.data?.detail || fallback;
+
+const isAdminUser = (user) => {
+  if (!user) return false;
+  if (user.is_admin || user.is_superuser) return true;
+  const role = (user.role || '').toString().toLowerCase();
+  return ['admin', 'administrator', 'system manager', 'superuser'].includes(role);
+};
+
+const isCurrentUserRecord = (record, currentUser) => {
+  const recordId = String(record?.id || '');
+  const currentId = String(currentUser?.id || '');
+  if (recordId && currentId && recordId === currentId) return true;
+
+  const recordEmail = String(record?.email || '').toLowerCase();
+  const currentEmail = String(currentUser?.email || '').toLowerCase();
+  return Boolean(recordEmail && currentEmail && recordEmail === currentEmail);
+};
 
 const AdminUsers = ({ currentUser }) => {
   const navigate = useNavigate();
@@ -29,7 +57,20 @@ const AdminUsers = ({ currentUser }) => {
   const [busyId, setBusyId] = useState('');
   const [form, setForm] = useState(() => ({ ...INITIAL_FORM, role: defaultRole }));
   const [error, setError] = useState('');
-  const [listRef] = useAutoAnimate();
+  const [teams, setTeams] = useState([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+
+  // Load teams list (for admin team dropdown when adding a sales rep)
+  useEffect(() => {
+    if (!adminActor) return;
+    setTeamsLoading(true);
+    listTeams()
+      .then((data) => setTeams(data.items || []))
+      .catch(() => {})
+      .finally(() => setTeamsLoading(false));
+  }, [adminActor]);
+
+  const isRepRole = (role) => ['agent', 'sales_rep'].includes(role);
 
   const load = useCallback(async (s = '') => {
     setError(''); setIsLoading(true);
@@ -44,17 +85,54 @@ const AdminUsers = ({ currentUser }) => {
 
   const addUser = async () => {
     const email = form.email.trim();
-    if (!email) { setError('Email is required.'); return; }
-    const name = (form.full_name || '').trim() || email.split('@')[0] || '';
-    if (name.length < 2) { setError('Name must have at least 2 characters.'); return; }
-    const pw = (form.password || '').trim();
-    if (form.status === 'active' && pw.length < 6) { setError('Active users require a password (6+ chars).'); return; }
-    const payload = { full_name: name, email, role: form.role, status: form.status };
-    if (pw) payload.password = pw;
-    setIsSubmitting(true); setError('');
-    try { await createAdminUser(payload); await load(query); setIsAdding(false); setForm({ ...INITIAL_FORM, role: defaultRole }); }
-    catch (e) { setError(getErr(e, 'Failed to create user.')); }
-    finally { setIsSubmitting(false); }
+    if (!email) {
+      setError('Email is required.');
+      return;
+    }
+
+    const fullName = (form.full_name || '').trim() || email.split('@')[0] || '';
+    if (fullName.trim().length < 2) {
+      setError('Full name must have at least 2 characters.');
+      return;
+    }
+
+    const password = (form.password || '').trim();
+    if (form.status === 'active' && password.length < 6) {
+      setError('Active users require a password with at least 6 characters.');
+      return;
+    }
+
+    // Admin creating a sales rep must pick a team
+    if (adminActor && isRepRole(form.role) && !form.team_id) {
+      setError('Please select a team for the sales rep.');
+      return;
+    }
+
+    const payload = {
+      full_name: fullName,
+      email,
+      role: form.role,
+      status: form.status,
+    };
+    if (password) {
+      payload.password = password;
+    }
+    if (isRepRole(form.role) && form.team_id) {
+      payload.team_id = form.team_id;
+    }
+
+    setIsSubmitting(true);
+    setError('');
+    try {
+      await createAdminUser(payload);
+      await loadUsers(query);
+      setIsAdding(false);
+      resetForm();
+    } catch (createError) {
+      setError(getErrorMessage(createError, 'Failed to create user.'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const patch = async (id, upd) => {
@@ -99,9 +177,98 @@ const AdminUsers = ({ currentUser }) => {
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{filtered.length} users shown of {total}</div>
               </div>
             </div>
-            <div style={{ position: 'relative', minWidth: 240 }}>
-              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-tertiary)' }} />
-              <input type="search" className="search-input" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by name, email, or role" />
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <label className="text-xs text-[color:var(--admin-muted)]">
+                Full name
+                <input
+                  value={form.full_name}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      full_name: event.target.value,
+                    }))
+                  }
+                  className="admin-input"
+                  placeholder="e.g. Noor Ibrahim"
+                />
+              </label>
+              <label className="text-xs text-[color:var(--admin-muted)]">
+                Email
+                <input
+                  value={form.email}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, email: event.target.value }))
+                  }
+                  className="admin-input"
+                  placeholder="user@company.com"
+                />
+              </label>
+              <label className="text-xs text-[color:var(--admin-muted)]">
+                Role
+                <select
+                  value={form.role}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, role: event.target.value }))
+                  }
+                  className="admin-select"
+                  disabled={!adminActor}
+                >
+                  {allowedCreateRoles.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-[color:var(--admin-muted)]">
+                Status
+                <select
+                  value={form.status}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, status: event.target.value }))
+                  }
+                  className="admin-select"
+                >
+                  {STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {adminActor && isRepRole(form.role) && (
+                <label className="text-xs text-[color:var(--admin-muted)]">
+                  Assign to team
+                  <select
+                    value={form.team_id}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, team_id: event.target.value }))
+                    }
+                    className="admin-select"
+                    disabled={teamsLoading}
+                  >
+                    <option value="">{teamsLoading ? 'Loading teams...' : '— Select a team —'}</option>
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {team.name} ({team.manager_name || 'unknown manager'})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="text-xs text-[color:var(--admin-muted)] md:col-span-2">
+                Password
+                <input
+                  type="password"
+                  value={form.password}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, password: event.target.value }))
+                  }
+                  className="admin-input"
+                  placeholder="Optional for invited users, required for active users"
+                />
+              </label>
             </div>
           </div>
 
