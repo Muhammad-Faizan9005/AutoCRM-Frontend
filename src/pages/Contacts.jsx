@@ -1,29 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, RotateCcw, X, List as ListIcon, LayoutGrid } from 'lucide-react';
+import { Plus, Search, RotateCcw, Eye, Pencil, Trash2, MoreHorizontal, Download, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
+import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
+import { EmptyState } from '../components/EmptyState';
+import { SkeletonTable } from '../components/Skeleton';
 
-const statusColorMap = {
-  active: 'bg-green-100 text-green-800',
-  inactive: 'bg-gray-100 text-gray-700',
-  lead: 'bg-blue-100 text-blue-800',
-  churned: 'bg-red-100 text-red-800',
-};
-
-const statusLabelMap = {
-  active: 'Active',
-  inactive: 'Inactive',
-  lead: 'Lead',
-  churned: 'Churned',
-};
-
-const formatStatus = (status) => statusLabelMap[status] || 'Unknown';
+const STATUS_BADGE = { active: 'badge-success', inactive: 'badge-muted', lead: 'badge-accent', churned: 'badge-danger' };
+const STATUS_LABEL = { active: 'Active', inactive: 'Inactive', lead: 'Lead', churned: 'Churned' };
 
 const formatDate = (value) => {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleDateString();
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
 const mapCustomerToContact = (customer) => ({
@@ -33,475 +25,198 @@ const mapCustomerToContact = (customer) => ({
   org: customer.company || '-',
   status: customer.status || 'active',
   modified: formatDate(customer.updated_at),
+  fullName: customer.full_name || customer.email,
 });
 
+const getInitials = (name) => {
+  if (!name) return '?';
+  return name.split(/[\s@]+/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+};
+
 const Contacts = ({ user }) => {
-  // --- STATES ---
-  const [viewMode, setViewMode] = useState('Table');
   const [contacts, setContacts] = useState([]);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isExportOpen, setIsExportOpen] = useState(false);
-  const [activeDropdown, setActiveDropdown] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [visibleColumns, setVisibleColumns] = useState({ email: true, phone: true, mobile: true, org: true, status: true, modified: true });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalLoaded, setTotalLoaded] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const canDelete = user?.role === 'admin';
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [actionMenu, setActionMenu] = useState(null);
   const latestRequestId = useRef(0);
+  const [tbodyRef] = useAutoAnimate();
+  const canDelete = user?.role === 'admin';
+  const canEdit = user?.role === 'admin' || (user?.role || '').toLowerCase().includes('manager');
 
-  // Modal form
-  const [formData, setFormData] = useState({
-    salutation: 'Salutation',
-    firstName: '',
-    lastName: '',
-    email: '',
-    mobile: '',
-    gender: 'Gender',
-    company: '',
-    designation: '',
-    address: ''
-  });
-
-  const resetForm = () => {
-    setFormData({
-      salutation: 'Salutation',
-      firstName: '',
-      lastName: '',
-      email: '',
-      mobile: '',
-      gender: 'Gender',
-      company: '',
-      designation: '',
-      address: ''
-    });
-  };
+  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', mobile: '', company: '' });
+  const resetForm = () => setFormData({ firstName: '', lastName: '', email: '', mobile: '', company: '' });
 
   const fetchContacts = useCallback(async (skip = 0, append = false) => {
-    const requestId = latestRequestId.current + 1;
-    latestRequestId.current = requestId;
-
-    if (!append) {
-      setLoading(true);
-    } else {
-      setIsLoadingMore(true);
-    }
+    const requestId = ++latestRequestId.current;
+    if (!append) setLoading(true); else setIsLoadingMore(true);
     setError('');
-
     try {
       const limit = append ? 10 : 20;
       const data = await apiFetch(`/api/customers/?skip=${skip}&limit=${limit}`);
       if (requestId !== latestRequestId.current) return;
-
       const mapped = data.map(mapCustomerToContact);
-      
-      if (append) {
-        setContacts((prev) => [...prev, ...mapped]);
-      } else {
-        setContacts(mapped);
-      }
-      
+      if (append) setContacts((prev) => [...prev, ...mapped]); else setContacts(mapped);
       setTotalLoaded((prev) => prev + mapped.length);
       setHasMore(mapped.length === limit);
-      setError('');
     } catch (err) {
       if (requestId !== latestRequestId.current) return;
       setError(err?.message || 'Unable to load contacts.');
     } finally {
-      if (requestId === latestRequestId.current) {
-        if (!append) {
-          setLoading(false);
-        } else {
-          setIsLoadingMore(false);
-        }
-      }
+      if (requestId === latestRequestId.current) { if (!append) setLoading(false); else setIsLoadingMore(false); }
     }
   }, []);
 
-  useEffect(() => {
-    fetchContacts(0, false);
-  }, [fetchContacts]);
+  useEffect(() => { fetchContacts(0, false); }, [fetchContacts]);
 
-  const handleLoadMore = async () => {
-    await fetchContacts(totalLoaded, true);
-  };
-
-  // --- FILTERED CONTACTS ---
   const filteredContacts = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return contacts;
-
-    return contacts.filter((contact) => {
-      const values = [contact.email, contact.org, contact.phone, contact.modified];
-      return values.some((value) => String(value).toLowerCase().includes(term));
-    });
+    return contacts.filter((c) => [c.email, c.org, c.phone, c.fullName].some((v) => String(v).toLowerCase().includes(term)));
   }, [contacts, searchTerm]);
 
-  // --- SORT ---
-  const handleSort = (key) => {
-    const sorted = [...contacts].sort((a,b) => String(a[key]).localeCompare(String(b[key])));
-    setContacts(sorted);
-    setActiveDropdown(null);
-  };
-
-  // --- STATUS CHANGE ---
-  const handleStatusChange = async (id, newStatus) => {
-    setActiveDropdown(null);
-    setError('');
-
-    try {
-      const updated = await apiFetch(`/api/customers/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: newStatus }),
-      });
-
-      setContacts((prev) => prev.map((contact) => (
-        contact.id === id ? mapCustomerToContact(updated) : contact
-      )));
-    } catch (err) {
-      setError(err?.message || 'Unable to update contact status.');
-    }
-  };
-
-  // --- SAVE CONTACT ---
   const handleSaveContact = async (e) => {
     e.preventDefault();
     setError('');
-
     const firstName = formData.firstName.trim();
-    const lastName = formData.lastName.trim();
     const email = formData.email.trim();
-
-    if (!firstName || !email) {
-      setError('First name and email are required.');
-      return;
-    }
-
-    const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
-    const notes = [formData.designation, formData.address]
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .join(' | ');
-
-    const payload = {
-      email,
-      full_name: fullName,
-      phone: formData.mobile.trim() || undefined,
-      company: formData.company.trim() || undefined,
-      status: 'active',
-      notes: notes || undefined,
-    };
-
+    if (!firstName || !email) { setError('First name and email are required.'); return; }
+    const fullName = [firstName, formData.lastName.trim()].filter(Boolean).join(' ');
+    const payload = { email, full_name: fullName, phone: formData.mobile.trim() || undefined, company: formData.company.trim() || undefined, status: 'active' };
     setIsSaving(true);
-
     try {
-      const created = await apiFetch('/api/customers/', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
+      const created = await apiFetch('/api/customers/', { method: 'POST', body: JSON.stringify(payload) });
       setContacts((prev) => [mapCustomerToContact(created), ...prev]);
       setIsCreateModalOpen(false);
       resetForm();
-    } catch (err) {
-      setError(err?.message || 'Unable to create contact.');
-    } finally {
-      setIsSaving(false);
-    }
+    } catch (err) { setError(err?.message || 'Unable to create contact.'); }
+    finally { setIsSaving(false); }
   };
 
   const handleDeleteContact = async (id) => {
-    if (!canDelete) return;
-
-    const confirmed = window.confirm('Delete this contact?');
-    if (!confirmed) return;
-
+    if (!canDelete || !window.confirm('Delete this contact?')) return;
     setError('');
-    try {
-      await apiFetch(`/api/customers/${id}`, { method: 'DELETE' });
-      setContacts((prev) => prev.filter((contact) => contact.id !== id));
-    } catch (err) {
-      setError(err?.message || 'Unable to delete contact.');
-    }
+    try { await apiFetch(`/api/customers/${id}`, { method: 'DELETE' }); setContacts((prev) => prev.filter((c) => c.id !== id)); }
+    catch (err) { setError(err?.message || 'Unable to delete contact.'); }
   };
 
-  // --- EXPORT TO EXCEL ---
   const exportToExcel = () => {
     const ws = XLSX.utils.json_to_sheet(contacts);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Contacts");
     XLSX.writeFile(wb, "CRM_Contacts.xlsx");
-    setIsExportOpen(false);
-  };
-
-  // --- GROUPED CONTACTS ---
-  const groupedContacts = {
-    active: contacts.filter(c => c.status === 'active'),
-    inactive: contacts.filter(c => c.status === 'inactive'),
-    lead: contacts.filter(c => c.status === 'lead'),
-    churned: contacts.filter(c => c.status === 'churned'),
   };
 
   return (
-    <div className="min-h-screen p-4 bg-gray-50 font-sans text-sm space-y-3">
-
-      {/* HEADER */}
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-black tracking-tight">Contacts</h1>
-
-          {/* VIEW MODE SWITCH */}
-          <div className="relative">
-            <button onClick={() => setActiveDropdown(activeDropdown==='view'?null:'view')} className="flex items-center gap-1 px-2 py-1 border border-gray-300 rounded-md bg-white text-xs">
-              {viewMode==='Table'?<ListIcon size={14}/>:<LayoutGrid size={14}/>}{viewMode}
-            </button>
-            {activeDropdown==='view' && (
-              <div className="absolute top-full mt-1 left-0 bg-white border rounded shadow w-28 z-10 text-xs">
-                <div onClick={()=>{setViewMode('Table'); setActiveDropdown(null)}} className="p-2 hover:bg-gray-100 cursor-pointer">Table</div>
-                <div onClick={()=>{setViewMode('Kanban'); setActiveDropdown(null)}} className="p-2 hover:bg-gray-100 cursor-pointer">Kanban</div>
-              </div>
-            )}
+    <PageTransition>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h1 className="page-title">Contacts</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => { setTotalLoaded(0); fetchContacts(0, false); }} className="btn btn-ghost btn-icon" aria-label="Refresh"><RotateCcw size={16} /></button>
+            <button onClick={exportToExcel} className="btn btn-secondary btn-sm"><Download size={14} /> Export</button>
+            <button onClick={() => setIsCreateModalOpen(true)} className="btn btn-primary"><Plus size={15} /> Add Contact</button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button onClick={() => { setTotalLoaded(0); fetchContacts(0, false); }} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
-            <RotateCcw size={18} />
-          </button>
-          <button onClick={()=>setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold">
-            <Plus size={16}/> Create
-          </button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
-          {error}
-        </div>
-      )}
-
-      {loading && (
-        <div className="text-xs text-gray-500">Loading contacts...</div>
-      )}
-
-      {/* SEARCH + ACTIONS */}
-      <div className="flex justify-between items-center">
-        {/* SEARCH */}
-        <div className="relative w-64">
-          <Search className="absolute left-2 top-2 text-gray-400" size={16}/>
-          <input type="text" placeholder="Search contacts..." className="pl-8 pr-3 py-1.5 rounded-lg border border-gray-300 w-full text-xs" onChange={e=>setSearchTerm(e.target.value)}/>
+        <div style={{ position: 'relative', maxWidth: 320 }}>
+          <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-tertiary)' }} />
+          <input type="text" placeholder="Search contacts..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
 
-        {/* ACTION BUTTONS */}
-        <div className="flex gap-2">
+        {error && (
+          <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>
+        )}
 
-          {/* FILTER */}
-          <div className="relative">
-            <button onClick={()=>setActiveDropdown(activeDropdown==='filter'?null:'filter')} className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center">
-              <Filter size={14}/> Filter
-            </button>
-            {activeDropdown==='filter' && (
-              <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-40 z-50 text-xs">
-                {['Status','Organization'].map(f=>(<div key={f} className="p-2 hover:bg-gray-100 cursor-pointer">{f}</div>))}
-              </div>
-            )}
+        {loading ? <SkeletonTable rows={8} cols={6} /> : (
+          filteredContacts.length === 0 ? <EmptyState type="contacts" /> : (
+            <div className="card" style={{ overflow: 'hidden' }}>
+              <table className="data-table">
+                <thead><tr>
+                  <th style={{ width: 36 }}><input type="checkbox" className="checkbox-input" /></th>
+                  <th>Contact</th>
+                  <th>Organization</th>
+                  <th>Status</th>
+                  <th>Email</th>
+                  <th>Phone</th>
+                  <th>Modified</th>
+                  <th style={{ width: 60, textAlign: 'right' }}>Actions</th>
+                </tr></thead>
+                <motion.tbody ref={tbodyRef} variants={staggerContainer} initial="initial" animate="animate">
+                  {filteredContacts.map((c) => (
+                    <motion.tr key={c.id} variants={staggerItem}>
+                      <td><input type="checkbox" className="checkbox-input" /></td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div className="avatar avatar-sm avatar-accent">{getInitials(c.fullName)}</div>
+                          <span style={{ fontWeight: 'var(--weight-medium)' }}>{c.fullName}</span>
+                        </div>
+                      </td>
+                      <td style={{ color: 'var(--color-text-secondary)' }}>{c.org}</td>
+                      <td><span className={`badge ${STATUS_BADGE[c.status] || 'badge-muted'}`}>{STATUS_LABEL[c.status] || c.status}</span></td>
+                      <td style={{ color: 'var(--color-text-secondary)' }}>{c.email}</td>
+                      <td style={{ color: 'var(--color-text-secondary)' }}>{c.phone}</td>
+                      <td style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>{c.modified}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                          <button className="btn btn-ghost btn-icon" onClick={() => setActionMenu(actionMenu === c.id ? null : c.id)} aria-label="Row actions"><MoreHorizontal size={14} /></button>
+                          {actionMenu === c.id && (
+                            <div className="dropdown-menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)' }}>
+                              <button className="dropdown-item" onClick={() => setActionMenu(null)}><Eye size={14} /> View</button>
+                              {canEdit && <button className="dropdown-item" onClick={() => setActionMenu(null)}><Pencil size={14} /> Edit</button>}
+                              {canDelete && <button className="dropdown-item dropdown-item-danger" onClick={() => { handleDeleteContact(c.id); setActionMenu(null); }}><Trash2 size={14} /> Delete</button>}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </motion.tr>
+                  ))}
+                </motion.tbody>
+              </table>
+            </div>
+          )
+        )}
+
+        {!loading && hasMore && (
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <button onClick={() => fetchContacts(totalLoaded, true)} disabled={isLoadingMore} className="btn btn-secondary">{isLoadingMore ? 'Loading...' : 'Load More'}</button>
           </div>
+        )}
 
-          {/* SORT */}
-          <div className="relative">
-            <button onClick={()=>setActiveDropdown(activeDropdown==='sort'?null:'sort')} className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center">
-              <ArrowUpDown size={14}/> Sort
-            </button>
-            {activeDropdown==='sort' && (
-              <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-36 z-50 text-xs">
-                {['email','status','modified'].map(s=>(<div key={s} onClick={()=>handleSort(s)} className="p-2 hover:bg-gray-100 cursor-pointer capitalize">{s}</div>))}
-              </div>
-            )}
-          </div>
-
-          {/* COLUMNS */}
-          <div className="relative">
-            <button onClick={()=>setActiveDropdown(activeDropdown==='cols'?null:'cols')} className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center">
-              <LayoutPanelLeft size={14}/> Columns
-            </button>
-            {activeDropdown==='cols' && (
-              <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-36 z-50 text-xs">
-                {Object.keys(visibleColumns).map(col=>(
-                  <div key={col} onClick={()=>setVisibleColumns({...visibleColumns,[col]:!visibleColumns[col]})} className="flex justify-between p-2 hover:bg-gray-100 cursor-pointer capitalize">{col} {visibleColumns[col] && '✓'}</div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* EXPORT */}
-          <button onClick={()=>setIsExportOpen(true)} className="flex items-center gap-1 px-2 py-1 border border-gray-300 rounded-md bg-white text-xs">
-            <Download size={14}/> Export
-          </button>
-
-        </div>
-      </div>
-
-   {/* TABLE VIEW */}
-    {viewMode === 'Table' && !loading && (
-  <div className="mt-2 flex flex-col gap-1">
-    {/* HEADER */}
-    <div className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_1fr_80px] bg-black text-white text-[10px] uppercase font-bold px-2 py-1 rounded-t-md">
-      <div><input type="checkbox"/></div>
-      {visibleColumns.org && <div>Organization</div>}
-      {visibleColumns.phone && <div>Phone</div>}
-      {visibleColumns.status && <div>Status</div>}
-      {visibleColumns.email && <div>Email</div>}
-      {visibleColumns.mobile && <div>Mobile</div>}
-      {visibleColumns.modified && <div>Modified</div>}
-      <div>Action</div>
-    </div>
-
-    {/* ROWS */}
-    {filteredContacts.map(c => (
-      <div key={c.id} className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_1fr_80px] bg-white border-b border-gray-300 px-2 py-1 items-center text-xs">
-        <div><input type="checkbox"/></div>
-        {visibleColumns.org && <div className="font-bold">{c.org}</div>}
-        {visibleColumns.phone && <div>{c.phone}</div>}
-        {visibleColumns.status && <div>{formatStatus(c.status)}</div>}
-        {visibleColumns.email && <div>{c.email}</div>}
-        {visibleColumns.mobile && <div>{c.mobile || '-'}</div>}
-        {visibleColumns.modified && <div className="text-gray-400 italic">{c.modified}</div>}
-        <div className="flex flex-col justify-end text-right h-full pr-22">
-          {canDelete && (
-            <button
-              onClick={() => handleDeleteContact(c.id)}
-              className="text-red-500 text-xs"
-            >
-              Delete
-            </button>
+        <AnimatePresence>
+          {isCreateModalOpen && (
+            <motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsCreateModalOpen(false)}>
+              <motion.div className="modal-content" style={{ maxWidth: 500 }} onClick={(e) => e.stopPropagation()} initial={{ opacity: 0, scale: 0.97, y: 4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }} transition={{ duration: 0.25 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+                  <h3 className="section-title">Create Contact</h3>
+                  <button onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18} /></button>
+                </div>
+                <form id="contact-form" onSubmit={handleSaveContact} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div><label className="label">First Name *</label><input type="text" required className="input" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} /></div>
+                    <div><label className="label">Last Name</label><input type="text" className="input" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} /></div>
+                  </div>
+                  <div><label className="label">Email *</label><input type="email" required className="input" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} /></div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div><label className="label">Phone</label><input type="text" className="input" value={formData.mobile} onChange={(e) => setFormData({ ...formData, mobile: e.target.value })} /></div>
+                    <div><label className="label">Company</label><input type="text" className="input" value={formData.company} onChange={(e) => setFormData({ ...formData, company: e.target.value })} /></div>
+                  </div>
+                </form>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
+                  <button type="button" onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost">Discard</button>
+                  <button type="submit" form="contact-form" disabled={isSaving} className="btn btn-primary">{isSaving ? 'Creating...' : 'Create Contact'}</button>
+                </div>
+              </motion.div>
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
       </div>
-    ))}
-  </div>
-)}
-
-      {/* LOAD MORE BUTTON (Table Mode) */}
-      {viewMode === 'Table' && !loading && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <button
-            onClick={handleLoadMore}
-            disabled={isLoadingMore}
-            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
-          >
-            {isLoadingMore ? 'Loading more...' : 'Load More'}
-          </button>
-        </div>
-      )}
-
-      {/* KANBAN VIEW */}
-      {viewMode==='Kanban' && !loading && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-          {Object.entries(groupedContacts).map(([status, items])=>(
-            <div key={status} className="bg-gray-100 p-3 rounded-lg">
-              <h3 className="text-xs font-bold mb-2">{formatStatus(status)}</h3>
-              <div className="space-y-2">
-                {items.map(c=>(
-                  <div key={c.id} className="bg-white p-2 rounded shadow text-xs border">
-                    <div className="font-bold">{c.email}</div>
-                    <div className="text-gray-500">{c.org}</div>
-                    <div className="mt-1 flex justify-between items-center">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${statusColorMap[c.status]}`}>{formatStatus(c.status)}</span>
-                      {canDelete && (
-                        <button onClick={()=>handleDeleteContact(c.id)} className="text-red-500 text-[10px]">Delete</button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* LOAD MORE BUTTON (Kanban Mode) */}
-      {viewMode === 'Kanban' && !loading && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <button
-            onClick={handleLoadMore}
-            disabled={isLoadingMore}
-            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
-          >
-            {isLoadingMore ? 'Loading more...' : 'Load More'}
-          </button>
-        </div>
-      )}
-
-      {!loading && filteredContacts.length === 0 && (
-        <div className="text-xs text-gray-500">No contacts found.</div>
-      )}
-
-      {/* CREATE CONTACT MODAL */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/20 backdrop-blur-sm p-3">
-          <div className="bg-white w-full max-w-2xl rounded-lg shadow-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
-            <div className="flex justify-between items-center px-5 py-2 border-b border-gray-200 sticky top-0 bg-white z-20">
-              <h3 className="text-md font-semibold text-gray-900">Create Contact</h3>
-              <X size={18} className="cursor-pointer text-gray-400 hover:text-gray-700" onClick={()=>setIsCreateModalOpen(false)}/>
-            </div>
-            <div className="overflow-y-auto max-h-[65vh] p-5">
-              <form id="contact-form" onSubmit={handleSaveContact} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                {[
-                  {name:'salutation', label:'Salutation', type:'select', options:['Salutation','Mr.','Ms.']},
-                  {name:'firstName', label:'First Name', type:'text', required: true},
-                  {name:'lastName', label:'Last Name', type:'text'},
-                  {name:'email', label:'Email', type:'email', required: true},
-                  {name:'mobile', label:'Mobile', type:'text'},
-                  {name:'gender', label:'Gender', type:'select', options:['Gender','Male','Female']},
-                  {name:'company', label:'Company', type:'text'},
-                  {name:'designation', label:'Designation', type:'text'},
-                  {name:'address', label:'Address', type:'text'}
-                ].map((f,i)=> (
-                  <div key={i}>
-                    <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">{f.label}</label>
-                    {f.type==='select' ? (
-                      <select className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300"
-                        value={formData[f.name]} 
-                        onChange={e=>setFormData({...formData,[f.name]:e.target.value})}>
-                        {f.options.map((opt,idx)=><option key={idx}>{opt}</option>)}
-                      </select>
-                    ) : (
-                      <input type={f.type} className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300"
-                        value={formData[f.name]} 
-                        onChange={e=>setFormData({...formData,[f.name]:e.target.value})}
-                        required={f.required} />
-                    )}
-                  </div>
-                ))}
-              </form>
-            </div>
-            <div className="flex justify-end gap-2 px-5 py-2 border-t bg-white sticky bottom-0 z-20">
-              <button type="button" onClick={()=>setIsCreateModalOpen(false)} className="px-4 py-1.5 text-gray-600 font-medium text-sm hover:bg-gray-100 rounded-md transition">Discard</button>
-              <button type="submit" form="contact-form" disabled={isSaving} className="px-5 py-1.5 bg-gray-900 text-white font-medium text-sm rounded-md shadow hover:bg-gray-800 transition-all active:scale-95 disabled:opacity-60">
-                {isSaving ? 'Creating...' : 'Create'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* EXPORT MODAL */}
-      {isExportOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-80 shadow-lg">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-sm">Export Contacts</h3>
-              <X size={16} className="cursor-pointer text-gray-400 hover:text-black" onClick={()=>setIsExportOpen(false)}/>
-            </div>
-            <button onClick={exportToExcel} className="w-full bg-black text-white py-2 rounded text-xs font-bold hover:bg-gray-800 transition">Download Excel</button>
-          </div>
-        </div>
-      )}
-
-    </div>
+    </PageTransition>
   );
 };
 

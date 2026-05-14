@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Mail, Plus, Search, Shield, User } from 'lucide-react';
+import { Loader2, Mail, Plus, Search, Shield, User, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import {
   createAdminUser,
@@ -43,8 +45,8 @@ const isCurrentUserRecord = (record, currentUser) => {
 
 const AdminUsers = ({ currentUser }) => {
   const navigate = useNavigate();
-  const adminActor = isAdminUser(currentUser);
-  const allowedCreateRoles = adminActor ? ROLE_OPTIONS : ['agent'];
+  const adminActor = isAdmin(currentUser);
+  const allowedRoles = adminActor ? ROLE_OPTIONS : ['agent'];
   const defaultRole = adminActor ? 'manager' : 'agent';
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
@@ -52,7 +54,7 @@ const AdminUsers = ({ currentUser }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [busyUserId, setBusyUserId] = useState('');
+  const [busyId, setBusyId] = useState('');
   const [form, setForm] = useState(() => ({ ...INITIAL_FORM, role: defaultRole }));
   const [error, setError] = useState('');
   const [teams, setTeams] = useState([]);
@@ -70,36 +72,16 @@ const AdminUsers = ({ currentUser }) => {
 
   const isRepRole = (role) => ['agent', 'sales_rep'].includes(role);
 
-  const loadUsers = useCallback(async (searchTerm = '') => {
-    setError('');
-    setIsLoading(true);
-    try {
-      const data = await listAdminUsers({ search: searchTerm, page: 1, pageSize: 200 });
-      setUsers(data.items);
-      setTotal(data.total);
-    } catch (loadError) {
-      setError(getErrorMessage(loadError, 'Failed to load users.'));
-    } finally {
-      setIsLoading(false);
-    }
+  const load = useCallback(async (s = '') => {
+    setError(''); setIsLoading(true);
+    try { const d = await listAdminUsers({ search: s, page: 1, pageSize: 200 }); setUsers(d.items); setTotal(d.total); }
+    catch (e) { setError(getErr(e, 'Failed to load users.')); }
+    finally { setIsLoading(false); }
   }, []);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadUsers(query);
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [loadUsers, query]);
+  useEffect(() => { const t = setTimeout(() => load(query), 250); return () => clearTimeout(t); }, [load, query]);
 
-  const filteredUsers = useMemo(() => {
-    if (adminActor) return users;
-    return users.filter((user) => user.role === 'agent');
-  }, [users, adminActor]);
-
-  const resetForm = () => {
-    setForm({ ...INITIAL_FORM, role: defaultRole });
-    setError('');
-  };
+  const filtered = useMemo(() => adminActor ? users : users.filter(u => u.role === 'agent'), [users, adminActor]);
 
   const addUser = async () => {
     const email = form.email.trim();
@@ -153,195 +135,47 @@ const AdminUsers = ({ currentUser }) => {
     }
   };
 
-  const patchUser = async (userId, updates) => {
-    setBusyUserId(String(userId));
-    setError('');
-    try {
-      const updated = await updateAdminUser(userId, updates);
-      setUsers((prev) => prev.map((row) => (String(row.id) === String(userId) ? updated : row)));
-    } catch (updateError) {
-      setError(getErrorMessage(updateError, 'Failed to update user.'));
-    } finally {
-      setBusyUserId('');
-    }
+  const patch = async (id, upd) => {
+    setBusyId(String(id)); setError('');
+    try { const u = await updateAdminUser(id, upd); setUsers(p => p.map(r => String(r.id) === String(id) ? u : r)); }
+    catch (e) { setError(getErr(e, 'Failed to update.')); }
+    finally { setBusyId(''); }
   };
 
-  const disableUser = async (userId) => {
-    setBusyUserId(String(userId));
-    setError('');
-    try {
-      await deactivateAdminUser(userId);
-      setUsers((prev) =>
-        prev.map((row) =>
-          String(row.id) === String(userId) ? { ...row, status: 'disabled' } : row,
-        ),
-      );
-    } catch (deactivateError) {
-      setError(getErrorMessage(deactivateError, 'Failed to disable user.'));
-    } finally {
-      setBusyUserId('');
-    }
+  const disable = async (id) => {
+    setBusyId(String(id)); setError('');
+    try { await deactivateAdminUser(id); setUsers(p => p.map(r => String(r.id) === String(id) ? { ...r, status: 'disabled' } : r)); }
+    catch (e) { setError(getErr(e, 'Failed to disable.')); }
+    finally { setBusyId(''); }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="admin-panel p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--admin-muted)]">
-            User Registry
-          </p>
-          <h2 className="admin-title text-2xl mt-2">Manage operators</h2>
-          <p className="text-sm text-[color:var(--admin-muted)] mt-2">
-            Add, invite, or deactivate CRM users. Permissions can be tuned from
-            the permissions panel.
-          </p>
-        </div>
-        <button
-          className="admin-pill admin-pill-accent"
-          onClick={() => setIsAdding(true)}
-        >
-          <Plus size={16} />
-          Add user
-        </button>
-      </div>
+    <PageTransition>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      <div className="admin-panel p-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-2xl bg-[color:var(--admin-accent)]/10 text-[color:var(--admin-accent)] flex items-center justify-center">
-              {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-            </div>
+        {/* Header */}
+        <div className="card" style={{ padding: '24px 28px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
             <div>
-              <p className="text-sm font-semibold">Search directory</p>
-              <p className="text-xs text-[color:var(--admin-muted)]">
-                {filteredUsers.length} users shown of {total}
-              </p>
+              <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--color-text-tertiary)', marginBottom: 4 }}>User Registry</div>
+              <h1 className="page-title" style={{ fontSize: 'var(--text-2xl)' }}>Manage operators</h1>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 4 }}>Add, invite, or deactivate CRM users. Permissions can be tuned from the permissions panel.</p>
             </div>
-          </div>
-          <div className="admin-inline-input">
-            <Search size={14} className="text-[color:var(--admin-muted)]" />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by name, email, or role"
-            />
+            <button className="btn btn-primary" onClick={() => setIsAdding(true)}><Plus size={15} /> Add user</button>
           </div>
         </div>
 
-        {error && (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="mt-6 space-y-3">
-          {filteredUsers.map((user) => (
-            <div
-              key={user.id}
-              className="flex flex-col gap-4 rounded-2xl border border-[color:var(--admin-border)]/60 px-4 py-4 md:flex-row md:items-center md:justify-between"
-            >
-              <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-2xl bg-[color:var(--admin-ink)]/10 flex items-center justify-center">
-                  <User size={18} />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-[color:var(--admin-ink)]">
-                    {user.full_name}
-                  </p>
-                  <p className="text-xs text-[color:var(--admin-muted)] flex items-center gap-1">
-                    <Mail size={12} />
-                    {user.email}
-                  </p>
-                </div>
+        {/* Search */}
+        <div className="card card-padding">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 'var(--radius)', background: 'var(--color-accent-subtle)', color: 'var(--color-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
               </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-              <label className="text-xs text-[color:var(--admin-muted)]">
-                Role
-                {adminActor ? (
-                  <select
-                    value={user.role}
-                    onChange={(event) => patchUser(user.id, { role: event.target.value })}
-                    className="admin-select"
-                    disabled={busyUserId === String(user.id)}
-                  >
-                    {ROLE_OPTIONS.map((role) => (
-                      <option key={role} value={role}>
-                        {role}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="mt-1 text-[11px] rounded-xl border border-[color:var(--admin-border)]/70 px-3 py-2 text-[color:var(--admin-muted)] bg-gray-50">
-                    {user.role}
-                  </div>
-                )}
-              </label>
-                <label className="text-xs text-[color:var(--admin-muted)]">
-                  Status
-                  <select
-                    value={user.status}
-                    onChange={(event) => patchUser(user.id, { status: event.target.value })}
-                    className="admin-select"
-                    disabled={busyUserId === String(user.id)}
-                  >
-                    {STATUS_OPTIONS.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="admin-pill"
-                  onClick={() =>
-                    navigate(`/admin/permissions?user=${encodeURIComponent(String(user.id))}`)
-                  }
-                >
-                  <Shield size={14} />
-                  Permissions
-                </button>
-                {!isCurrentUserRecord(user, currentUser) && (
-                  <button
-                    className="admin-pill admin-pill-muted"
-                    onClick={() => disableUser(user.id)}
-                    disabled={busyUserId === String(user.id)}
-                  >
-                    Disable
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {!isLoading && filteredUsers.length === 0 && (
-            <div className="rounded-2xl border border-[color:var(--admin-border)]/60 px-4 py-6 text-sm text-[color:var(--admin-muted)]">
-              No users found for this filter.
-            </div>
-          )}
-        </div>
-      </div>
-
-      {isAdding && (
-        <div className="admin-modal">
-          <div className="admin-panel p-6 max-w-xl mx-auto">
-            <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--admin-muted)]">
-                  Invite user
-                </p>
-                <h3 className="admin-title text-xl mt-2">Add a new operator</h3>
+                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-semibold)' }}>Search directory</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{filtered.length} users shown of {total}</div>
               </div>
-              <button
-                className="admin-pill admin-pill-muted"
-                onClick={() => {
-                  setIsAdding(false);
-                  resetForm();
-                }}
-              >
-                Close
-              </button>
             </div>
 
             <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -436,36 +270,84 @@ const AdminUsers = ({ currentUser }) => {
                 />
               </label>
             </div>
+          </div>
 
-            {error && (
-              <div className="mt-4 text-xs text-[color:var(--admin-accent-2)]">
-                {error}
+          {error && <div style={{ marginTop: 14, padding: 10, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>{error}</div>}
+
+          {/* User List */}
+          <div ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
+            {filtered.map(user => (
+              <div key={user.id} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12,
+                padding: '14px 18px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)',
+                transition: 'background 0.1s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div className="avatar avatar-md avatar-accent"><User size={18} /></div>
+                  <div>
+                    <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)' }}>{user.full_name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}><Mail size={11} /> {user.email}</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginBottom: 3 }}>Role</div>
+                    {adminActor ? (
+                      <select className="input" style={{ padding: '4px 8px', fontSize: 'var(--text-xs)', minWidth: 90 }} value={user.role} onChange={e => patch(user.id, { role: e.target.value })} disabled={busyId === String(user.id)}>
+                        {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    ) : <span className={`badge ${ROLE_BADGE[user.role] || 'badge-muted'}`}>{user.role}</span>}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginBottom: 3 }}>Status</div>
+                    <select className="input" style={{ padding: '4px 8px', fontSize: 'var(--text-xs)', minWidth: 90 }} value={user.status} onChange={e => patch(user.id, { status: e.target.value })} disabled={busyId === String(user.id)}>
+                      {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/admin/permissions?user=${encodeURIComponent(String(user.id))}`)}><Shield size={13} /> Permissions</button>
+                  {!isSelf(user, currentUser) && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--color-danger)' }} onClick={() => disable(user.id)} disabled={busyId === String(user.id)}>Disable</button>}
+                </div>
               </div>
+            ))}
+            {!isLoading && filtered.length === 0 && (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>No users found.</div>
             )}
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                className="admin-pill admin-pill-muted"
-                onClick={() => {
-                  setIsAdding(false);
-                  resetForm();
-                }}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </button>
-              <button
-                className="admin-pill admin-pill-accent"
-                onClick={addUser}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? 'Adding...' : 'Add user'}
-              </button>
-            </div>
           </div>
         </div>
-      )}
-    </div>
+
+        {/* Add User Modal */}
+        <AnimatePresence>
+          {isAdding && (
+            <motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setIsAdding(false); setForm({ ...INITIAL_FORM, role: defaultRole }); setError(''); }}>
+              <motion.div className="modal-content" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()} initial={{ opacity: 0, scale: 0.97, y: 4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+                  <div>
+                    <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.15em', color: 'var(--color-text-tertiary)' }}>Invite user</div>
+                    <h3 className="section-title" style={{ marginTop: 2 }}>Add a new operator</h3>
+                  </div>
+                  <button onClick={() => { setIsAdding(false); setError(''); }} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18} /></button>
+                </div>
+                <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div><label className="label">Full name</label><input className="input" value={form.full_name} onChange={e => setForm(p => ({ ...p, full_name: e.target.value }))} placeholder="e.g. Noor Ibrahim" /></div>
+                  <div><label className="label">Email</label><input className="input" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="user@company.com" /></div>
+                  <div><label className="label">Role</label><select className="input" value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))} disabled={!adminActor}>{allowedRoles.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                  <div><label className="label">Status</label><select className="input" value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>{STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                  <div style={{ gridColumn: '1 / -1' }}><label className="label">Password</label><input type="password" className="input" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} placeholder="Optional for invited, required for active" /></div>
+                </div>
+                {error && <div style={{ margin: '0 20px 12px', padding: 10, background: 'var(--color-danger-subtle)', borderRadius: 'var(--radius)', fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>{error}</div>}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
+                  <button className="btn btn-ghost" onClick={() => { setIsAdding(false); setError(''); }} disabled={isSubmitting}>Cancel</button>
+                  <button className="btn btn-primary" onClick={addUser} disabled={isSubmitting}>{isSubmitting ? 'Adding...' : 'Add user'}</button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </PageTransition>
   );
 };
 

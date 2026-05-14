@@ -53,7 +53,7 @@ const AdminLayout = ({ user, onLogout, permissions }) => {
   const showDashboard = adminUser;
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg-base)' }}>
       <Sidebar onLogout={onLogout} user={user} permissions={permissions} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-6">

@@ -1,15 +1,33 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, ShieldCheck, UserCheck } from 'lucide-react';
+import { Loader2, ShieldCheck, UserCheck, CheckCircle } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { useSearchParams } from 'react-router-dom';
 import { DEFAULT_PERMISSIONS, PERMISSION_GROUPS } from './permissionsStore';
-import {
-  getAdminUserPermissions,
-  listAdminUsers,
-  updateAdminUserPermissions,
-} from './adminApi';
+import { getAdminUserPermissions, listAdminUsers, updateAdminUserPermissions } from './adminApi';
+import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 
-const getErrorMessage = (error, fallback) =>
-  error?.message || error?.data?.detail || fallback;
+const getErr = (e, f) => e?.message || e?.data?.detail || f;
+
+const ToggleSwitch = ({ checked, onChange, disabled }) => (
+  <button
+    type="button"
+    onClick={onChange}
+    disabled={disabled}
+    aria-pressed={checked}
+    style={{
+      position: 'relative', width: 44, height: 24, borderRadius: 999, border: 'none', padding: 2,
+      cursor: disabled ? 'default' : 'pointer', flexShrink: 0, transition: 'background 0.2s',
+      background: checked ? 'var(--color-accent)' : 'var(--color-border-strong)',
+      opacity: disabled ? 0.4 : 1,
+    }}
+  >
+    <span style={{
+      display: 'block', width: 18, height: 18, borderRadius: '50%',
+      background: 'var(--color-text-inverse)', boxShadow: 'var(--shadow-sm)',
+      transition: 'transform 0.2s', transform: checked ? 'translateX(20px)' : 'translateX(0)',
+    }} />
+  </button>
+);
 
 const isAdminUser = (user) => {
   if (!user) return false;
@@ -40,113 +58,52 @@ const AdminPermissions = ({ currentUser }) => {
 
   useEffect(() => {
     let mounted = true;
-    const initialUserId = searchParams.get('user');
-
-    const loadUsers = async () => {
-      setUsersLoading(true);
-      setError('');
+    const uid = searchParams.get('user');
+    (async () => {
+      setUsersLoading(true); setError('');
       try {
-        const data = await listAdminUsers({ page: 1, pageSize: 200 });
+        const d = await listAdminUsers({ page: 1, pageSize: 200 });
         if (!mounted) return;
-        setUsers(data.items);
-
-        if (data.items.length === 0) {
-          setActiveUserId('');
-          return;
-        }
-
-        const matched = data.items.find((user) => String(user.id) === String(initialUserId));
-        setActiveUserId(String((matched || data.items[0]).id));
-      } catch (loadError) {
-        if (mounted) {
-          setError(getErrorMessage(loadError, 'Failed to load users.'));
-        }
-      } finally {
-        if (mounted) {
-          setUsersLoading(false);
-        }
-      }
-    };
-
-    loadUsers();
-    return () => {
-      mounted = false;
-    };
+        setUsers(d.items);
+        if (d.items.length === 0) { setActiveUserId(''); return; }
+        const match = d.items.find(u => String(u.id) === String(uid));
+        setActiveUserId(String((match || d.items[0]).id));
+      } catch (e) { if (mounted) setError(getErr(e, 'Failed to load users.')); }
+      finally { if (mounted) setUsersLoading(false); }
+    })();
+    return () => { mounted = false; };
   }, [searchParams]);
 
-  const activeUser = useMemo(
-    () => users.find((user) => String(user.id) === String(activeUserId)) || null,
-    [users, activeUserId],
-  );
+  const activeUser = useMemo(() => users.find(u => String(u.id) === String(activeUserId)) || null, [users, activeUserId]);
 
   useEffect(() => {
     let mounted = true;
-    const loadPermissions = async () => {
-      if (!activeUser?.id) {
-        setPermissions({ ...DEFAULT_PERMISSIONS });
-        return;
-      }
-
-      setPermissionsLoading(true);
-      setError('');
+    if (!activeUser?.id) { setPermissions({ ...DEFAULT_PERMISSIONS }); return; }
+    (async () => {
+      setPermissionsLoading(true); setError('');
       try {
-        const data = await getAdminUserPermissions(activeUser.id);
-        if (mounted) {
-          setPermissions({ ...DEFAULT_PERMISSIONS, ...(data?.permissions || {}) });
-          setSavedAt(null);
-        }
-      } catch (loadError) {
-        if (mounted) {
-          setError(getErrorMessage(loadError, 'Failed to load permissions.'));
-          setPermissions({ ...DEFAULT_PERMISSIONS });
-        }
-      } finally {
-        if (mounted) {
-          setPermissionsLoading(false);
-        }
-      }
-    };
-
-    loadPermissions();
-    return () => {
-      mounted = false;
-    };
+        const d = await getAdminUserPermissions(activeUser.id);
+        if (mounted) { setPermissions({ ...DEFAULT_PERMISSIONS, ...(d?.permissions || {}) }); setSavedAt(null); }
+      } catch (e) { if (mounted) { setError(getErr(e, 'Failed to load permissions.')); setPermissions({ ...DEFAULT_PERMISSIONS }); } }
+      finally { if (mounted) setPermissionsLoading(false); }
+    })();
+    return () => { mounted = false; };
   }, [activeUser]);
 
-  const savePermissions = async (nextPermissions) => {
+  const save = async (next) => {
     if (!activeUser?.id) return;
-
-    setSaving(true);
-    setError('');
+    setSaving(true); setError('');
     try {
-      const response = await updateAdminUserPermissions(activeUser.id, nextPermissions);
-      const saved = { ...DEFAULT_PERMISSIONS, ...(response?.permissions || nextPermissions) };
-      setPermissions(saved);
-      setSavedAt(new Date());
-
-      window.dispatchEvent(
-        new CustomEvent('autocrm-permissions-updated', {
-          detail: {
-            userId: activeUser.id,
-            permissions: saved,
-          },
-        }),
-      );
-    } catch (saveError) {
-      setError(getErrorMessage(saveError, 'Failed to save permissions.'));
-    } finally {
-      setSaving(false);
-    }
+      const r = await updateAdminUserPermissions(activeUser.id, next);
+      const saved = { ...DEFAULT_PERMISSIONS, ...(r?.permissions || next) };
+      setPermissions(saved); setSavedAt(new Date());
+      window.dispatchEvent(new CustomEvent('autocrm-permissions-updated', { detail: { userId: activeUser.id, permissions: saved } }));
+    } catch (e) { setError(getErr(e, 'Failed to save.')); }
+    finally { setSaving(false); }
   };
 
-  const togglePermission = (permissionKey) => {
-    const next = {
-      ...permissions,
-      [permissionKey]: !permissions[permissionKey],
-    };
-    setPermissions(next);
-    savePermissions(next);
-  };
+  const toggle = (key) => { const n = { ...permissions, [key]: !permissions[key] }; setPermissions(n); save(n); };
+  const setAll = (v) => { const n = PERMISSION_GROUPS.reduce((a, g) => { g.permissions.forEach(p => { a[p.key] = v; }); return a; }, {}); setPermissions(n); save(n); };
 
   const setAll = (value) => {
     const next = visibleGroups.reduce((acc, group) => {
@@ -160,81 +117,51 @@ const AdminPermissions = ({ currentUser }) => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="admin-panel p-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--admin-muted)]">
-            Permission Studio
-          </p>
-          <h2 className="admin-title text-2xl mt-2">Feature access matrix</h2>
-          <p className="text-sm text-[color:var(--admin-muted)] mt-2">
-            Toggle what each operator can see inside the CRM. Changes apply
-            instantly to the navigation and routes.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button className="admin-pill" onClick={() => setAll(true)} disabled={!activeUser || saving}>
-            Enable all
-          </button>
-          <button
-            className="admin-pill admin-pill-muted"
-            onClick={() => setAll(false)}
-            disabled={!activeUser || saving}
-          >
-            Lock down
-          </button>
-        </div>
-      </div>
+    <PageTransition>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
-          {error}
-        </div>
-      )}
-
-      <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-        <div className="admin-panel p-5">
-          <div className="flex items-center gap-2 text-xs text-[color:var(--admin-muted)]">
-            <UserCheck size={14} />
-            Select operator
+        {/* Header */}
+        <div className="card" style={{ padding: '24px 28px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--color-text-tertiary)', marginBottom: 4 }}>Permission Studio</div>
+              <h1 className="page-title" style={{ fontSize: 'var(--text-2xl)' }}>Feature access matrix</h1>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 4 }}>Toggle what each operator can see inside the CRM. Changes apply instantly.</p>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary" onClick={() => setAll(true)} disabled={!activeUser || saving}>Enable all</button>
+              <button className="btn btn-ghost" onClick={() => setAll(false)} disabled={!activeUser || saving}>Lock down</button>
+            </div>
           </div>
-          <div className="mt-4 space-y-2">
-            {usersLoading && (
-              <div className="flex items-center gap-2 text-xs text-[color:var(--admin-muted)]">
-                <Loader2 size={14} className="animate-spin" />
-                Loading users...
-              </div>
-            )}
+        </div>
 
-            {!usersLoading &&
-              users.map((user) => {
-                const key = String(user.id);
-                const isActive = key === String(activeUserId);
+        {error && <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 16 }}>
+          {/* User List */}
+          <div className="card card-padding">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
+              <UserCheck size={14} /> Select operator
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {usersLoading && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}><Loader2 size={14} className="animate-spin" /> Loading...</div>}
+              {!usersLoading && users.map(u => {
+                const active = String(u.id) === String(activeUserId);
                 return (
-                  <button
-                    key={key}
-                    className={`w-full rounded-2xl px-4 py-3 text-left text-sm transition ${
-                      isActive
-                        ? 'bg-[color:var(--admin-ink)] text-white'
-                        : 'bg-[color:var(--admin-panel)] text-[color:var(--admin-ink)]'
-                    }`}
-                    onClick={() => setActiveUserId(key)}
-                  >
-                    <div className="font-semibold">{user.full_name}</div>
-                    <div className={`text-xs ${isActive ? 'text-white/70' : 'text-[color:var(--admin-muted)]'}`}>
-                      {user.email}
-                    </div>
+                  <button key={u.id} onClick={() => setActiveUserId(String(u.id))} style={{
+                    width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 'var(--radius-lg)', border: 'none',
+                    cursor: 'pointer', transition: 'all 0.15s',
+                    background: active ? 'var(--color-accent)' : 'transparent',
+                    color: active ? 'var(--color-text-inverse)' : 'var(--color-text-primary)',
+                  }}>
+                    <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)' }}>{u.full_name}</div>
+                    <div style={{ fontSize: 'var(--text-xs)', opacity: active ? 0.7 : 0.5 }}>{u.email}</div>
                   </button>
                 );
               })}
-
-            {!usersLoading && users.length === 0 && (
-              <div className="text-xs text-[color:var(--admin-muted)]">
-                No users available.
-              </div>
-            )}
+              {!usersLoading && users.length === 0 && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>No users available.</div>}
+            </div>
           </div>
-        </div>
 
         <div className="space-y-4">
           {visibleGroups.map((group) => (
@@ -250,49 +177,33 @@ const AdminPermissions = ({ currentUser }) => {
                         ? `Saved ${savedAt.toLocaleTimeString()}`
                         : 'Ready'}
                 </div>
-              </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                {group.permissions.map((permission) => (
-                  <div
-                    key={permission.key}
-                    className="rounded-2xl border border-[color:var(--admin-border)]/60 px-4 py-4 flex items-start justify-between"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {permission.label}
-                      </p>
-                      <p className="text-xs text-[color:var(--admin-muted)]">
-                        {permission.description}
-                      </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {group.permissions.map(perm => (
+                    <div key={perm.key} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12,
+                      padding: '14px 16px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)',
+                    }}>
+                      <div>
+                        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-medium)' }}>{perm.label}</div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 2 }}>{perm.description}</div>
+                      </div>
+                      <ToggleSwitch checked={!!permissions?.[perm.key]} onChange={() => toggle(perm.key)} disabled={!activeUser || permissionsLoading || saving} />
                     </div>
-                    <button
-                      className={`admin-toggle ${
-                        permissions?.[permission.key] ? 'is-on' : ''
-                      }`}
-                      onClick={() => togglePermission(permission.key)}
-                      aria-pressed={Boolean(permissions?.[permission.key])}
-                      disabled={!activeUser || permissionsLoading || saving}
-                    >
-                      <span />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+                  ))}
+                </div>
+              </motion.div>
+            ))}
 
-          <div className="admin-panel p-5 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-[color:var(--admin-muted)]">
-              <ShieldCheck size={16} />
-              Changes are persisted to backend permission records.
+            <div className="card" style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+                <ShieldCheck size={16} /> Changes are persisted to backend permission records.
+              </div>
+              <button className="btn btn-ghost btn-sm" disabled>Export matrix</button>
             </div>
-            <button className="admin-pill" disabled>
-              Export matrix
-            </button>
           </div>
         </div>
       </div>
-    </div>
+    </PageTransition>
   );
 };
 

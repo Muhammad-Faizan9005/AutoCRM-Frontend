@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
@@ -14,6 +15,7 @@ import AdminLayout from './admin/AdminLayout';
 import { apiFetch, clearTokens, getAccessToken, getRefreshToken } from './api/client';
 import { getPermissionsForUser } from './admin/permissionsStore';
 import { logger } from './utils/logger';
+import { SkeletonDashboard } from './components/Skeleton';
 
 const USER_PROFILE_KEY = 'user_profile';
 
@@ -170,7 +172,15 @@ function App() {
   ];
 
   const NoAccess = () => (
-    <div className="flex min-h-[70vh] items-center justify-center text-center text-sm text-gray-500">
+    <div style={{
+      display: 'flex',
+      minHeight: '70vh',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textAlign: 'center',
+      fontSize: 'var(--text-sm)',
+      color: 'var(--color-text-tertiary)',
+    }}>
       No modules are enabled for this account yet.
     </div>
   );
@@ -189,28 +199,46 @@ function App() {
     };
 
     return (
-      <div className="flex h-screen bg-gray-100">
+      <div style={{
+        display: 'flex',
+        height: '100vh',
+        background: 'var(--color-bg-base)',
+      }}>
         <Sidebar onLogout={handleLogout} user={user} permissions={permissions} />
 
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <main className="flex-1 overflow-x-hidden overflow-y-auto p-6">
-            <Routes>
-              <Route path="/" element={guardRoute('dashboard', <Dashboard />)} />
-              <Route path="/leads" element={guardRoute('leads', <Leads user={user} />)} />
-              <Route path="/deals" element={guardRoute('deals', <Deals user={user} />)} />
-              <Route
-                path="/contacts"
-                element={guardRoute('contacts', <Contacts user={user} />)}
-              />
-              <Route
-                path="/orgs"
-                element={guardRoute('organizations', <Organizations user={user} />)}
-              />
-              <Route path="/tasks" element={guardRoute('notes', <Notes user={user} />)} />
-              <Route path="/todo" element={guardRoute('tasks', <Tasks user={user} />)} />
-              <Route path="/import" element={guardRoute('import_data', <ImportData />)} />
-              <Route path="*" element={<Navigate to={fallbackRoute || '/'} replace />} />
-            </Routes>
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}>
+          <main style={{
+            flex: 1,
+            overflowX: 'hidden',
+            overflowY: 'auto',
+            padding: '24px 32px',
+          }}>
+            <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+              <AnimatePresence mode="wait">
+                <Routes location={location} key={location.pathname}>
+                  <Route path="/" element={guardRoute('dashboard', <Dashboard />)} />
+                  <Route path="/leads" element={guardRoute('leads', <Leads user={user} />)} />
+                  <Route path="/deals" element={guardRoute('deals', <Deals user={user} />)} />
+                  <Route
+                    path="/contacts"
+                    element={guardRoute('contacts', <Contacts user={user} />)}
+                  />
+                  <Route
+                    path="/orgs"
+                    element={guardRoute('organizations', <Organizations user={user} />)}
+                  />
+                  <Route path="/tasks" element={guardRoute('notes', <Notes user={user} />)} />
+                  <Route path="/todo" element={guardRoute('tasks', <Tasks user={user} />)} />
+                  <Route path="/import" element={guardRoute('import_data', <ImportData />)} />
+                  <Route path="*" element={<Navigate to={fallbackRoute || '/'} replace />} />
+                </Routes>
+              </AnimatePresence>
+            </div>
           </main>
         </div>
       </div>
@@ -220,8 +248,16 @@ function App() {
   // Show loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <div className="text-gray-600">Loading...</div>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        background: 'var(--color-bg-base)',
+      }}>
+        <div style={{ width: '100%', maxWidth: 800, padding: 32 }}>
+          <SkeletonDashboard />
+        </div>
       </div>
     );
   }
