@@ -42,53 +42,55 @@ const AdminLayout = ({ user, onLogout, permissions }) => {
   const showDashboard = adminUser;
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg-base)' }}>
       <Sidebar onLogout={onLogout} user={user} permissions={permissions} />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <main className="flex-1 overflow-x-hidden overflow-y-auto p-6">
-          <Routes>
-            <Route
-              index
-              element={
-                showDashboard ? (
-                  <AdminDashboard />
-                ) : (
-                  <Navigate to={firstAllowedPath} replace />
-                )
-              }
-            />
-            <Route
-              path="users"
-              element={
-                canManageUsers ? (
-                  <AdminUsers currentUser={user} />
-                ) : (
-                  <Navigate to={firstAllowedPath} replace />
-                )
-              }
-            />
-            <Route
-              path="permissions"
-              element={
-                canManagePermissions ? (
-                  <AdminPermissions currentUser={user} />
-                ) : (
-                  <Navigate to={firstAllowedPath} replace />
-                )
-              }
-            />
-            <Route
-              path="imports"
-              element={
-                canImport ? (
-                  <AdminImports />
-                ) : (
-                  <Navigate to={firstAllowedPath} replace />
-                )
-              }
-            />
-            <Route path="*" element={<Navigate to={firstAllowedPath} replace />} />
-          </Routes>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <main style={{ flex: 1, overflowX: 'hidden', overflowY: 'auto', padding: '24px 32px' }}>
+          <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+            <Routes>
+              <Route
+                index
+                element={
+                  showDashboard ? (
+                    <AdminDashboard />
+                  ) : (
+                    <Navigate to={firstAllowedPath} replace />
+                  )
+                }
+              />
+              <Route
+                path="users"
+                element={
+                  canManageUsers ? (
+                    <AdminUsers currentUser={user} />
+                  ) : (
+                    <Navigate to={firstAllowedPath} replace />
+                  )
+                }
+              />
+              <Route
+                path="permissions"
+                element={
+                  canManagePermissions ? (
+                    <AdminPermissions currentUser={user} />
+                  ) : (
+                    <Navigate to={firstAllowedPath} replace />
+                  )
+                }
+              />
+              <Route
+                path="imports"
+                element={
+                  canImport ? (
+                    <AdminImports />
+                  ) : (
+                    <Navigate to={firstAllowedPath} replace />
+                  )
+                }
+              />
+              <Route path="*" element={<Navigate to={firstAllowedPath} replace />} />
+            </Routes>
+          </div>
         </main>
       </div>
     </div>

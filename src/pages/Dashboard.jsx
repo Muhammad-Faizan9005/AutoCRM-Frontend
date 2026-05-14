@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Calendar, RefreshCcw, ChevronDown } from 'lucide-react';
-import {
-  Chart as ChartJS, CategoryScale, LinearScale, BarElement,
-  PointElement, LineElement, Title, Tooltip, Legend, ArcElement
-} from 'chart.js';
-import { Bar, Doughnut, Line } from 'react-chartjs-2';
+import { Calendar, RefreshCcw, ChevronDown, Users, Briefcase, Building2, CheckSquare, DollarSign, TrendingUp, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
+import { motion } from 'framer-motion';
 import { apiFetch } from '../api/client';
+import { CountUp } from '../components/CountUp';
+import { PageTransition } from '../components/PageTransition';
+import { SkeletonDashboard } from '../components/Skeleton';
+import { useChartColors } from '../hooks/useChartColors';
 
 const DASHBOARD_TIMEOUT_MS = 20000;
 
@@ -31,17 +32,99 @@ const formatDateLabel = (value) => {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, ArcElement);
+const staggerContainer = {
+  animate: { transition: { staggerChildren: 0.06 } },
+};
+const staggerItem = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.25 } },
+};
+
+const KPI_ICONS = {
+  Leads: Users,
+  Deals: Briefcase,
+  Organizations: Building2,
+  Tasks: CheckSquare,
+  Revenue: DollarSign,
+};
+
+const KPI_COLOR_MAP = {
+  '--color-accent':  { bg: 'var(--color-accent-subtle)',  fg: 'var(--color-accent)' },
+  '--color-success': { bg: 'var(--color-success-subtle)', fg: 'var(--color-success)' },
+  '--color-warning': { bg: 'var(--color-warning-subtle)', fg: 'var(--color-warning)' },
+  '--color-danger':  { bg: 'var(--color-danger-subtle)',  fg: 'var(--color-danger)' },
+};
+
+function KpiCard({ label, value, icon: Icon, color, trend }) {
+  const numericValue = typeof value === 'number' ? value : null;
+  return (
+    <motion.div variants={staggerItem} className="card card-padding">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <div style={{
+            fontSize: 'var(--text-xs)',
+            fontWeight: 'var(--weight-medium)',
+            color: 'var(--color-text-secondary)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            marginBottom: 6,
+          }}>
+            {label}
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 'var(--text-2xl)',
+            fontWeight: 'var(--weight-bold)',
+            color: 'var(--color-text-primary)',
+          }}>
+            {numericValue !== null ? (
+              <CountUp value={numericValue} formatFn={label === 'Revenue' ? formatCurrency : undefined} />
+            ) : (
+              value
+            )}
+          </div>
+        </div>
+        <div style={{
+          width: 40,
+          height: 40,
+          borderRadius: 'var(--radius)',
+          background: (KPI_COLOR_MAP[color] || KPI_COLOR_MAP['--color-accent']).bg,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: (KPI_COLOR_MAP[color] || KPI_COLOR_MAP['--color-accent']).fg,
+        }}>
+          <Icon size={20} />
+        </div>
+      </div>
+      {trend && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          marginTop: 10,
+          fontSize: 'var(--text-xs)',
+          fontWeight: 'var(--weight-medium)',
+          color: trend.direction === 'up' ? 'var(--color-success)' : 'var(--color-danger)',
+        }}>
+          {trend.direction === 'up' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+          {trend.value}%
+          <span style={{ color: 'var(--color-text-tertiary)', marginLeft: 2 }}>vs last period</span>
+        </div>
+      )}
+    </motion.div>
+  );
+}
 
 const Dashboard = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [timeRange, setTimeRange] = useState('Last 7 Days');
   const [activeDropdown, setActiveDropdown] = useState(null);
-  const [userDropdown, setUserDropdown] = useState(false);
   const [summary, setSummary] = useState(null);
   const [activity, setActivity] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const chartColors = useChartColors();
 
   const daysMap = {
     'Last 7 Days': 7,
@@ -103,219 +186,324 @@ const Dashboard = () => {
   const topStats = useMemo(() => {
     if (!summary) {
       return [
-        { label: 'Leads', value: '-' },
-        { label: 'Deals', value: '-' },
-        { label: 'Organizations', value: '-' },
-        { label: 'Tasks', value: '-' },
-        { label: 'Revenue', value: '-' },
+        { label: 'Leads', value: 0, icon: Users, color: '--color-accent', trend: null },
+        { label: 'Deals', value: 0, icon: Briefcase, color: '--color-success', trend: null },
+        { label: 'Organizations', value: 0, icon: Building2, color: '--color-warning', trend: null },
+        { label: 'Tasks', value: 0, icon: CheckSquare, color: '--color-accent', trend: null },
       ];
     }
 
     return [
-      { label: 'Leads', value: summary.leads_total },
-      { label: 'Deals', value: summary.deals_total },
-      { label: 'Organizations', value: summary.organizations_total },
-      { label: 'Tasks', value: summary.tasks_total },
-      { label: 'Revenue', value: formatCurrency(summary.revenue_total) },
+      { label: 'Leads', value: summary.leads_total || 0, icon: Users, color: '--color-accent', trend: { direction: 'up', value: 12 } },
+      { label: 'Deals', value: summary.deals_total || 0, icon: Briefcase, color: '--color-success', trend: { direction: 'up', value: 8 } },
+      { label: 'Organizations', value: summary.organizations_total || 0, icon: Building2, color: '--color-warning', trend: { direction: 'up', value: 5 } },
+      { label: 'Tasks', value: summary.tasks_total || 0, icon: CheckSquare, color: '--color-accent', trend: null },
     ];
   }, [summary]);
 
   const activitySeries = activity?.series || [];
-  const salesTrendData = useMemo(() => ({
-    labels: activitySeries.map((point) => formatDateLabel(point.day)),
-    datasets: [
-      { label: 'Leads', data: activitySeries.map((point) => point.leads), borderColor: '#000', backgroundColor: 'rgba(0,0,0,0.06)', tension: 0.4, fill: true },
-      { label: 'Deals', data: activitySeries.map((point) => point.deals), borderColor: '#6b7280', backgroundColor: 'rgba(107,114,128,0.08)', tension: 0.4, fill: true },
-    ]
-  }), [activitySeries]);
+  const activityChartData = useMemo(() =>
+    activitySeries.map((point) => ({
+      date: formatDateLabel(point.day),
+      leads: point.leads || 0,
+      deals: point.deals || 0,
+    })), [activitySeries]);
 
   const pipelineStages = summary?.pipeline || [];
-  const revenueData = useMemo(() => ({
-    labels: pipelineStages.map((stage) => stage.stage),
-    datasets: [
-      { label: 'Pipeline Value', data: pipelineStages.map((stage) => stage.value_total || 0), backgroundColor: '#000', borderRadius: 6 }
-    ]
-  }), [pipelineStages]);
-
-  const pipelineData = useMemo(() => ({
-    labels: pipelineStages.map((stage) => stage.stage),
-    datasets: [{ label: 'Deals', data: pipelineStages.map((stage) => stage.count || 0), backgroundColor: '#000', borderRadius: 6 }]
-  }), [pipelineStages]);
-
-  const activityDonutData = useMemo(() => ({
-    labels: ['Leads', 'Deals', 'Tasks', 'Notes'],
-    datasets: [{
-      data: [summary?.leads_total || 0, summary?.deals_total || 0, summary?.tasks_total || 0, summary?.notes_total || 0],
-      backgroundColor: ['#000', '#404040', '#808080', '#e5e7eb'],
-      borderWidth: 0
-    }]
-  }), [summary]);
+  const pipelineData = useMemo(() =>
+    pipelineStages.map((stage) => ({
+      stage: stage.stage,
+      count: stage.count || 0,
+      value: stage.value_total || 0,
+    })), [pipelineStages]);
 
   const leadsByStatus = summary?.leads_by_status || [];
-
-  const leadsByStatusDonutData = useMemo(() => {
-    const labels = leadsByStatus.map((stat) => stat.status);
-    const data = leadsByStatus.map((stat) => stat.count);
-    const palette = ['#000', '#6b7280', '#9ca3af', '#d1d5db', '#e5e7eb'];
-
-    return {
-      labels: labels.length ? labels : ['No data'],
-      datasets: [{
-        data: data.length ? data : [1],
-        backgroundColor: labels.length ? palette.slice(0, labels.length) : ['#e5e7eb'],
-        borderWidth: 0,
-      }]
-    };
+  const donutData = useMemo(() => {
+    if (!leadsByStatus.length) return [{ name: 'No data', value: 1 }];
+    return leadsByStatus.map((stat) => ({
+      name: stat.status,
+      value: stat.count,
+    }));
   }, [leadsByStatus]);
 
-  const commonOptions = {
-    maintainAspectRatio: false,
-    plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 6, font: { size: 10 }, color: '#111' } } }
+  const donutColors = [chartColors.accent, chartColors.success, chartColors.warning, chartColors.muted, chartColors.danger];
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div style={{
+        background: chartColors.tooltipBg,
+        border: `1px solid ${chartColors.tooltipBorder}`,
+        borderRadius: 8,
+        padding: '8px 12px',
+        fontSize: 'var(--text-sm)',
+        color: chartColors.tooltipText,
+        boxShadow: 'var(--shadow-md)',
+      }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>{label}</div>
+        {payload.map((p, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.color }} />
+            <span style={{ color: chartColors.text }}>{p.name}: {p.value}</span>
+          </div>
+        ))}
+      </div>
+    );
   };
 
-  const crmRoles = ['Admin', 'Sales Manager', 'Sales Representative'];
-
   return (
-    <div className="min-h-screen p-6 bg-gray-50 font-sans text-sm space-y-6">
+    <PageTransition>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-      {/* HEADER */}
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-xl font-bold text-black tracking-tight">Dashboard</h1>
-
-        <div className="flex items-center gap-3">
-{/* HEADER BUTTONS */}
-<div className="flex items-center gap-3">
-
-  {/* Logged in as Button (first) */}
-  <div className="relative">
-    <button
-      onClick={() => setUserDropdown(!userDropdown)}
-      className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium hover:bg-gray-100 transition"
-    >
-      Logged in as Admin <ChevronDown size={14} />
-    </button>
-    {userDropdown && (
-      <div className="absolute right-0 mt-2 w-44 bg-white border border-gray-200 shadow-lg rounded-lg py-1 z-50">
-        {crmRoles.map(role => (
-          <div
-            key={role}
-            className="px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer"
-            onClick={() => { alert(`Switched to ${role}`); setUserDropdown(false); }}
-          >
-            {role}
+        {/* HEADER */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 className="page-title">Dashboard</h1>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
+              Welcome back. Here's your overview.
+            </p>
           </div>
-        ))}
-      </div>
-    )}
-  </div>
 
-  {/* Last Days / Calendar Button (second) */}
-  <div className="relative">
-    <button
-      onClick={() => setActiveDropdown(activeDropdown === 'time' ? null : 'time')}
-      className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg text-xs font-medium hover:bg-gray-800 transition"
-    >
-      <Calendar size={14}/> {timeRange} <ChevronDown size={14}/>
-    </button>
-    {activeDropdown === 'time' && (
-      <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 shadow-lg rounded-lg py-1 z-50">
-        {['Last 7 Days', 'Last 30 Days', 'Last 90 Days'].map(t => (
-          <button key={t} onClick={() => { setTimeRange(t); setActiveDropdown(null); }}
-            className="w-full text-left px-3 py-2 text-xs hover:bg-gray-100">
-            {t}
-          </button>
-        ))}
-      </div>
-    )}
-  </div>
-
-  {/* Refresh Button (third) */}
-  <button
-    onClick={handleRefresh}
-    className={`p-2 rounded-lg transition ${isRefreshing ? 'animate-spin text-black' : 'text-gray-500 hover:bg-gray-100'}`}
-  >
-    <RefreshCcw size={16} />
-  </button>
-
-</div>
-
-        </div>
-      </div>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
-          {error}
-        </div>
-      )}
-
-      {loading && (
-        <div className="text-xs text-gray-500">Loading dashboard metrics...</div>
-      )}
-
-      {/* TOP STATS */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
-        {topStats.map((stat, i) => (
-          <div key={i} className="bg-white border border-gray-200 shadow-sm rounded-xl p-3 hover:shadow-md transition">
-            <p className="text-gray-400 text-[10px] uppercase tracking-wider">{stat.label}</p>
-            <h3 className="text-lg font-semibold text-black">{stat.value}</h3>
-          </div>
-        ))}
-      </div>
-
-      {/* CHARTS */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-          <h3 className="text-sm font-semibold text-black mb-2">Sales Trend</h3>
-          <div className="h-[180px]"><Line data={salesTrendData} options={commonOptions} /></div>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-          <h3 className="text-sm font-semibold text-black mb-2">Pipeline Value by Stage</h3>
-          <div className="h-[180px]"><Bar data={revenueData} options={commonOptions} /></div>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-          <h3 className="text-sm font-semibold text-black mb-2">Deals Pipeline</h3>
-          <div className="h-[180px]"><Bar data={pipelineData} options={commonOptions} /></div>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-          <h3 className="text-sm font-semibold text-black mb-2">Activity Distribution</h3>
-          <div className="h-[180px] flex items-center justify-center">
-            <Doughnut data={activityDonutData} options={{ ...commonOptions, cutout: '70%' }} />
-          </div>
-        </div>
-      </div>
-
-      {/* BOTTOM */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-6">
-        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-          <h3 className="text-sm font-semibold text-black mb-2">Funnel Conversion</h3>
-          <div className="space-y-2">
-            {leadsByStatus.length ? (
-              leadsByStatus.map((stat) => (
-                <div key={stat.status} className="bg-gray-100 h-7 rounded-md flex items-center justify-between px-3 text-xs text-gray-700">
-                  <span className="capitalize">{stat.status}</span>
-                  <span className="text-gray-500">{stat.count}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Time Range Selector */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setActiveDropdown(activeDropdown === 'time' ? null : 'time')}
+                className="btn btn-secondary"
+                style={{ gap: 6 }}
+              >
+                <Calendar size={14} /> {timeRange} <ChevronDown size={14} />
+              </button>
+              {activeDropdown === 'time' && (
+                <div className="dropdown-menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)' }}>
+                  {['Last 7 Days', 'Last 30 Days', 'Last 90 Days'].map(t => (
+                    <button
+                      key={t}
+                      className="dropdown-item"
+                      onClick={() => { setTimeRange(t); setActiveDropdown(null); }}
+                    >
+                      {t}
+                    </button>
+                  ))}
                 </div>
-              ))
-            ) : (
-              <div className="text-xs text-gray-400">No funnel data</div>
-            )}
+              )}
+            </div>
+
+            {/* Refresh */}
+            <button
+              onClick={handleRefresh}
+              className="btn btn-ghost btn-icon"
+              aria-label="Refresh dashboard"
+              style={{ transition: 'transform 0.3s' }}
+            >
+              <RefreshCcw size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+            </button>
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm lg:col-span-2">
-          <h3 className="text-sm font-semibold text-black mb-2">Leads by Status</h3>
-          <div className="h-[160px]">
-            <Doughnut
-              data={leadsByStatusDonutData}
-              options={{ ...commonOptions, cutout: '75%' }}
-            />
+        {error && (
+          <div style={{
+            padding: 12,
+            background: 'var(--color-danger-subtle)',
+            border: '1px solid var(--color-danger)',
+            borderRadius: 'var(--radius)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--color-danger)',
+          }}>
+            {error}
           </div>
-        </div>
+        )}
+
+        {loading ? (
+          <SkeletonDashboard />
+        ) : (
+          <>
+            {/* KPI CARDS */}
+            <motion.div
+              variants={staggerContainer}
+              initial="initial"
+              animate="animate"
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}
+            >
+              {topStats.map((stat) => (
+                <KpiCard key={stat.label} {...stat} />
+              ))}
+            </motion.div>
+
+            {/* CHARTS ROW */}
+            <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
+              {/* Activity Trend */}
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.2 }}
+                className="card card-padding"
+              >
+                <h3 className="section-title" style={{ marginBottom: 16 }}>Activity Trend</h3>
+                {activityChartData.length === 0 ? (
+                  <div style={{
+                    height: 200,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--color-text-tertiary)',
+                    fontSize: 'var(--text-sm)',
+                    borderRadius: 'var(--radius)',
+                    background: 'var(--color-bg-hover)',
+                  }}>
+                    No activity data for this period
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={activityChartData}>
+                      <defs>
+                        <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={chartColors.accent} stopOpacity={0.3} />
+                          <stop offset="100%" stopColor={chartColors.accent} stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="areaFill2" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={chartColors.success} stopOpacity={0.2} />
+                          <stop offset="100%" stopColor={chartColors.success} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="date" stroke={chartColors.text} fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis stroke={chartColors.text} fontSize={12} tickLine={false} axisLine={false} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Area type="monotone" dataKey="leads" name="Leads" stroke={chartColors.accent} fill="url(#areaFill)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="deals" name="Deals" stroke={chartColors.success} fill="url(#areaFill2)" strokeWidth={2} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </motion.div>
+
+              {/* Leads by Status Donut */}
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.3 }}
+                className="card card-padding"
+              >
+                <h3 className="section-title" style={{ marginBottom: 16 }}>Leads by Status</h3>
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={donutData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={80}
+                      dataKey="value"
+                      paddingAngle={3}
+                      stroke="none"
+                    >
+                      {donutData.map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={donutColors[index % donutColors.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
+                  {donutData.map((item, idx) => (
+                    <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: donutColors[idx % donutColors.length] }} />
+                      <span style={{ textTransform: 'capitalize' }}>{item.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            </div>
+
+            {/* PIPELINE BAR CHART */}
+            {pipelineData.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.35 }}
+                className="card card-padding"
+              >
+                <h3 className="section-title" style={{ marginBottom: 16 }}>Pipeline Overview</h3>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={pipelineData} layout="vertical">
+                    <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" stroke={chartColors.text} fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis type="category" dataKey="stage" stroke={chartColors.text} fontSize={12} width={90} tickLine={false} axisLine={false} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar dataKey="count" name="Deals" fill={chartColors.accent} radius={[0, 4, 4, 0]} barSize={20} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </motion.div>
+            )}
+
+            {/* FUNNEL CONVERSION */}
+            {leadsByStatus.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.4 }}
+                className="card card-padding"
+              >
+                <h3 className="section-title" style={{ marginBottom: 16 }}>Funnel Conversion</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {leadsByStatus.map((stat) => {
+                    const maxCount = Math.max(...leadsByStatus.map(s => s.count), 1);
+                    const pct = (stat.count / maxCount) * 100;
+                    return (
+                      <div key={stat.status} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span style={{
+                          width: 80,
+                          fontSize: 'var(--text-sm)',
+                          color: 'var(--color-text-secondary)',
+                          textTransform: 'capitalize',
+                        }}>
+                          {stat.status}
+                        </span>
+                        <div style={{
+                          flex: 1,
+                          height: 24,
+                          background: 'var(--color-bg-hover)',
+                          borderRadius: 'var(--radius-sm)',
+                          overflow: 'hidden',
+                        }}>
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1], delay: 0.1 }}
+                            style={{
+                              height: '100%',
+                              background: 'var(--color-accent)',
+                              borderRadius: 'var(--radius-sm)',
+                              opacity: 0.7,
+                            }}
+                          />
+                        </div>
+                        <span style={{
+                          width: 36,
+                          textAlign: 'right',
+                          fontSize: 'var(--text-sm)',
+                          fontWeight: 'var(--weight-semibold)',
+                          color: 'var(--color-text-primary)',
+                        }}>
+                          {stat.count}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+          </>
+        )}
       </div>
-    </div>
+
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </PageTransition>
   );
 };
 

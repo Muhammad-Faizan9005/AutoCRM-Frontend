@@ -1,707 +1,203 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, RotateCcw, List, KanbanSquare, X } from 'lucide-react';
+import { Plus, Search, RotateCcw, LayoutList, Columns2, Download, MoreHorizontal, Eye, Pencil, Trash2, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
+import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
+import { EmptyState } from '../components/EmptyState';
+import { SkeletonTable } from '../components/Skeleton';
 
-const STAGE_LABELS = {
-  prospecting: 'Prospecting',
-  qualification: 'Qualification',
-  proposal: 'Proposal',
-  negotiation: 'Negotiation',
-  closed: 'Closed',
-  closed_won: 'Closed Won',
-  closed_lost: 'Closed Lost',
-};
+const STAGE_LABELS = { prospecting:'Prospecting', qualification:'Qualification', proposal:'Proposal', negotiation:'Negotiation', closed:'Closed', closed_won:'Closed Won', closed_lost:'Closed Lost' };
+const STAGE_BADGE = { prospecting:'badge-muted', qualification:'badge-accent', proposal:'badge-warning', negotiation:'badge-warning', closed:'badge-success', closed_won:'badge-success', closed_lost:'badge-danger' };
+const normalizeStage = (s) => (s||'').toString().trim().toLowerCase().replace(/\s+/g,'_') || 'prospecting';
+const formatStage = (s) => STAGE_LABELS[normalizeStage(s)] || s || 'Unknown';
+const formatDate = (v) => { if (!v) return '-'; const d=new Date(v); return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); };
+const inferCurrency = (v) => { const t=String(v||'').toUpperCase(); if(t.includes('PKR')||t.includes('RS'))return'PKR'; if(t.includes('EUR'))return'EUR'; return'USD'; };
+const parseAmount = (v) => { if(v===null||v===undefined||v==='')return undefined; const p=Number(String(v).replace(/[^0-9.-]+/g,'')); return Number.isNaN(p)?undefined:p; };
+const formatMoney = (v,c) => { if(v===null||v===undefined||v==='')return'-'; const n=Number(v); if(Number.isNaN(n))return String(v); try{return new Intl.NumberFormat('en-US',{style:'currency',currency:c||'USD',maximumFractionDigits:2}).format(n);}catch{return`${c||'USD'} ${n.toFixed(2)}`;}};
 
-const normalizeStage = (stage) => {
-  const normalized = (stage || '').toString().trim().toLowerCase().replace(/\s+/g, '_');
-  return normalized || 'prospecting';
-};
-
-const formatStage = (stage) => STAGE_LABELS[normalizeStage(stage)] || stage || 'Unknown';
-
-const formatDate = (value) => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleDateString();
-};
-
-const inferCurrency = (value) => {
-  const text = String(value || '').toUpperCase();
-  if (text.includes('PKR') || text.includes('RS')) return 'PKR';
-  if (text.includes('EUR') || text.includes('€')) return 'EUR';
-  if (text.includes('GBP') || text.includes('£')) return 'GBP';
-  if (text.includes('USD') || text.includes('$')) return 'USD';
-  return 'USD';
-};
-
-const parseAmount = (value) => {
-  if (value === null || value === undefined || value === '') return undefined;
-  const normalized = String(value).replace(/[^0-9.-]+/g, '');
-  const parsed = Number(normalized);
-  return Number.isNaN(parsed) ? undefined : parsed;
-};
-
-const formatMoney = (value, currency) => {
-  if (value === null || value === undefined || value === '') return '-';
-  const numeric = Number(value);
-  if (Number.isNaN(numeric)) return String(value);
-
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency || 'USD',
-      maximumFractionDigits: 2,
-    }).format(numeric);
-  } catch (error) {
-    return `${currency || 'USD'} ${numeric.toFixed(2)}`;
-  }
-};
-
-const mapDealToRow = (deal, organizationIndex) => {
-  const orgName = organizationIndex.get(deal.organization_id) || deal.organization_id || '-';
-  return {
-    id: deal.id,
-    org: orgName,
-    revenue: formatMoney(deal.value, deal.currency),
-    status: normalizeStage(deal.stage),
-    email: '-',
-    mobile: '-',
-    modified: formatDate(deal.updated_at),
-  };
-};
+const mapDeal = (deal,orgIdx) => ({ id:deal.id, org:orgIdx.get(deal.organization_id)||deal.organization_id||'-', revenue:formatMoney(deal.value,deal.currency), status:normalizeStage(deal.stage), modified:formatDate(deal.updated_at) });
 
 const Deals = ({ user }) => {
-  const [viewMode, setViewMode] = useState('Table');
+  const [viewMode, setViewMode] = useState('table');
   const [dealRecords, setDealRecords] = useState([]);
   const [organizations, setOrganizations] = useState([]);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isExportOpen, setIsExportOpen] = useState(false);
-  const [activeDropdown, setActiveDropdown] = useState(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [visibleColumns, setVisibleColumns] = useState({ org: true, revenue: true, status: true, email: true, mobile: true, modified: true });
+  const [actionMenu, setActionMenu] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalLoaded, setTotalLoaded] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const latestRequestId = useRef(0);
-
-  const [formData, setFormData] = useState({
-    orgName: '',
-    website: '',
-    revenue: '',
-    industry: 'Industry',
-    firstName: '',
-    lastName: '',
-    email: '',
-    mobile: '',
-    status: 'Qualification'
-  });
-
-  const organizationIndex = useMemo(() => {
-    const entries = organizations.map((org) => [org.id, org.name || '-']);
-    return new Map(entries);
-  }, [organizations]);
-
-  const deals = useMemo(
-    () => dealRecords.map((deal) => mapDealToRow(deal, organizationIndex)),
-    [dealRecords, organizationIndex]
-  );
-
+  const latestReq = useRef(0);
+  const [tbodyRef] = useAutoAnimate();
   const canDelete = user?.role === 'admin';
 
-  const resetForm = () => {
-    setFormData({
-      orgName: '',
-      website: '',
-      revenue: '',
-      industry: 'Industry',
-      firstName: '',
-      lastName: '',
-      email: '',
-      mobile: '',
-      status: 'Qualification'
-    });
-  };
+  const [formData, setFormData] = useState({ orgName:'', website:'', revenue:'', industry:'', firstName:'', lastName:'', email:'', mobile:'', status:'Qualification' });
+  const resetForm = () => setFormData({ orgName:'', website:'', revenue:'', industry:'', firstName:'', lastName:'', email:'', mobile:'', status:'Qualification' });
 
-  const fetchDeals = useCallback(async (skip = 0, append = false) => {
-    const requestId = latestRequestId.current + 1;
-    latestRequestId.current = requestId;
-    
-    if (!append) {
-      setLoading(true);
-    } else {
-      setIsLoadingMore(true);
-    }
-    setError('');
+  const orgIdx = useMemo(() => new Map(organizations.map(o=>[o.id,o.name||'-'])), [organizations]);
+  const deals = useMemo(() => dealRecords.map(d=>mapDeal(d,orgIdx)), [dealRecords,orgIdx]);
 
-    try {
-      const limit = append ? 10 : 20;
-      const data = await apiFetch(`/api/deals/?skip=${skip}&limit=${limit}`);
-      if (requestId !== latestRequestId.current) return;
-      
-      if (append) {
-        setDealRecords((prev) => [...prev, ...data]);
-      } else {
-        setDealRecords(data);
-      }
-      
-      setTotalLoaded((prev) => prev + data.length);
-      setHasMore(data.length === limit);
-    } catch (err) {
-      if (requestId !== latestRequestId.current) return;
-      setError(err?.message || 'Unable to load deals.');
-    } finally {
-      if (requestId === latestRequestId.current) {
-        if (!append) {
-          setLoading(false);
-        } else {
-          setIsLoadingMore(false);
-        }
-      }
-    }
-  }, []);
-
-  const fetchOrganizations = useCallback(async () => {
-    try {
-      const data = await apiFetch('/api/organizations/');
-      setOrganizations(data);
-    } catch (err) {
-      setError(err?.message || 'Unable to load organizations.');
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchDeals(0, false);
-    fetchOrganizations();
-  }, [fetchDeals, fetchOrganizations]);
-
-  const handleLoadMore = async () => {
-    await fetchDeals(totalLoaded, true);
-  };
-
-  const ensureOrganizationId = async () => {
-    const name = formData.orgName.trim();
-    if (!name) return null;
-
-    const existing = organizations.find(
-      (org) => org.name && org.name.toLowerCase() === name.toLowerCase()
-    );
-    if (existing) return existing.id;
-
-    const payload = {
-      name,
-      website: formData.website.trim() || undefined,
-      industry: formData.industry !== 'Industry' ? formData.industry : undefined,
-      revenue: parseAmount(formData.revenue),
-    };
-
-    const created = await apiFetch('/api/organizations/', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-
-    setOrganizations((prev) => [created, ...prev]);
-    return created.id;
-  };
-
-  const ensureLeadId = async () => {
-    const firstName = formData.firstName.trim();
-    const lastName = formData.lastName.trim();
-    const name = [firstName, lastName].filter(Boolean).join(' ').trim();
-    const email = formData.email.trim();
-    const phone = formData.mobile.trim();
-
-    if (!name && !email && !phone) return null;
-
-    const payload = {
-      name: name || 'New Lead',
-      email: email || undefined,
-      phone: phone || undefined,
-      company: formData.orgName.trim() || undefined,
-      status: 'new',
-    };
-
-    const created = await apiFetch('/api/leads/', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-
-    return created.id;
-  };
-
-  const filteredDeals = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) return deals;
-
-    return deals.filter((deal) => String(deal.org).toLowerCase().includes(term));
-  }, [deals, searchTerm]);
-
-  const handleSort = (key) => {
-    const sorted = [...dealRecords].sort((a, b) => {
-      const mappedA = mapDealToRow(a, organizationIndex);
-      const mappedB = mapDealToRow(b, organizationIndex);
-      return String(mappedA[key]).localeCompare(String(mappedB[key]));
-    });
-    setDealRecords(sorted);
-    setActiveDropdown(null);
-  };
-
-  const handleSaveDeal = async (e) => {
-    e.preventDefault();
-    setError('');
-
-    setIsSaving(true);
-    try {
-      const organizationId = await ensureOrganizationId();
-      const leadId = await ensureLeadId();
-      const amount = parseAmount(formData.revenue);
-
-      const payload = {
-        organization_id: organizationId || undefined,
-        lead_id: leadId || undefined,
-        stage: normalizeStage(formData.status),
-        value: amount,
-        currency: inferCurrency(formData.revenue),
-      };
-
-      const created = await apiFetch('/api/deals/', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      setDealRecords((prev) => [created, ...prev]);
-      setIsCreateModalOpen(false);
-      resetForm();
-    } catch (err) {
-      setError(err?.message || 'Unable to create deal.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleDeleteDeal = async (id) => {
-    if (!canDelete) return;
-    const confirmed = window.confirm('Delete this deal?');
-    if (!confirmed) return;
-
+  const fetchDeals = useCallback(async (skip=0,append=false) => {
+    const rid = ++latestReq.current;
+    if(!append)setLoading(true);else setIsLoadingMore(true);
     setError('');
     try {
-      await apiFetch(`/api/deals/${id}`, { method: 'DELETE' });
-      setDealRecords((prev) => prev.filter((deal) => deal.id !== id));
-    } catch (err) {
-      setError(err?.message || 'Unable to delete deal.');
-    }
-  };
+      const lim = append?10:20;
+      const data = await apiFetch(`/api/deals/?skip=${skip}&limit=${lim}`);
+      if(rid!==latestReq.current)return;
+      if(append)setDealRecords(p=>[...p,...data]);else setDealRecords(data);
+      setTotalLoaded(p=>p+data.length); setHasMore(data.length===lim);
+    } catch(e){if(rid===latestReq.current)setError(e?.message||'Unable to load deals.');}
+    finally{if(rid===latestReq.current){if(!append)setLoading(false);else setIsLoadingMore(false);}}
+  },[]);
 
-  const exportToExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(deals);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Deals");
-    XLSX.writeFile(wb, "CRM_Deals.xlsx");
-    setIsExportOpen(false);
-  };
+  const fetchOrgs = useCallback(async()=>{try{setOrganizations(await apiFetch('/api/organizations/'));}catch{}},[]);
+  useEffect(()=>{fetchDeals(0,false);fetchOrgs();},[fetchDeals,fetchOrgs]);
 
-  const groupedDeals = useMemo(() => {
-    const groups = {
-      qualification: deals.filter((deal) => normalizeStage(deal.status) === 'qualification'),
-      proposal: deals.filter((deal) => normalizeStage(deal.status) === 'proposal'),
-      closed: deals.filter((deal) => normalizeStage(deal.status) === 'closed'),
-    };
+  const filtered = useMemo(()=>{const t=searchTerm.trim().toLowerCase();if(!t)return deals;return deals.filter(d=>String(d.org).toLowerCase().includes(t));}, [deals,searchTerm]);
 
-    const other = deals.filter((deal) => !['qualification', 'proposal', 'closed'].includes(normalizeStage(deal.status)));
-    if (other.length) {
-      groups.other = other;
-    }
+  const ensureOrgId = async()=>{const n=formData.orgName.trim();if(!n)return null;const ex=organizations.find(o=>o.name?.toLowerCase()===n.toLowerCase());if(ex)return ex.id;const c=await apiFetch('/api/organizations/',{method:'POST',body:JSON.stringify({name:n,website:formData.website.trim()||undefined,industry:formData.industry||undefined,revenue:parseAmount(formData.revenue)})});setOrganizations(p=>[c,...p]);return c.id;};
+  const ensureLeadId = async()=>{const nm=[formData.firstName.trim(),formData.lastName.trim()].filter(Boolean).join(' ');const em=formData.email.trim();if(!nm&&!em)return null;const c=await apiFetch('/api/leads/',{method:'POST',body:JSON.stringify({name:nm||'New Lead',email:em||undefined,phone:formData.mobile.trim()||undefined,company:formData.orgName.trim()||undefined,status:'new'})});return c.id;};
 
-    return groups;
-  }, [deals]);
+  const handleSave = async(e)=>{e.preventDefault();setError('');setIsSaving(true);try{const oid=await ensureOrgId();const lid=await ensureLeadId();const created=await apiFetch('/api/deals/',{method:'POST',body:JSON.stringify({organization_id:oid||undefined,lead_id:lid||undefined,stage:normalizeStage(formData.status),value:parseAmount(formData.revenue),currency:inferCurrency(formData.revenue)})});setDealRecords(p=>[created,...p]);setIsCreateOpen(false);resetForm();}catch(e){setError(e?.message||'Unable to create deal.');}finally{setIsSaving(false);}};
+
+  const handleDelete = async(id)=>{if(!canDelete||!window.confirm('Delete this deal?'))return;try{await apiFetch(`/api/deals/${id}`,{method:'DELETE'});setDealRecords(p=>p.filter(d=>d.id!==id));}catch(e){setError(e?.message||'Delete failed.');}};
+
+  const exportXl = ()=>{const ws=XLSX.utils.json_to_sheet(deals);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Deals");XLSX.writeFile(wb,"CRM_Deals.xlsx");};
+
+  const grouped = useMemo(()=>{const g={};deals.forEach(d=>{const s=d.status;if(!g[s])g[s]=[];g[s].push(d);});return g;},[deals]);
 
   return (
-    <div className="min-h-screen p-4 space-y-3 bg-gray-50 font-sans text-sm">
+    <PageTransition>
+      <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+            <h1 className="page-title">Deals</h1>
+            <div style={{ display:'flex', gap:2, background:'var(--color-bg-elevated)', borderRadius:'var(--radius)', padding:2, border:'1px solid var(--color-border)' }}>
+              <button onClick={()=>setViewMode('table')} className={viewMode==='table'?'btn btn-sm btn-primary':'btn btn-sm btn-ghost'} aria-label="Table"><LayoutList size={14}/></button>
+              <button onClick={()=>setViewMode('kanban')} className={viewMode==='kanban'?'btn btn-sm btn-primary':'btn btn-sm btn-ghost'} aria-label="Kanban"><Columns2 size={14}/></button>
+            </div>
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={()=>{setTotalLoaded(0);fetchDeals(0,false);}} className="btn btn-ghost btn-icon" aria-label="Refresh"><RotateCcw size={16}/></button>
+            <button onClick={exportXl} className="btn btn-secondary btn-sm"><Download size={14}/> Export</button>
+            <button onClick={()=>setIsCreateOpen(true)} className="btn btn-primary"><Plus size={15}/> Add Deal</button>
+          </div>
+        </div>
 
-      {/* HEADER */}
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-black tracking-tight">Deals</h1>
+        <div style={{ position:'relative', maxWidth:320 }}>
+          <Search size={16} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--color-text-tertiary)' }}/>
+          <input type="text" placeholder="Search deals..." className="search-input" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
+        </div>
 
-          {/* TABLE / KANBAN SWITCH */}
-          <div className="relative">
-            <button onClick={() => setActiveDropdown(activeDropdown==='view'?null:'view')}
-              className="flex items-center gap-1 px-2 py-1 border border-gray-300 rounded-md bg-white text-xs">
-              {viewMode === 'Table' ? <List size={14}/> : <KanbanSquare size={14}/>} {viewMode}
-            </button>
-            {activeDropdown==='view' && (
-              <div className="absolute top-full mt-1 left-0 bg-white border rounded shadow w-28 z-10 text-xs">
-                <div onClick={()=>{setViewMode('Table');setActiveDropdown(null)}} className="p-2 hover:bg-gray-100 cursor-pointer">Table</div>
-                <div onClick={()=>{setViewMode('Kanban');setActiveDropdown(null)}} className="p-2 hover:bg-gray-100 cursor-pointer">Kanban</div>
-              </div>
+        {error && <div style={{ padding:12, background:'var(--color-danger-subtle)', border:'1px solid var(--color-danger)', borderRadius:'var(--radius)', fontSize:'var(--text-sm)', color:'var(--color-danger)' }}>{error}</div>}
+
+        {loading ? <SkeletonTable rows={8} cols={5}/> : (
+          <>
+            {viewMode==='table' && (
+              filtered.length===0 ? <EmptyState type="leads" title="No deals yet" desc="Create your first deal"/> : (
+                <div className="card" style={{ overflow:'hidden' }}>
+                  <table className="data-table">
+                    <thead><tr>
+                      <th style={{ width:36 }}><input type="checkbox" className="checkbox-input"/></th>
+                      <th>Organization</th><th>Revenue</th><th>Stage</th><th>Modified</th><th style={{ width:60, textAlign:'right' }}>Actions</th>
+                    </tr></thead>
+                    <motion.tbody ref={tbodyRef} variants={staggerContainer} initial="initial" animate="animate">
+                      {filtered.map(d=>(
+                        <motion.tr key={d.id} variants={staggerItem}>
+                          <td><input type="checkbox" className="checkbox-input"/></td>
+                          <td style={{ fontWeight:'var(--weight-medium)' }}>{d.org}</td>
+                          <td style={{ color:'var(--color-text-secondary)' }}>{d.revenue}</td>
+                          <td><span className={`badge ${STAGE_BADGE[d.status]||'badge-muted'}`}>{formatStage(d.status)}</span></td>
+                          <td style={{ color:'var(--color-text-tertiary)', fontSize:'var(--text-sm)' }}>{d.modified}</td>
+                          <td style={{ textAlign:'right' }}>
+                            <div style={{ position:'relative', display:'inline-block' }}>
+                              <button className="btn btn-ghost btn-icon" onClick={()=>setActionMenu(actionMenu===d.id?null:d.id)} aria-label="Actions"><MoreHorizontal size={14}/></button>
+                              {actionMenu===d.id && (
+                                <div className="dropdown-menu" style={{ position:'absolute', right:0, top:'calc(100% + 4px)' }}>
+                                  <button className="dropdown-item" onClick={()=>setActionMenu(null)}><Eye size={14}/> View</button>
+                                  {canDelete && <button className="dropdown-item dropdown-item-danger" onClick={()=>{handleDelete(d.id);setActionMenu(null);}}><Trash2 size={14}/> Delete</button>}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </motion.tr>
+                      ))}
+                    </motion.tbody>
+                  </table>
+                </div>
+              )
             )}
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <button onClick={() => { setTotalLoaded(0); fetchDeals(0, false); }} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
-            <RotateCcw size={18} />
-          </button>
-          <button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold">
-            <Plus size={16} /> Create
-          </button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
-          {error}
-        </div>
-      )}
-
-      {loading && (
-        <div className="text-xs text-gray-500">Loading deals...</div>
-      )}
-
-      {/* SEARCH + ACTIONS */}
-<div className="flex justify-between items-center">
-  {/* SEARCH */}
-  <div className="relative w-64">
-    <Search className="absolute left-2 top-2 text-gray-400" size={16}/>
-    <input
-      type="text"
-      placeholder="Search deals..."
-      className="pl-8 pr-3 py-1.5 rounded-lg border border-gray-300 w-full text-xs"
-      onChange={e => setSearchTerm(e.target.value)}
-    />
-  </div>
-
-  {/* ACTION BUTTONS */}
-  <div className="flex gap-2">
-
-    {/* FILTER */}
-    <div className="relative">
-      <button
-        onClick={() => setActiveDropdown(activeDropdown === 'filter' ? null : 'filter')}
-        className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center"
-      >
-        <Filter size={14}/> Filter
-      </button>
-      {activeDropdown === 'filter' && (
-        <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-40 z-50 text-xs">
-          {['Status', 'Revenue', 'Organization'].map(f => (
-            <div key={f} className="p-2 hover:bg-gray-100 cursor-pointer">{f}</div>
-          ))}
-        </div>
-      )}
-    </div>
-
-    {/* SORT */}
-    <div className="relative">
-      <button
-        onClick={() => setActiveDropdown(activeDropdown === 'sort' ? null : 'sort')}
-        className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center"
-      >
-        <ArrowUpDown size={14}/> Sort
-      </button>
-      {activeDropdown === 'sort' && (
-        <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-36 z-50 text-xs">
-          {['org', 'status', 'modified'].map(s => (
-            <div
-              key={s}
-              onClick={() => handleSort(s)}
-              className="p-2 hover:bg-gray-100 cursor-pointer capitalize"
-            >
-              {s}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-
-    {/* COLUMNS */}
-    <div className="relative">
-      <button
-        onClick={() => setActiveDropdown(activeDropdown === 'cols' ? null : 'cols')}
-        className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center"
-      >
-        <LayoutPanelLeft size={14}/> Columns
-      </button>
-      {activeDropdown === 'cols' && (
-        <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-36 z-50 text-xs">
-          {Object.keys(visibleColumns).map(col => (
-            <div
-              key={col}
-              onClick={() => setVisibleColumns({ ...visibleColumns, [col]: !visibleColumns[col] })}
-              className="flex justify-between p-2 hover:bg-gray-100 cursor-pointer capitalize"
-            >
-              {col} {visibleColumns[col] && '✓'}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-
-    {/* EXPORT */}
-    <button
-      onClick={() => setIsExportOpen(true)}
-      className="flex items-center gap-1 px-2 py-1 border border-gray-300 rounded-md bg-white text-xs"
-    >
-      <Download size={14}/> Export
-    </button>
-
-  </div>
-</div>
-
-
-      {/* TABLE VIEW */}
-      {viewMode === 'Table' && !loading && (
-        <div className="mt-2 flex flex-col gap-1">
-          <div className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_1fr_80px] bg-black text-white text-[10px] uppercase font-bold px-2 py-1 rounded-t-md">
-            <div><input type="checkbox"/></div>
-            {visibleColumns.org && <div>Organization</div>}
-            {visibleColumns.revenue && <div>Revenue</div>}
-            {visibleColumns.status && <div>Status</div>}
-            {visibleColumns.email && <div>Email</div>}
-            {visibleColumns.mobile && <div>Mobile</div>}
-            {visibleColumns.modified && <div>Modified</div>}
-            <div>Action</div>
-          </div>
-
-          {filteredDeals.map(d => (
-            <div key={d.id} className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_1fr_80px] bg-white border-b border-gray-300 px-2 py-1 items-center text-xs">
-              <div><input type="checkbox"/></div>
-              {visibleColumns.org && <div className="font-bold">{d.org}</div>}
-              {visibleColumns.revenue && <div>{d.revenue}</div>}
-              {visibleColumns.status && <div>{formatStage(d.status)}</div>}
-              {visibleColumns.email && <div>{d.email}</div>}
-              {visibleColumns.mobile && <div>{d.mobile}</div>}
-              {visibleColumns.modified && <div className="text-gray-400 italic">{d.modified}</div>}
-              <div className="flex flex-col justify-end text-right h-full pr-10">
-                {canDelete && (
-                  <button
-                    onClick={() => handleDeleteDeal(d.id)}
-                    className="text-red-500 text-xs"
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* LOAD MORE BUTTON */}
-      {!loading && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <button
-            onClick={handleLoadMore}
-            disabled={isLoadingMore}
-            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
-          >
-            {isLoadingMore ? 'Loading more...' : 'Load More'}
-          </button>
-        </div>
-      )}
-
-      {/* KANBAN VIEW */}
-      {viewMode === 'Kanban' && !loading && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-          {Object.entries(groupedDeals).map(([status, items]) => (
-            <div key={status} className="bg-gray-100 rounded-lg p-3">
-              <h3 className="text-xs font-bold mb-2">{STAGE_LABELS[status] || 'Other'}</h3>
-              <div className="space-y-2">
-                {items.map(d => (
-                  <div key={d.id} className="bg-white p-2 rounded shadow text-xs border">
-                    <div className="font-bold">{d.org}</div>
-                    <div className="text-gray-500">{d.revenue}</div>
-                    {canDelete && (
-                      <button onClick={() => handleDeleteDeal(d.id)} className="text-red-500 text-[10px] mt-1">Delete</button>
-                    )}
+            {viewMode==='kanban' && (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(260px, 1fr))', gap:16 }}>
+                {Object.entries(grouped).map(([status,items])=>(
+                  <div key={status} className="kanban-column">
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                      <span className={`badge ${STAGE_BADGE[status]||'badge-muted'}`}>{STAGE_LABELS[status]||'Other'}</span>
+                      <span style={{ fontSize:'var(--text-xs)', color:'var(--color-text-tertiary)' }}>{items.length}</span>
+                    </div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                      {items.map(d=>(
+                        <div key={d.id} className="kanban-card">
+                          <div style={{ fontWeight:'var(--weight-medium)', marginBottom:4 }}>{d.org}</div>
+                          <div style={{ fontSize:'var(--text-sm)', color:'var(--color-text-secondary)' }}>{d.revenue}</div>
+                          {canDelete && <button onClick={()=>handleDelete(d.id)} className="btn btn-danger btn-sm" style={{ marginTop:8 }}><Trash2 size={12}/> Delete</button>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            )}
 
-      {/* LOAD MORE BUTTON (Kanban Mode) */}
-      {viewMode === 'Kanban' && !loading && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <button
-            onClick={handleLoadMore}
-            disabled={isLoadingMore}
-            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
-          >
-            {isLoadingMore ? 'Loading more...' : 'Load More'}
-          </button>
-        </div>
-      )}
+            {hasMore && <div style={{ display:'flex', justifyContent:'center' }}><button onClick={()=>fetchDeals(totalLoaded,true)} disabled={isLoadingMore} className="btn btn-secondary">{isLoadingMore?'Loading...':'Load More'}</button></div>}
+          </>
+        )}
 
-      {!loading && filteredDeals.length === 0 && (
-        <div className="text-xs text-gray-500">No deals found.</div>
-      )}
-
-      {/* EXPORT POPUP */}
-      {isExportOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-80 shadow-lg">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-sm">Export Deals</h3>
-              <X size={16} onClick={()=>setIsExportOpen(false)} className="cursor-pointer"/>
-            </div>
-            <button onClick={exportToExcel} className="w-full bg-black text-white py-2 rounded text-xs font-bold">Download Excel</button>
-          </div>
-        </div>
-      )}
-{/* --- CREATE DEAL MODAL (Minimal Black/White/Grey, Compact) --- */}
-{isCreateModalOpen && (
-  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/20 backdrop-blur-sm font-sans p-3">
-    <div className="bg-white w-full max-w-2xl rounded-lg shadow-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
-
-      {/* Header */}
-      <div className="flex justify-between items-center px-5 py-2 border-b border-gray-200 sticky top-0 bg-white z-20">
-        <h3 className="text-md font-semibold text-gray-900">Create Deal</h3>
-        <RotateCcw
-          size={18}
-          className="cursor-pointer text-gray-400 hover:text-gray-700 p-1 rounded-full transition"
-          onClick={() => setIsCreateModalOpen(false)}
-        />
+        <AnimatePresence>
+          {isCreateOpen && (
+            <motion.div className="modal-overlay" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} onClick={()=>setIsCreateOpen(false)}>
+              <motion.div className="modal-content" style={{ maxWidth:600 }} onClick={e=>e.stopPropagation()} initial={{ opacity:0,scale:0.97,y:4 }} animate={{ opacity:1,scale:1,y:0 }} exit={{ opacity:0,scale:0.97 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid var(--color-border)' }}>
+                  <h3 className="section-title">Create Deal</h3>
+                  <button onClick={()=>setIsCreateOpen(false)} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18}/></button>
+                </div>
+                <form id="deal-form" onSubmit={handleSave} style={{ padding:20, display:'flex', flexDirection:'column', gap:14, maxHeight:'60vh', overflowY:'auto' }}>
+                  <div><label className="label">Organization Name</label><input type="text" className="input" value={formData.orgName} onChange={e=>setFormData({...formData,orgName:e.target.value})}/></div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                    <div><label className="label">Website</label><input type="text" className="input" value={formData.website} onChange={e=>setFormData({...formData,website:e.target.value})}/></div>
+                    <div><label className="label">Industry</label><select className="input" value={formData.industry} onChange={e=>setFormData({...formData,industry:e.target.value})}><option value="">Select</option><option>Software</option><option>Finance</option><option>Manufacturing</option><option>Retail</option></select></div>
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                    <div><label className="label">Revenue</label><input type="text" className="input" value={formData.revenue} onChange={e=>setFormData({...formData,revenue:e.target.value})}/></div>
+                    <div><label className="label">Stage</label><select className="input" value={formData.status} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Prospecting</option><option>Qualification</option><option>Proposal</option><option>Closed</option></select></div>
+                  </div>
+                  <div style={{ padding:14, background:'var(--color-bg-hover)', borderRadius:'var(--radius)', border:'1px solid var(--color-border)' }}>
+                    <div style={{ fontSize:'var(--text-sm)', fontWeight:'var(--weight-semibold)', marginBottom:10, color:'var(--color-text-secondary)' }}>Primary Contact (Optional)</div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                      <div><label className="label">First Name</label><input type="text" className="input" value={formData.firstName} onChange={e=>setFormData({...formData,firstName:e.target.value})}/></div>
+                      <div><label className="label">Last Name</label><input type="text" className="input" value={formData.lastName} onChange={e=>setFormData({...formData,lastName:e.target.value})}/></div>
+                      <div><label className="label">Email</label><input type="email" className="input" value={formData.email} onChange={e=>setFormData({...formData,email:e.target.value})}/></div>
+                      <div><label className="label">Mobile</label><input type="text" className="input" value={formData.mobile} onChange={e=>setFormData({...formData,mobile:e.target.value})}/></div>
+                    </div>
+                  </div>
+                </form>
+                <div style={{ display:'flex', justifyContent:'flex-end', gap:8, padding:'12px 20px', borderTop:'1px solid var(--color-border)' }}>
+                  <button type="button" onClick={()=>setIsCreateOpen(false)} className="btn btn-ghost">Discard</button>
+                  <button type="submit" form="deal-form" disabled={isSaving} className="btn btn-primary">{isSaving?'Creating...':'Create Deal'}</button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-
-      {/* Scrollable Form */}
-      <div className="overflow-y-auto max-h-[65vh] p-5">
-        <form id="create-deal-form" onSubmit={handleSaveDeal} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <div className="col-span-1 md:col-span-2">
-            <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Organization Name</label>
-            <input
-              type="text"
-              className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-              value={formData.orgName}
-              onChange={(e) => setFormData({ ...formData, orgName: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Website</label>
-            <input
-              type="text"
-              className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-              value={formData.website}
-              onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Industry</label>
-            <select
-              className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-              value={formData.industry}
-              onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
-            >
-              <option>Industry</option>
-              <option>Software</option>
-              <option>Finance</option>
-              <option>Manufacturing</option>
-              <option>Retail</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Revenue</label>
-            <input
-              type="text"
-              className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-              value={formData.revenue}
-              onChange={(e) => setFormData({ ...formData, revenue: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Stage</label>
-            <select
-              className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-              value={formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-            >
-              <option>Prospecting</option>
-              <option>Qualification</option>
-              <option>Proposal</option>
-              <option>Closed</option>
-            </select>
-          </div>
-
-          <div className="col-span-1 md:col-span-2 bg-gray-50 p-3 rounded-md border border-gray-200">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Primary Contact (Optional)</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">First Name</label>
-                <input
-                  type="text"
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.firstName}
-                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Last Name</label>
-                <input
-                  type="text"
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.lastName}
-                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Email</label>
-                <input
-                  type="email"
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Mobile</label>
-                <input
-                  type="text"
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.mobile}
-                  onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
-                />
-              </div>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex justify-end gap-2 px-5 py-2 border-t bg-white sticky bottom-0 z-20">
-        <button
-          type="button"
-          onClick={() => setIsCreateModalOpen(false)}
-          className="px-4 py-1.5 text-gray-600 font-medium text-sm hover:bg-gray-100 rounded-md transition"
-        >
-          Discard
-        </button>
-        <button
-          type="submit"
-          form="create-deal-form"
-          disabled={isSaving}
-          className="px-5 py-1.5 bg-gray-900 text-white font-medium text-sm rounded-md shadow hover:bg-gray-800 transition-all active:scale-95 disabled:opacity-60"
-        >
-          {isSaving ? 'Creating...' : 'Create'}
-        </button>
-      </div>
-
-    </div>
-  </div>
-)}
-
-    </div>
+    </PageTransition>
   );
 };
 

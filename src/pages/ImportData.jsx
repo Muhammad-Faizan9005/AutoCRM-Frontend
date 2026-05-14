@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { UploadCloud, FileSpreadsheet } from 'lucide-react';
+import { UploadCloud, FileSpreadsheet, CheckCircle, XCircle } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { apiFetch } from '../api/client';
+import { PageTransition } from '../components/PageTransition';
 
 const entityOptions = [
   { value: 'customers', label: 'Customers' },
@@ -8,24 +10,8 @@ const entityOptions = [
 ];
 
 const entityColumns = {
-  customers: [
-    'email (required)',
-    'full_name (required)',
-    'phone',
-    'company',
-    'status',
-    'notes',
-  ],
-  tickets: [
-    'subject (required)',
-    'customer_id (required unless customer_email exists)',
-    'customer_email',
-    'description',
-    'status',
-    'priority',
-    'category',
-    'assigned_to',
-  ],
+  customers: ['email (required)', 'full_name (required)', 'phone', 'company', 'status', 'notes'],
+  tickets: ['subject (required)', 'customer_id (required unless customer_email exists)', 'customer_email', 'description', 'status', 'priority', 'category', 'assigned_to'],
 };
 
 const ImportData = ({ variant = 'default' }) => {
@@ -35,179 +21,167 @@ const ImportData = ({ variant = 'default' }) => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const isAdmin = variant === 'admin';
-  const pageClassName = isAdmin
-    ? 'space-y-6'
-    : 'min-h-screen p-6 bg-gray-50 font-sans text-sm space-y-6';
-  const panelClassName = isAdmin
-    ? 'admin-panel p-6'
-    : 'bg-white border border-gray-200 rounded-2xl shadow-sm p-6';
-  const pillClassName = isAdmin
-    ? 'admin-panel px-3 py-2 text-xs text-[color:var(--admin-muted)]'
-    : 'flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-600';
-  const statsCardClassName = isAdmin
-    ? 'rounded-2xl border border-[color:var(--admin-border)]/60 p-3'
-    : 'bg-gray-50 border border-gray-200 rounded-lg p-3';
-
-  const allowedTypes = '.csv,.xlsx,.xlsm';
-
   const columns = useMemo(() => entityColumns[entity] || [], [entity]);
-
-  const handleEntityChange = (event) => {
-    setEntity(event.target.value);
-    setResult(null);
-    setError('');
-  };
-
-  const handleFileChange = (event) => {
-    const selectedFile = event.target.files?.[0] || null;
-    setFile(selectedFile);
-    setResult(null);
-    setError('');
-  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
-
-    if (!file) {
-      setError('Please choose a CSV or Excel file to import.');
-      return;
-    }
-
+    if (!file) { setError('Please choose a CSV or Excel file to import.'); return; }
     const formData = new FormData();
     formData.append('file', file);
-
     setIsSubmitting(true);
     try {
-      const data = await apiFetch(`/api/import/${entity}`, {
-        method: 'POST',
-        body: formData,
-      }, { timeoutMs: 2000000000 });
-
+      const data = await apiFetch(`/api/import/${entity}`, { method: 'POST', body: formData }, { timeoutMs: 2000000000 });
       setResult(data);
-    } catch (err) {
-      setError(err?.message || 'Import failed. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    } catch (err) { setError(err?.message || 'Import failed.'); }
+    finally { setIsSubmitting(false); }
   };
 
   return (
-    <div className={pageClassName}>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-black tracking-tight">Import Data</h1>
-          <p className="text-xs text-gray-500 mt-1">Admin-only CSV or Excel import for CRM data.</p>
-        </div>
-        <div className={pillClassName}>
-          <FileSpreadsheet size={16} />
-          Supported: CSV, XLSX, XLSM
-        </div>
-      </div>
-
-      <div className={panelClassName}>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">Import Type</label>
-              <select
-                className="w-full border border-gray-300 p-2 rounded-lg text-sm"
-                value={entity}
-                onChange={handleEntityChange}
-              >
-                {entityOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">File</label>
-              <input
-                type="file"
-                accept={allowedTypes}
-                className="w-full border border-gray-300 p-2 rounded-lg text-sm bg-white"
-                onChange={handleFileChange}
-              />
-              <p className="text-[10px] text-gray-400 mt-1">Max size depends on backend limits.</p>
-            </div>
+    <PageTransition>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 className="page-title">Import Data</h1>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
+              Upload CSV or Excel files to bulk-import CRM data.
+            </p>
           </div>
-
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-md text-xs text-red-600">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-900 disabled:opacity-60"
-          >
-            <UploadCloud size={16} />
-            {isSubmitting ? 'Importing...' : 'Start Import'}
-          </button>
-        </form>
-      </div>
-
-      <div className={panelClassName}>
-        <h2 className="text-sm font-semibold text-black mb-3">Required Columns</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {columns.map((column) => (
-            <div key={column} className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
-              {column}
-            </div>
-          ))}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 12px', background: 'var(--color-bg-elevated)',
+            border: '1px solid var(--color-border)', borderRadius: 'var(--radius)',
+            fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)',
+          }}>
+            <FileSpreadsheet size={14} /> Supported: CSV, XLSX, XLSM
+          </div>
         </div>
-      </div>
 
-      {result && (
-        <div className={`${panelClassName} space-y-4`}>
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-black">Import Summary</h2>
-            <span className="text-xs text-gray-500">{result.file_name}</span>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className={statsCardClassName}>
-              <p className="text-[10px] text-gray-500 uppercase">Total Rows</p>
-              <p className="text-sm font-semibold text-gray-900">{result.total_rows}</p>
-            </div>
-            <div className={statsCardClassName}>
-              <p className="text-[10px] text-gray-500 uppercase">Successful</p>
-              <p className="text-sm font-semibold text-gray-900">{result.successful_rows}</p>
-            </div>
-            <div className={statsCardClassName}>
-              <p className="text-[10px] text-gray-500 uppercase">Created</p>
-              <p className="text-sm font-semibold text-gray-900">{result.created_count}</p>
-            </div>
-            <div className={statsCardClassName}>
-              <p className="text-[10px] text-gray-500 uppercase">Updated</p>
-              <p className="text-sm font-semibold text-gray-900">{result.updated_count}</p>
-            </div>
-            <div className={statsCardClassName}>
-              <p className="text-[10px] text-gray-500 uppercase">Failed</p>
-              <p className="text-sm font-semibold text-gray-900">{result.failed_count}</p>
-            </div>
-          </div>
-
-          {result.failures?.length > 0 ? (
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <div className="bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-700">Failures</div>
-              <div className="divide-y divide-gray-200">
-                {result.failures.map((failure, index) => (
-                  <div key={`${failure.row_number}-${index}`} className="px-4 py-2 text-xs text-gray-600">
-                    <span className="font-semibold text-gray-800">Row {failure.row_number}:</span> {failure.reason}
-                  </div>
-                ))}
+        {/* Import Form */}
+        <div className="card card-padding">
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div>
+                <label className="label">Import Type</label>
+                <select className="input" value={entity} onChange={e => { setEntity(e.target.value); setResult(null); setError(''); }}>
+                  {entityOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">File</label>
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xlsm"
+                  className="input"
+                  style={{ padding: '6px 10px' }}
+                  onChange={e => { setFile(e.target.files?.[0] || null); setResult(null); setError(''); }}
+                />
+                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 4 }}>
+                  Max size depends on backend limits.
+                </p>
               </div>
             </div>
-          ) : (
-            <div className="text-xs text-green-600">No row failures reported.</div>
-          )}
+
+            {error && (
+              <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>
+                {error}
+              </div>
+            )}
+
+            <button type="submit" disabled={isSubmitting} className="btn btn-primary" style={{ alignSelf: 'flex-start' }}>
+              <UploadCloud size={16} /> {isSubmitting ? 'Importing...' : 'Start Import'}
+            </button>
+          </form>
         </div>
-      )}
-    </div>
+
+        {/* Required Columns */}
+        <div className="card card-padding">
+          <h3 className="section-title" style={{ marginBottom: 12 }}>Required Columns</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+            {columns.map(col => (
+              <div key={col} style={{
+                padding: '8px 12px',
+                background: 'var(--color-bg-hover)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-text-secondary)',
+              }}>
+                {col}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Results */}
+        {result && (
+          <motion.div
+            className="card card-padding"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 className="section-title">Import Summary</h3>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{result.file_name}</span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 12 }}>
+              {[
+                { label: 'Total Rows', value: result.total_rows },
+                { label: 'Successful', value: result.successful_rows },
+                { label: 'Created', value: result.created_count },
+                { label: 'Updated', value: result.updated_count },
+                { label: 'Failed', value: result.failed_count },
+              ].map(s => (
+                <div key={s.label} style={{
+                  padding: 12,
+                  background: 'var(--color-bg-hover)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius)',
+                }}>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{s.label}</div>
+                  <div style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--weight-semibold)', color: 'var(--color-text-primary)', marginTop: 2 }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {result.failures?.length > 0 ? (
+              <div style={{ marginTop: 16 }}>
+                <div style={{
+                  padding: '8px 14px',
+                  background: 'var(--color-danger-subtle)',
+                  borderRadius: 'var(--radius) var(--radius) 0 0',
+                  fontSize: 'var(--text-xs)',
+                  fontWeight: 'var(--weight-semibold)',
+                  color: 'var(--color-danger)',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <XCircle size={14} /> Failures
+                </div>
+                <div style={{ border: '1px solid var(--color-border)', borderTop: 'none', borderRadius: '0 0 var(--radius) var(--radius)' }}>
+                  {result.failures.map((f, i) => (
+                    <div key={`${f.row_number}-${i}`} style={{
+                      padding: '8px 14px',
+                      borderBottom: '1px solid var(--color-border)',
+                      fontSize: 'var(--text-sm)',
+                      color: 'var(--color-text-secondary)',
+                    }}>
+                      <span style={{ fontWeight: 'var(--weight-semibold)', color: 'var(--color-text-primary)' }}>Row {f.row_number}:</span> {f.reason}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 12, fontSize: 'var(--text-sm)', color: 'var(--color-success)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <CheckCircle size={14} /> No row failures reported.
+              </div>
+            )}
+          </motion.div>
+        )}
+      </div>
+    </PageTransition>
   );
 };
 

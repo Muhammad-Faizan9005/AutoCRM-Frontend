@@ -1,29 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { 
-  Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, X, List, KanbanSquare, RotateCcw 
-} from 'lucide-react';
+import { Plus, Search, LayoutList, Columns2, RotateCcw, Eye, Pencil, Trash2, MoreHorizontal, Download, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
+import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
+import { EmptyState } from '../components/EmptyState';
+import { SkeletonTable } from '../components/Skeleton';
 
-const STATUS_LABELS = {
-  new: 'New',
-  contacted: 'Contacted',
-  qualified: 'Qualified',
-  converted: 'Converted',
-};
-
+const STATUS_LABELS = { new: 'New', contacted: 'Contacted', qualified: 'Qualified', converted: 'Converted' };
+const STATUS_BADGE = { new: 'badge-accent', contacted: 'badge-warning', qualified: 'badge-success', converted: 'badge-muted' };
 const normalizeStatus = (status) => (status || '').toString().trim().toLowerCase();
-
-const formatLeadStatus = (status) => {
-  const normalized = normalizeStatus(status);
-  return STATUS_LABELS[normalized] || status || 'Unknown';
-};
+const formatLeadStatus = (status) => STATUS_LABELS[normalizeStatus(status)] || status || 'Unknown';
 
 const formatDate = (value) => {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleDateString();
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
 const mapLeadToRow = (lead) => ({
@@ -37,7 +31,7 @@ const mapLeadToRow = (lead) => ({
 });
 
 const Leads = ({ user }) => {
-  const [viewMode, setViewMode] = useState('Table');
+  const [viewMode, setViewMode] = useState('table');
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -46,73 +40,30 @@ const Leads = ({ user }) => {
   const [totalLoaded, setTotalLoaded] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const latestRequestId = useRef(0);
-
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isExportOpen, setIsExportOpen] = useState(false);
-  const [activeDropdown, setActiveDropdown] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [visibleColumns, setVisibleColumns] = useState({ name: true, org: true, status: true, email: true, mobile: true, modified: true });
+  const [actionMenu, setActionMenu] = useState(null);
+  const [tbodyRef] = useAutoAnimate();
 
   const [formData, setFormData] = useState({
-    salutation: 'Salutation',
-    firstName: '',
-    lastName: '',
-    email: '',
-    mobile: '',
-    gender: 'Gender',
-    organization: '',
-    website: '',
-    employees: '1-10',
-    territory: 'Territory',
-    revenue: 'PKR 0.00',
-    industry: 'Industry',
-    status: 'New'
+    salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'New'
   });
 
   const canDelete = user?.role === 'admin';
+  const canEdit = user?.role === 'admin' || (user?.role || '').toLowerCase().includes('manager');
 
-  const resetForm = () => {
-    setFormData({
-      salutation: 'Salutation',
-      firstName: '',
-      lastName: '',
-      email: '',
-      mobile: '',
-      gender: 'Gender',
-      organization: '',
-      website: '',
-      employees: '1-10',
-      territory: 'Territory',
-      revenue: 'PKR 0.00',
-      industry: 'Industry',
-      status: 'New'
-    });
-  };
+  const resetForm = () => setFormData({ salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'New' });
 
   const fetchLeads = useCallback(async (skip = 0, append = false) => {
-    const requestId = latestRequestId.current + 1;
-    latestRequestId.current = requestId;
-    
-    if (!append) {
-      setLoading(true);
-    } else {
-      setIsLoadingMore(true);
-    }
+    const requestId = ++latestRequestId.current;
+    if (!append) setLoading(true); else setIsLoadingMore(true);
     setError('');
-
     try {
       const limit = append ? 10 : 20;
       const data = await apiFetch(`/api/leads/?skip=${skip}&limit=${limit}`);
       if (requestId !== latestRequestId.current) return;
-      
       const mappedData = data.map(mapLeadToRow);
-      
-      if (append) {
-        setLeads((prev) => [...prev, ...mappedData]);
-      } else {
-        setLeads(mappedData);
-      }
-      
+      if (append) setLeads((prev) => [...prev, ...mappedData]); else setLeads(mappedData);
       setTotalLoaded((prev) => prev + mappedData.length);
       setHasMore(mappedData.length === limit);
     } catch (err) {
@@ -120,89 +71,44 @@ const Leads = ({ user }) => {
       setError(err?.message || 'Unable to load leads.');
     } finally {
       if (requestId === latestRequestId.current) {
-        if (!append) {
-          setLoading(false);
-        } else {
-          setIsLoadingMore(false);
-        }
+        if (!append) setLoading(false); else setIsLoadingMore(false);
       }
     }
   }, []);
 
-  useEffect(() => {
-    fetchLeads(0, false);
-  }, [fetchLeads]);
-
-  const handleLoadMore = async () => {
-    await fetchLeads(totalLoaded, true);
-  };
+  useEffect(() => { fetchLeads(0, false); }, [fetchLeads]);
 
   const filteredLeads = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return leads;
-
-    return leads.filter((lead) => [lead.name, lead.org, lead.email]
-      .some((value) => String(value).toLowerCase().includes(term))
-    );
+    return leads.filter((lead) => [lead.name, lead.org, lead.email].some((v) => String(v).toLowerCase().includes(term)));
   }, [leads, searchTerm]);
-
-  const handleSort = (key) => {
-    const sorted = [...leads].sort((a, b) => String(a[key]).localeCompare(String(b[key])));
-    setLeads(sorted);
-    setActiveDropdown(null);
-  };
 
   const handleSaveLead = async (e) => {
     e?.preventDefault();
     setError('');
-
-    const firstName = formData.firstName.trim();
-    const lastName = formData.lastName.trim();
-    const name = [firstName, lastName].filter(Boolean).join(' ').trim();
-
-    if (!name) {
-      setError('First name is required to create a lead.');
-      return;
-    }
-
+    const name = [formData.firstName.trim(), formData.lastName.trim()].filter(Boolean).join(' ').trim();
+    if (!name) { setError('First name is required.'); return; }
     const payload = {
-      name,
-      email: formData.email.trim() || undefined,
-      phone: formData.mobile.trim() || undefined,
-      company: formData.organization.trim() || undefined,
-      status: normalizeStatus(formData.status) || 'new',
-      source: formData.website.trim() || undefined,
+      name, email: formData.email.trim() || undefined, phone: formData.mobile.trim() || undefined,
+      company: formData.organization.trim() || undefined, status: normalizeStatus(formData.status) || 'new',
     };
-
     setIsSaving(true);
     try {
-      const created = await apiFetch('/api/leads/', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
+      const created = await apiFetch('/api/leads/', { method: 'POST', body: JSON.stringify(payload) });
       setLeads((prev) => [mapLeadToRow(created), ...prev]);
       setIsCreateModalOpen(false);
       resetForm();
-    } catch (err) {
-      setError(err?.message || 'Unable to create lead.');
-    } finally {
-      setIsSaving(false);
-    }
+    } catch (err) { setError(err?.message || 'Unable to create lead.'); }
+    finally { setIsSaving(false); }
   };
 
   const handleDeleteLead = async (id) => {
     if (!canDelete) return;
-    const confirmed = window.confirm('Delete this lead?');
-    if (!confirmed) return;
-
+    if (!window.confirm('Delete this lead?')) return;
     setError('');
-    try {
-      await apiFetch(`/api/leads/${id}`, { method: 'DELETE' });
-      setLeads((prev) => prev.filter((lead) => lead.id !== id));
-    } catch (err) {
-      setError(err?.message || 'Unable to delete lead.');
-    }
+    try { await apiFetch(`/api/leads/${id}`, { method: 'DELETE' }); setLeads((prev) => prev.filter((l) => l.id !== id)); }
+    catch (err) { setError(err?.message || 'Unable to delete lead.'); }
   };
 
   const exportToExcel = () => {
@@ -210,357 +116,250 @@ const Leads = ({ user }) => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Leads");
     XLSX.writeFile(wb, "CRM_Leads.xlsx");
-    setIsExportOpen(false);
   };
 
   const groupedLeads = useMemo(() => {
     const groups = {
-      new: leads.filter((lead) => normalizeStatus(lead.status) === 'new'),
-      contacted: leads.filter((lead) => normalizeStatus(lead.status) === 'contacted'),
-      qualified: leads.filter((lead) => normalizeStatus(lead.status) === 'qualified'),
+      new: leads.filter((l) => l.status === 'new'),
+      contacted: leads.filter((l) => l.status === 'contacted'),
+      qualified: leads.filter((l) => l.status === 'qualified'),
     };
-
-    const other = leads.filter((lead) => !['new', 'contacted', 'qualified'].includes(normalizeStatus(lead.status)));
-    if (other.length) {
-      groups.other = other;
-    }
-
+    const other = leads.filter((l) => !['new', 'contacted', 'qualified'].includes(l.status));
+    if (other.length) groups.other = other;
     return groups;
   }, [leads]);
 
   return (
-    <div className="min-h-screen p-4 space-y-3 bg-gray-50 font-sans text-sm">
+    <PageTransition>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* HEADER */}
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-black tracking-tight">Leads</h1>
-
-          {/* TABLE / KANBAN SWITCH */}
-          <div className="relative">
-            <button onClick={() => setActiveDropdown(activeDropdown==='view'?null:'view')}
-              className="flex items-center gap-1 px-2 py-1 border border-gray-300 rounded-md bg-white text-xs">
-              {viewMode === 'Table' ? <List size={14}/> : <KanbanSquare size={14}/>} {viewMode}
-            </button>
-            {activeDropdown==='view' && (
-              <div className="absolute top-full mt-1 left-0 bg-white border rounded shadow w-28 z-10 text-xs">
-                <div onClick={()=>{setViewMode('Table');setActiveDropdown(null)}} className="p-2 hover:bg-gray-100 cursor-pointer">Table</div>
-                <div onClick={()=>{setViewMode('Kanban');setActiveDropdown(null)}} className="p-2 hover:bg-gray-100 cursor-pointer">Kanban</div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button onClick={() => { setTotalLoaded(0); fetchLeads(0, false); }} className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100">
-            <RotateCcw size={18} />
-          </button>
-          <button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold">
-            <Plus size={16} /> Create
-          </button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
-          {error}
-        </div>
-      )}
-
-      {loading && (
-        <div className="text-xs text-gray-500">Loading leads...</div>
-      )}
-
-      {/* SEARCH + ACTIONS */}
-      <div className="flex justify-between items-center">
-        <div className="relative w-64">
-          <Search className="absolute left-2 top-2 text-gray-400" size={16}/>
-          <input type="text" placeholder="Search leads..." className="pl-8 pr-3 py-1.5 rounded-lg border border-gray-300 w-full text-xs"
-            onChange={e => setSearchTerm(e.target.value)}
-          />
-        </div>
-
-       {/* ACTION BUTTONS */} <div className="flex gap-2"> {/* FILTER */} <div className="relative"> <button onClick={() => setActiveDropdown(activeDropdown === 'filter' ? null : 'filter')} className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center" > <Filter size={14}/> Filter </button> {activeDropdown === 'filter' && ( <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-40 z-50 text-xs"> {['Status', 'Revenue', 'Organization'].map(f => ( <div key={f} className="p-2 hover:bg-gray-100 cursor-pointer">{f}</div> ))} </div> )} </div> {/* SORT */} <div className="relative"> <button onClick={() => setActiveDropdown(activeDropdown === 'sort' ? null : 'sort')} className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center" > <ArrowUpDown size={14}/> Sort </button> {activeDropdown === 'sort' && ( <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-36 z-50 text-xs"> {['org', 'status', 'modified'].map(s => ( <div key={s} onClick={() => handleSort(s)} className="p-2 hover:bg-gray-100 cursor-pointer capitalize" > {s} </div> ))} </div> )} </div> {/* COLUMNS */} <div className="relative"> <button onClick={() => setActiveDropdown(activeDropdown === 'cols' ? null : 'cols')} className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs flex gap-1 items-center" > <LayoutPanelLeft size={14}/> Columns </button> {activeDropdown === 'cols' && ( <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow w-36 z-50 text-xs"> {Object.keys(visibleColumns).map(col => ( <div key={col} onClick={() => setVisibleColumns({ ...visibleColumns, [col]: !visibleColumns[col] })} className="flex justify-between p-2 hover:bg-gray-100 cursor-pointer capitalize" > {col} {visibleColumns[col] && '✓'} </div> ))} </div> )} </div>
-          <button
-            onClick={() => setIsExportOpen(true)}
-            className="flex items-center gap-1 px-2 py-1 border border-gray-300 rounded-md bg-white text-xs"
-          >
-            <Download size={14}/> Export
-          </button>
-        </div>
-      </div>
-
-      {/* TABLE VIEW */}
-      {viewMode === 'Table' && !loading && (
-        <div className="mt-2 flex flex-col gap-1">
-          <div className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_1fr_80px] bg-black text-white text-[10px] uppercase font-bold px-2 py-1 rounded-t-md">
-            <div><input type="checkbox"/></div>
-            {visibleColumns.name && <div>Name</div>}
-            {visibleColumns.org && <div>Organization</div>}
-            {visibleColumns.status && <div>Status</div>}
-            {visibleColumns.email && <div>Email</div>}
-            {visibleColumns.mobile && <div>Mobile</div>}
-            {visibleColumns.modified && <div>Modified</div>}
-            <div>Action</div>
-          </div>
-
-          {filteredLeads.map(l => (
-            <div key={l.id} className="grid grid-cols-[30px_1fr_1fr_1fr_1fr_1fr_1fr_80px] bg-white border-b border-gray-300 px-2 py-1 items-center text-xs">
-              <div><input type="checkbox"/></div>
-              {visibleColumns.name && <div className="font-bold">{l.name}</div>}
-              {visibleColumns.org && <div>{l.org}</div>}
-              {visibleColumns.status && <div>{formatLeadStatus(l.status)}</div>}
-              {visibleColumns.email && <div>{l.email}</div>}
-              {visibleColumns.mobile && <div>{l.mobile}</div>}
-              {visibleColumns.modified && <div className="text-gray-400 italic">{l.modified}</div>}
-              <div className="flex flex-col justify-end text-right h-full pr-10">
-                {canDelete && (
-                  <button
-                    onClick={() => handleDeleteLead(l.id)}
-                    className="text-red-500 text-xs"
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
+        {/* HEADER */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <h1 className="page-title">Leads</h1>
+            <div style={{ display: 'flex', gap: 2, background: 'var(--color-bg-elevated)', borderRadius: 'var(--radius)', padding: 2, border: '1px solid var(--color-border)' }}>
+              <button
+                onClick={() => setViewMode('table')}
+                className={viewMode === 'table' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                aria-label="Table view"
+              >
+                <LayoutList size={14} />
+              </button>
+              <button
+                onClick={() => setViewMode('kanban')}
+                className={viewMode === 'kanban' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                aria-label="Kanban view"
+              >
+                <Columns2 size={14} />
+              </button>
             </div>
-          ))}
-        </div>
-      )}
+          </div>
 
-      {/* LOAD MORE BUTTON */}
-      {!loading && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <button
-            onClick={handleLoadMore}
-            disabled={isLoadingMore}
-            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
-          >
-            {isLoadingMore ? 'Loading more...' : 'Load More'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => { setTotalLoaded(0); fetchLeads(0, false); }} className="btn btn-ghost btn-icon" aria-label="Refresh leads">
+              <RotateCcw size={16} />
+            </button>
+            <button onClick={exportToExcel} className="btn btn-secondary btn-sm" aria-label="Export leads">
+              <Download size={14} /> Export
+            </button>
+            <button onClick={() => setIsCreateModalOpen(true)} className="btn btn-primary">
+              <Plus size={15} /> Add Lead
+            </button>
+          </div>
         </div>
-      )}
 
-      {/* KANBAN VIEW */}
-      {viewMode === 'Kanban' && !loading && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-          {Object.entries(groupedLeads).map(([status, items]) => (
-            <div key={status} className="bg-gray-100 rounded-lg p-3">
-              <h3 className="text-xs font-bold mb-2">{STATUS_LABELS[status] || 'Other'}</h3>
-              <div className="space-y-2">
-                {items.map(l => (
-                  <div key={l.id} className="bg-white p-2 rounded shadow text-xs border">
-                    <div className="font-bold">{l.name}</div>
-                    <div className="text-gray-500">{l.org}</div>
-                    {canDelete && (
-                      <button onClick={() => handleDeleteLead(l.id)} className="text-red-500 text-[10px] mt-1">Delete</button>
-                    )}
+        {/* SEARCH */}
+        <div style={{ position: 'relative', maxWidth: 320 }}>
+          <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-tertiary)' }} />
+          <input type="text" placeholder="Search leads..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        </div>
+
+        {error && (
+          <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>
+            {error}
+          </div>
+        )}
+
+        {loading ? <SkeletonTable rows={8} cols={6} /> : (
+          <>
+            {/* TABLE VIEW */}
+            {viewMode === 'table' && (
+              filteredLeads.length === 0 ? <EmptyState type="leads" /> : (
+                <div className="card" style={{ overflow: 'hidden' }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 36 }}><input type="checkbox" className="checkbox-input" /></th>
+                        <th>Name</th>
+                        <th>Organization</th>
+                        <th>Status</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Modified</th>
+                        <th style={{ width: 60, textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <motion.tbody ref={tbodyRef} variants={staggerContainer} initial="initial" animate="animate">
+                      {filteredLeads.map((l) => (
+                        <motion.tr key={l.id} variants={staggerItem}>
+                          <td><input type="checkbox" className="checkbox-input" /></td>
+                          <td style={{ fontWeight: 'var(--weight-medium)' }}>{l.name}</td>
+                          <td style={{ color: 'var(--color-text-secondary)' }}>{l.org}</td>
+                          <td><span className={`badge ${STATUS_BADGE[l.status] || 'badge-muted'}`}>{formatLeadStatus(l.status)}</span></td>
+                          <td style={{ color: 'var(--color-text-secondary)' }}>{l.email}</td>
+                          <td style={{ color: 'var(--color-text-secondary)' }}>{l.mobile}</td>
+                          <td style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>{l.modified}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <div style={{ position: 'relative', display: 'inline-block' }}>
+                              <button
+                                className="btn btn-ghost btn-icon"
+                                onClick={() => setActionMenu(actionMenu === l.id ? null : l.id)}
+                                aria-label="Row actions"
+                              >
+                                <MoreHorizontal size={14} />
+                              </button>
+                              {actionMenu === l.id && (
+                                <div className="dropdown-menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)' }}>
+                                  <button className="dropdown-item" onClick={() => setActionMenu(null)}>
+                                    <Eye size={14} /> View
+                                  </button>
+                                  {canEdit && (
+                                    <button className="dropdown-item" onClick={() => setActionMenu(null)}>
+                                      <Pencil size={14} /> Edit
+                                    </button>
+                                  )}
+                                  {canDelete && (
+                                    <button className="dropdown-item dropdown-item-danger" onClick={() => { handleDeleteLead(l.id); setActionMenu(null); }}>
+                                      <Trash2 size={14} /> Delete
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </motion.tr>
+                      ))}
+                    </motion.tbody>
+                  </table>
+                </div>
+              )
+            )}
+
+            {/* KANBAN VIEW */}
+            {viewMode === 'kanban' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+                {Object.entries(groupedLeads).map(([status, items]) => (
+                  <div key={status} className="kanban-column">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <span className={`badge ${STATUS_BADGE[status] || 'badge-muted'}`}>{STATUS_LABELS[status] || 'Other'}</span>
+                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{items.length}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {items.map((l) => (
+                        <div key={l.id} className="kanban-card">
+                          <div style={{ fontWeight: 'var(--weight-medium)', fontSize: 'var(--text-base)', marginBottom: 4 }}>{l.name}</div>
+                          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{l.org}</div>
+                          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 6 }}>{l.email}</div>
+                          {canDelete && (
+                            <button onClick={() => handleDeleteLead(l.id)} className="btn btn-danger btn-sm" style={{ marginTop: 8 }}>
+                              <Trash2 size={12} /> Delete
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            )}
 
-      {/* LOAD MORE BUTTON (Kanban Mode) */}
-      {viewMode === 'Kanban' && !loading && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <button
-            onClick={handleLoadMore}
-            disabled={isLoadingMore}
-            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
-          >
-            {isLoadingMore ? 'Loading more...' : 'Load More'}
-          </button>
-        </div>
-      )}
+            {/* LOAD MORE */}
+            {hasMore && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+                <button onClick={() => fetchLeads(totalLoaded, true)} disabled={isLoadingMore} className="btn btn-secondary">
+                  {isLoadingMore ? 'Loading...' : 'Load More'}
+                </button>
+              </div>
+            )}
+          </>
+        )}
 
-      {!loading && filteredLeads.length === 0 && (
-        <div className="text-xs text-gray-500">No leads found.</div>
-      )}
+        {/* CREATE MODAL */}
+        <AnimatePresence>
+          {isCreateModalOpen && (
+            <motion.div
+              className="modal-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsCreateModalOpen(false)}
+            >
+              <motion.div
+                className="modal-content dialog-content-enter"
+                style={{ maxWidth: 560 }}
+                onClick={(e) => e.stopPropagation()}
+                initial={{ opacity: 0, scale: 0.97, y: 4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.97 }}
+                transition={{ duration: 0.25 }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+                  <h3 className="section-title">Create Lead</h3>
+                  <button onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost btn-icon" aria-label="Close">
+                    <X size={18} />
+                  </button>
+                </div>
 
-      {/* EXPORT POPUP */}
-      {isExportOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-80 shadow-lg">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-sm">Export Leads</h3>
-              <X size={16} onClick={()=>setIsExportOpen(false)} className="cursor-pointer"/>
-            </div>
-            <button onClick={exportToExcel} className="w-full bg-black text-white py-2 rounded text-xs font-bold">Download Excel</button>
-          </div>
-        </div>
-      )}
+                <form id="create-lead-form" onSubmit={handleSaveLead} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '60vh', overflowY: 'auto' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label className="label">First Name *</label>
+                      <input type="text" required placeholder="First name" className="input" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="label">Last Name</label>
+                      <input type="text" placeholder="Last name" className="input" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label className="label">Email</label>
+                      <input type="email" placeholder="email@company.com" className="input" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="label">Phone</label>
+                      <input type="text" placeholder="Phone number" className="input" value={formData.mobile} onChange={(e) => setFormData({ ...formData, mobile: e.target.value })} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label className="label">Organization</label>
+                      <input type="text" placeholder="Company name" className="input" value={formData.organization} onChange={(e) => setFormData({ ...formData, organization: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="label">Status</label>
+                      <select className="input" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>
+                        <option>New</option>
+                        <option>Contacted</option>
+                        <option>Qualified</option>
+                        <option>Converted</option>
+                      </select>
+                    </div>
+                  </div>
+                </form>
 
-{/* --- CREATE LEAD MODAL (Minimal Black/White/Grey, Compact) --- */}
-{isCreateModalOpen && (
-  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/20 backdrop-blur-sm font-sans p-3">
-    <div className="bg-white w-full max-w-2xl rounded-lg shadow-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
-
-      {/* Header */}
-      <div className="flex justify-between items-center px-5 py-2 border-b border-gray-200 sticky top-0 bg-white z-20">
-        <h3 className="text-md font-semibold text-gray-900">Create Lead</h3>
-        <div
-          className="p-1 hover:bg-gray-100 rounded-full cursor-pointer transition"
-          onClick={() => setIsCreateModalOpen(false)}
-        >
-          <X size={18} className="text-gray-400 hover:text-gray-700" />
-        </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
+                  <button type="button" onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost">Discard</button>
+                  <button type="submit" form="create-lead-form" disabled={isSaving} className="btn btn-primary">
+                    {isSaving ? 'Creating...' : 'Create Lead'}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-
-      {/* Scrollable Form */}
-      <div className="overflow-y-auto max-h-[65vh] p-5">
-        <form id="create-lead-form" onSubmit={handleSaveLead} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-
-          {/* Personal Info */}
-          <div className="col-span-1 md:col-span-2 bg-gray-50 p-3 rounded-md border border-gray-200">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Personal Information</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Salutation</label>
-                <select
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.salutation}
-                  onChange={e => setFormData({...formData, salutation: e.target.value})}
-                >
-                  <option>Salutation</option>
-                  <option>Mr.</option>
-                  <option>Ms.</option>
-                  <option>Dr.</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">First Name *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="First Name"
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.firstName}
-                  onChange={e => setFormData({...formData, firstName: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Last Name</label>
-                <input
-                  type="text"
-                  placeholder="Last Name"
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.lastName}
-                  onChange={e => setFormData({...formData, lastName: e.target.value})}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Contact Info */}
-          <div className="col-span-1 md:col-span-2 bg-gray-50 p-3 rounded-md border border-gray-200 mt-2">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Contact Information</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Email</label>
-                <input
-                  type="email"
-                  placeholder="example@mail.com"
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.email}
-                  onChange={e => setFormData({...formData, email: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Mobile No.</label>
-                <input
-                  type="text"
-                  placeholder="0300XXXXXXX"
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.mobile}
-                  onChange={e => setFormData({...formData, mobile: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Gender</label>
-                <select
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.gender}
-                  onChange={e => setFormData({...formData, gender: e.target.value})}
-                >
-                  <option>Gender</option>
-                  <option>Male</option>
-                  <option>Female</option>
-                  <option>Other</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Organization Info */}
-          <div className="col-span-1 md:col-span-2 bg-gray-50 p-3 rounded-md border border-gray-200 mt-2">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Organization Information</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Organization</label>
-                <input
-                  type="text"
-                  placeholder="Organization Name"
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.organization}
-                  onChange={e => setFormData({...formData, organization: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Website</label>
-                <input
-                  type="text"
-                  placeholder="www.website.com"
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.website}
-                  onChange={e => setFormData({...formData, website: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="text-[9px] font-medium text-gray-500 uppercase mb-1 block">Employees</label>
-                <select
-                  className="w-full border border-gray-300 p-1.5 rounded-md bg-white text-sm outline-none focus:ring-1 focus:ring-gray-300 transition"
-                  value={formData.employees}
-                  onChange={e => setFormData({...formData, employees: e.target.value})}
-                >
-                  <option>1-10</option>
-                  <option>11-50</option>
-                  <option>51-200</option>
-                  <option>201+</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-        </form>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex justify-end gap-2 px-5 py-2 border-t bg-white sticky bottom-0 z-20">
-        <button
-          type="button"
-          onClick={() => setIsCreateModalOpen(false)}
-          className="px-4 py-1.5 text-gray-600 font-medium text-sm hover:bg-gray-100 rounded-md transition"
-        >
-          Discard
-        </button>
-        <button
-          type="submit"
-          form="create-lead-form"
-          disabled={isSaving}
-          className="px-5 py-1.5 bg-gray-900 text-white font-medium text-sm rounded-md shadow hover:bg-gray-800 transition-all active:scale-95 disabled:opacity-60"
-        >
-          {isSaving ? 'Creating...' : 'Create'}
-        </button>
-      </div>
-
-    </div>
-  </div>
-)}
-
-    </div>
+    </PageTransition>
   );
 };
 

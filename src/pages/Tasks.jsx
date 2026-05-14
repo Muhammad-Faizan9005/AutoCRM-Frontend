@@ -1,388 +1,223 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Filter, ArrowUpDown, LayoutPanelLeft, Download, X, Check, RotateCcw } from 'lucide-react';
+import { Plus, Search, RotateCcw, Trash2, X, Download } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
+import { PageTransition } from '../components/PageTransition';
+import { EmptyState } from '../components/EmptyState';
+import { SkeletonTable } from '../components/Skeleton';
 
 const DEFAULT_ENTITY_TYPE = 'general';
+const STATUS_BADGE = { open: 'badge-accent', in_progress: 'badge-warning', done: 'badge-success' };
+const STATUS_LABEL = { open: 'Open', in_progress: 'In Progress', done: 'Done' };
+const PRIORITY_DOT = { high: 'priority-high', medium: 'priority-medium', low: 'priority-low' };
 
-const formatDate = (value) => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleDateString();
-};
-
-const formatAssignee = (assignedTo, currentUser) => {
-  if (!assignedTo) return 'Unassigned';
-  if (currentUser?.id && String(assignedTo) === String(currentUser.id)) {
-    return currentUser.full_name || currentUser.email || 'You';
-  }
-  return String(assignedTo).slice(0, 8);
-};
-
-const mapTaskToRow = (task, currentUser) => ({
-  id: task.id,
-  title: task.title,
-  status: task.status || 'open',
-  priority: task.priority || 'medium',
-  dueDate: formatDate(task.due_at),
-  assignedTo: formatAssignee(task.assigned_to, currentUser),
-  modified: formatDate(task.updated_at || task.created_at),
-  description: task.description || '',
-});
+const formatDate = (v) => { if (!v) return '-'; const d = new Date(v); return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString(undefined, { month:'short', day:'numeric' }); };
+const fmtAssignee = (a, u) => { if (!a) return 'Unassigned'; if (u?.id && String(a)===String(u.id)) return u.full_name||u.email||'You'; return String(a).slice(0,8); };
+const mapTask = (t, u) => ({ id:t.id, title:t.title, status:t.status||'open', priority:t.priority||'medium', dueDate:formatDate(t.due_at), assignedTo:fmtAssignee(t.assigned_to,u), modified:formatDate(t.updated_at||t.created_at), description:t.description||'' });
 
 const Tasks = ({ user }) => {
-  // --- STATES ---
   const [tasks, setTasks] = useState([]);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [activeDropdown, setActiveDropdown] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [visibleColumns, setVisibleColumns] = useState({ title: true, status: true, priority: true, dueDate: true, assignedTo: true, modified: true });
-  const [formData, setFormData] = useState({ title: '', description: '', status: 'open', priority: 'medium', dueDate: '' });
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalLoaded, setTotalLoaded] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const latestRequestId = useRef(0);
-
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [formData, setFormData] = useState({ title:'', description:'', status:'open', priority:'medium', dueDate:'' });
+  const latestReq = useRef(0);
+  const [listRef] = useAutoAnimate();
   const canDelete = user?.role === 'admin';
 
-  const resetForm = () => setFormData({ title: '', description: '', status: 'open', priority: 'medium', dueDate: '' });
-
-  const fetchTasks = useCallback(async (skip = 0, append = false) => {
-    const requestId = latestRequestId.current + 1;
-    latestRequestId.current = requestId;
-    
-    if (!append) {
-      setLoading(true);
-    } else {
-      setIsLoadingMore(true);
-    }
+  const fetchTasks = useCallback(async (skip=0, append=false) => {
+    const rid = ++latestReq.current;
+    if (!append) setLoading(true); else setIsLoadingMore(true);
     setError('');
-
     try {
-      const limit = append ? 10 : 20;
-      const data = await apiFetch(`/api/tasks/?skip=${skip}&limit=${limit}`);
-      if (requestId !== latestRequestId.current) return;
-      
-      const mappedData = data.map((task) => mapTaskToRow(task, user));
-      
-      if (append) {
-        setTasks((prev) => [...prev, ...mappedData]);
-      } else {
-        setTasks(mappedData);
-      }
-      
-      setTotalLoaded((prev) => prev + mappedData.length);
-      setHasMore(mappedData.length === limit);
-    } catch (err) {
-      if (requestId !== latestRequestId.current) return;
-      setError(err?.message || 'Unable to load tasks.');
-    } finally {
-      if (requestId === latestRequestId.current) {
-        if (!append) {
-          setLoading(false);
-        } else {
-          setIsLoadingMore(false);
-        }
-      }
-    }
+      const lim = append ? 10 : 20;
+      const data = await apiFetch(`/api/tasks/?skip=${skip}&limit=${lim}`);
+      if (rid !== latestReq.current) return;
+      const m = data.map(t => mapTask(t, user));
+      if (append) setTasks(p => [...p,...m]); else setTasks(m);
+      setTotalLoaded(p => p + m.length); setHasMore(m.length === lim);
+    } catch (e) { if (rid === latestReq.current) setError(e?.message||'Unable to load tasks.'); }
+    finally { if (rid === latestReq.current) { if (!append) setLoading(false); else setIsLoadingMore(false); } }
   }, [user]);
 
-  useEffect(() => {
-    fetchTasks(0, false);
-  }, [fetchTasks]);
+  useEffect(() => { fetchTasks(0,false); }, [fetchTasks]);
 
-  // --- FUNCTIONS ---
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    setTotalLoaded(0);
-    await fetchTasks(0, false);
-    setIsRefreshing(false);
-  };
+  const filtered = useMemo(() => tasks.filter(t => t.title.toLowerCase().includes(searchTerm.toLowerCase())), [tasks, searchTerm]);
 
-  const handleLoadMore = async () => {
-    await fetchTasks(totalLoaded, true);
-  };
-
-  const filteredTasks = useMemo(() => tasks.filter(t => t.title.toLowerCase().includes(searchTerm.toLowerCase())), [tasks, searchTerm]);
-
-  const handleSort = (key) => {
-    setTasks([...tasks].sort((a,b)=>String(a[key]).localeCompare(String(b[key]))));
-    setActiveDropdown(null);
-  };
-
-  const toggleStatus = async (id, currentStatus) => {
-    const nextStatus = currentStatus === 'done' ? 'open' : 'done';
-    setActiveDropdown(null);
-    setError('');
-
+  const toggleStatus = async (id, current) => {
+    const next = current === 'done' ? 'open' : 'done';
     try {
-      const updated = await apiFetch(`/api/tasks/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      setTasks((prev) => prev.map((task) => (
-        task.id === id ? mapTaskToRow(updated, user) : task
-      )));
-    } catch (err) {
-      setError(err?.message || 'Unable to update task status.');
-    }
+      const updated = await apiFetch(`/api/tasks/${id}`, { method:'PATCH', body:JSON.stringify({ status:next }) });
+      setTasks(p => p.map(t => t.id===id ? mapTask(updated, user) : t));
+    } catch (e) { setError(e?.message||'Status update failed.'); }
   };
 
-  const handleSaveTask = async (e) => {
-    e.preventDefault();
-    setError('');
-
+  const handleSave = async (e) => {
+    e.preventDefault(); setError('');
     const title = formData.title.trim();
-    if (!title) {
-      setError('Task title is required.');
-      return;
-    }
-
-    if (!user?.id) {
-      setError('Unable to identify current user for tasks.');
-      return;
-    }
-
+    if (!title) { setError('Title required.'); return; }
+    if (!user?.id) { setError('User not identified.'); return; }
     setIsSaving(true);
     try {
-      const payload = {
-        entity_type: DEFAULT_ENTITY_TYPE,
-        entity_id: user.id,
-        title,
-        description: formData.description.trim() || undefined,
-        assigned_to: user.id,
-        status: formData.status || 'open',
-        priority: formData.priority || 'medium',
-        due_at: formData.dueDate || undefined,
-      };
-
-      const created = await apiFetch('/api/tasks/', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      setTasks((prev) => [mapTaskToRow(created, user), ...prev]);
-      setIsCreateModalOpen(false);
-      resetForm();
-    } catch (err) {
-      setError(err?.message || 'Unable to create task.');
-    } finally {
-      setIsSaving(false);
-    }
+      const payload = { entity_type:DEFAULT_ENTITY_TYPE, entity_id:user.id, title, description:formData.description.trim()||undefined, assigned_to:user.id, status:formData.status, priority:formData.priority, due_at:formData.dueDate||undefined };
+      const created = await apiFetch('/api/tasks/', { method:'POST', body:JSON.stringify(payload) });
+      setTasks(p => [mapTask(created,user),...p]); setIsCreateOpen(false); setFormData({ title:'', description:'', status:'open', priority:'medium', dueDate:'' });
+    } catch (e) { setError(e?.message||'Create failed.'); } finally { setIsSaving(false); }
   };
 
-  const handleDeleteTask = async (id) => {
-    if (!canDelete) return;
-    const confirmed = window.confirm('Delete this task?');
-    if (!confirmed) return;
-
-    setError('');
-    try {
-      await apiFetch(`/api/tasks/${id}`, { method: 'DELETE' });
-      setTasks((prev) => prev.filter((task) => task.id !== id));
-    } catch (err) {
-      setError(err?.message || 'Unable to delete task.');
-    }
+  const handleDelete = async (id) => {
+    if (!canDelete || !window.confirm('Delete?')) return;
+    try { await apiFetch(`/api/tasks/${id}`, { method:'DELETE' }); setTasks(p => p.filter(t => t.id!==id)); } catch (e) { setError(e?.message||'Delete failed.'); }
   };
 
-  const exportToExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(tasks);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Tasks");
-    XLSX.writeFile(wb, "CRM_Tasks.xlsx");
-    setIsExportModalOpen(false);
-  };
+  const exportXl = () => { const ws=XLSX.utils.json_to_sheet(tasks); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Tasks"); XLSX.writeFile(wb,"CRM_Tasks.xlsx"); };
+
+  // Group tasks
+  const grouped = useMemo(() => {
+    const today = [], thisWeek = [], later = [], completed = [];
+    const now = new Date(); const weekEnd = new Date(now); weekEnd.setDate(weekEnd.getDate()+7);
+    filtered.forEach(t => {
+      if (t.status === 'done') { completed.push(t); return; }
+      const due = new Date(t.dueDate);
+      if (!t.dueDate || t.dueDate === '-') { later.push(t); }
+      else if (due.toDateString() === now.toDateString()) today.push(t);
+      else if (due <= weekEnd) thisWeek.push(t);
+      else later.push(t);
+    });
+    return [
+      { label:'Today', items:today },
+      { label:'This Week', items:thisWeek },
+      { label:'Later', items:later },
+      { label:'Completed', items:completed },
+    ].filter(g => g.items.length > 0);
+  }, [filtered]);
 
   return (
-    <div className="min-h-screen p-4 space-y-3 bg-gray-50 font-sans text-sm">
-
-      {/* HEADER */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-xl font-bold text-black">Tasks</h1>
-        <div className="flex gap-2">
-          <button onClick={handleRefresh} className={`p-2 bg-white border rounded hover:bg-gray-100 ${isRefreshing?'animate-spin text-purple-600':''}`}><RotateCcw size={18}/></button>
-          <button onClick={()=>setIsCreateModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-900 font-semibold"><Plus size={16}/> Create</button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
-          {error}
-        </div>
-      )}
-
-      {loading && (
-        <div className="text-xs text-gray-500">Loading tasks...</div>
-      )}
-
-      {/* SEARCH + ACTIONS */}
-      <div className="flex justify-between items-center">
-        <div className="relative w-64">
-          <Search className="absolute left-2 top-2 text-gray-400" size={16}/>
-          <input type="text" placeholder="Search tasks..." className="pl-8 pr-3 py-1.5 rounded-lg border border-gray-300 w-full text-xs" onChange={e=>setSearchTerm(e.target.value)} />
-        </div>
-
-        <div className="flex gap-2">
-          {/* FILTER */}
-          <div className="relative">
-            <button onClick={()=>setActiveDropdown(activeDropdown==='filter'?null:'filter')} className="px-2 py-1 border rounded bg-white text-xs flex gap-1 items-center"><Filter size={14}/> Filter</button>
-            {activeDropdown==='filter' && (
-              <div className="absolute right-0 top-full mt-1 w-40 bg-white border rounded shadow z-50 text-xs">
-                {['Status','Priority','Assigned To'].map(f=><div key={f} className="p-2 hover:bg-gray-100 cursor-pointer">{f}</div>)}
-              </div>
-            )}
+    <PageTransition>
+      <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <h1 className="page-title">Tasks</h1>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={() => { setTotalLoaded(0); fetchTasks(0,false); }} className="btn btn-ghost btn-icon" aria-label="Refresh"><RotateCcw size={16}/></button>
+            <button onClick={exportXl} className="btn btn-secondary btn-sm"><Download size={14}/> Export</button>
+            <button onClick={() => setIsCreateOpen(true)} className="btn btn-primary"><Plus size={15}/> Add Task</button>
           </div>
-
-          {/* SORT */}
-          <div className="relative">
-            <button onClick={()=>setActiveDropdown(activeDropdown==='sort'?null:'sort')} className="px-2 py-1 border rounded bg-white text-xs flex gap-1 items-center"><ArrowUpDown size={14}/> Sort</button>
-            {activeDropdown==='sort' && (
-              <div className="absolute right-0 top-full mt-1 w-36 bg-white border rounded shadow z-50 text-xs">
-                {['title','status','priority','dueDate'].map(s=><div key={s} onClick={()=>handleSort(s)} className="p-2 hover:bg-gray-100 cursor-pointer capitalize">{s}</div>)}
-              </div>
-            )}
-          </div>
-
-          {/* COLUMNS */}
-          <div className="relative">
-            <button onClick={()=>setActiveDropdown(activeDropdown==='cols'?null:'cols')} className="px-2 py-1 border rounded bg-white text-xs flex gap-1 items-center"><LayoutPanelLeft size={14}/> Columns</button>
-            {activeDropdown==='cols' && (
-              <div className="absolute right-0 top-full mt-1 w-36 bg-white border rounded shadow z-50 text-xs p-2">
-                {Object.keys(visibleColumns).map(col=>(
-                  <div key={col} className="flex justify-between p-1 hover:bg-gray-100 cursor-pointer capitalize" onClick={()=>setVisibleColumns({...visibleColumns,[col]:!visibleColumns[col]})}>
-                    {col} {visibleColumns[col] && <Check size={14} className="text-purple-600"/>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* EXPORT */}
-          <button onClick={()=>setIsExportModalOpen(true)} className="flex items-center gap-1 px-2 py-1 border rounded bg-white text-xs"><Download size={14}/> Export</button>
         </div>
-      </div>
 
-      {/* TASK TABLE */}
-      <div className="mt-2 overflow-x-auto bg-white border rounded-lg shadow-sm">
-        <table className="w-full text-xs text-left">
-          <thead className="bg-black text-white uppercase font-bold text-[10px]">
-            <tr>
-              <th className="px-2 py-2 w-6"><input type="checkbox"/></th>
-              {visibleColumns.title && <th className="px-2 py-2">Title</th>}
-              {visibleColumns.status && <th className="px-2 py-2">Status</th>}
-              {visibleColumns.priority && <th className="px-2 py-2">Priority</th>}
-              {visibleColumns.dueDate && <th className="px-2 py-2 text-center">Due Date</th>}
-              {visibleColumns.assignedTo && <th className="px-2 py-2">Assigned To</th>}
-              {visibleColumns.modified && <th className="px-2 py-2">Last Modified</th>}
-              <th className="px-2 py-2 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {filteredTasks.map(task=>(
-              <tr key={task.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-2 py-2"><input type="checkbox"/></td>
-                {visibleColumns.title && <td className="px-2 py-2 font-bold">{task.title}</td>}
-                {visibleColumns.status && (
-                  <td className="px-2 py-2">
-                    <button
-                      type="button"
-                      onClick={() => toggleStatus(task.id, task.status)}
-                      className="text-left"
+        <div style={{ position:'relative', maxWidth:320 }}>
+          <Search size={16} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--color-text-tertiary)' }}/>
+          <input type="text" placeholder="Search tasks..." className="search-input" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
+        </div>
+
+        {error && <div style={{ padding:12, background:'var(--color-danger-subtle)', border:'1px solid var(--color-danger)', borderRadius:'var(--radius)', fontSize:'var(--text-sm)', color:'var(--color-danger)' }}>{error}</div>}
+
+        {loading ? <SkeletonTable rows={6} cols={5}/> : filtered.length === 0 ? <EmptyState type="tasks"/> : (
+          <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
+            {grouped.map(group => (
+              <div key={group.label}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                  <h3 style={{ fontFamily:'var(--font-display)', fontSize:'var(--text-md)', fontWeight:600 }}>{group.label}</h3>
+                  <span className="badge badge-muted">{group.items.length}</span>
+                </div>
+                <div ref={listRef} className="card" style={{ overflow:'hidden' }}>
+                  {group.items.map(task => (
+                    <div key={task.id} style={{
+                      display:'flex', alignItems:'center', gap:12, padding:'10px 16px',
+                      borderBottom:'1px solid var(--color-border)',
+                      transition:'background 0.1s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background='var(--color-bg-hover)'}
+                    onMouseLeave={e => e.currentTarget.style.background='transparent'}
                     >
-                      {task.status}
-                    </button>
-                  </td>
-                )}
-                {visibleColumns.priority && <td className="px-2 py-2">{task.priority}</td>}
-                {visibleColumns.dueDate && <td className="px-2 py-2 text-center">{task.dueDate}</td>}
-                {visibleColumns.assignedTo && <td className="px-2 py-2">{task.assignedTo}</td>}
-                {visibleColumns.modified && <td className="px-2 py-2 text-gray-400 italic">{task.modified}</td>}
-                <td className="px-2 py-2 text-right">
-                  {canDelete && (
-                    <button onClick={() => handleDeleteTask(task.id)} className="text-red-500 text-xs">Delete</button>
-                  )}
-                </td>
-              </tr>
+                      {/* Checkbox */}
+                      <button
+                        onClick={() => toggleStatus(task.id, task.status)}
+                        style={{ width:18, height:18, borderRadius:4, border: task.status==='done' ? 'none' : '1.5px solid var(--color-border-strong)', background: task.status==='done' ? 'var(--color-accent)' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0, transition:'all 0.15s' }}
+                        aria-label={task.status==='done' ? 'Mark incomplete' : 'Mark complete'}
+                      >
+                        {task.status === 'done' && (
+                          <motion.svg viewBox="0 0 24 24" width={12} height={12} initial={{ pathLength:0 }} animate={{ pathLength:1 }}>
+                            <motion.path d="M4 12 L9 17 L20 6" stroke="var(--color-text-inverse)" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" fill="none" initial={{ pathLength:0 }} animate={{ pathLength:1 }} transition={{ duration:0.2 }}/>
+                          </motion.svg>
+                        )}
+                      </button>
+
+                      {/* Priority dot */}
+                      <div className={`priority-dot ${PRIORITY_DOT[task.priority]||'priority-medium'}`} title={task.priority}/>
+
+                      {/* Title */}
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <span style={{
+                          fontWeight:500,
+                          textDecoration: task.status==='done' ? 'line-through' : 'none',
+                          color: task.status==='done' ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)',
+                          transition:'color 0.2s, text-decoration 0.2s',
+                        }}>{task.title}</span>
+                      </div>
+
+                      {/* Assignee */}
+                      <div className="avatar avatar-sm avatar-accent" title={task.assignedTo}>{task.assignedTo[0]}</div>
+
+                      {/* Due date badge */}
+                      <span className="badge badge-muted" style={{ fontSize:'var(--text-xs)' }}>{task.dueDate}</span>
+
+                      {/* Status */}
+                      <span className={`badge ${STATUS_BADGE[task.status]||'badge-muted'}`}>{STATUS_LABEL[task.status]||task.status}</span>
+
+                      {/* Delete */}
+                      {canDelete && (
+                        <button onClick={() => handleDelete(task.id)} className="btn btn-ghost btn-icon" style={{ width:24,height:24,padding:2 }} aria-label="Delete">
+                          <Trash2 size={12} style={{ color:'var(--color-danger)' }}/>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        )}
+
+        {!loading && hasMore && (
+          <div style={{ display:'flex', justifyContent:'center' }}>
+            <button onClick={() => fetchTasks(totalLoaded,true)} disabled={isLoadingMore} className="btn btn-secondary">{isLoadingMore ? 'Loading...' : 'Load More'}</button>
+          </div>
+        )}
+
+        <AnimatePresence>
+          {isCreateOpen && (
+            <motion.div className="modal-overlay" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} onClick={() => setIsCreateOpen(false)}>
+              <motion.div className="modal-content" style={{ maxWidth:480 }} onClick={e => e.stopPropagation()} initial={{ opacity:0,scale:0.97,y:4 }} animate={{ opacity:1,scale:1,y:0 }} exit={{ opacity:0,scale:0.97 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid var(--color-border)' }}>
+                  <h3 className="section-title">Create Task</h3>
+                  <button onClick={() => setIsCreateOpen(false)} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18}/></button>
+                </div>
+                <form onSubmit={handleSave} style={{ padding:20, display:'flex', flexDirection:'column', gap:14 }}>
+                  <div><label className="label">Title *</label><input type="text" required className="input" value={formData.title} onChange={e => setFormData({...formData,title:e.target.value})}/></div>
+                  <div><label className="label">Description</label><textarea className="input" style={{ minHeight:80 }} value={formData.description} onChange={e => setFormData({...formData,description:e.target.value})}/></div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
+                    <div><label className="label">Status</label><select className="input" value={formData.status} onChange={e => setFormData({...formData,status:e.target.value})}><option value="open">Open</option><option value="in_progress">In Progress</option><option value="done">Done</option></select></div>
+                    <div><label className="label">Priority</label><select className="input" value={formData.priority} onChange={e => setFormData({...formData,priority:e.target.value})}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+                    <div><label className="label">Due Date</label><input type="date" className="input" value={formData.dueDate} onChange={e => setFormData({...formData,dueDate:e.target.value})}/></div>
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
+                    <button type="button" onClick={() => setIsCreateOpen(false)} className="btn btn-ghost">Cancel</button>
+                    <button type="submit" disabled={isSaving} className="btn btn-primary">{isSaving ? 'Creating...' : 'Create Task'}</button>
+                  </div>
+                </form>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-
-      {/* LOAD MORE BUTTON */}
-      {!loading && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <button
-            onClick={handleLoadMore}
-            disabled={isLoadingMore}
-            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-sm"
-          >
-            {isLoadingMore ? 'Loading more...' : 'Load More'}
-          </button>
-        </div>
-      )}
-
-      {!loading && filteredTasks.length === 0 && (
-        <div className="text-xs text-gray-500">No tasks found.</div>
-      )}
-
-      {/* CREATE TASK MODAL */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold">Create Task</h3>
-              <X size={20} className="cursor-pointer" onClick={()=>setIsCreateModalOpen(false)}/>
-            </div>
-            <form onSubmit={handleSaveTask} className="space-y-4">
-              <div>
-                <label className="text-[10px] font-bold uppercase mb-1 block">Title *</label>
-                <input type="text" required className="w-full border p-2.5 rounded text-sm outline-none" value={formData.title} onChange={e=>setFormData({...formData,title:e.target.value})}/>
-              </div>
-              <div>
-                <label className="text-[10px] font-bold uppercase mb-1 block">Description</label>
-                <textarea className="w-full border p-3 rounded text-sm outline-none min-h-[100px]" value={formData.description} onChange={e=>setFormData({...formData,description:e.target.value})}></textarea>
-              </div>
-              <div className="flex gap-2">
-                <select className="border p-2 rounded text-xs w-1/3" value={formData.status} onChange={e=>setFormData({...formData,status:e.target.value})}>
-                  <option value="open">Open</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="done">Done</option>
-                </select>
-                <select className="border p-2 rounded text-xs w-1/3" value={formData.priority} onChange={e=>setFormData({...formData,priority:e.target.value})}>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-                <input type="date" className="border p-2 rounded text-xs w-1/3" value={formData.dueDate} onChange={e=>setFormData({...formData,dueDate:e.target.value})}/>
-              </div>
-              <div className="flex justify-end">
-                <button type="submit" disabled={isSaving} className="bg-black text-white px-6 py-2 rounded-lg font-bold text-sm hover:bg-gray-900 disabled:opacity-60">{isSaving ? 'Creating...' : 'Create'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* EXPORT MODAL */}
-      {isExportModalOpen && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white w-full max-w-xs rounded-2xl shadow-2xl p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-sm">Export Tasks</h3>
-              <X size={18} className="cursor-pointer" onClick={()=>setIsExportModalOpen(false)}/>
-            </div>
-            <button onClick={exportToExcel} className="w-full bg-black text-white py-2 rounded text-xs font-bold hover:bg-gray-900 transition">Download Excel</button>
-          </div>
-        </div>
-      )}
-
-    </div>
+    </PageTransition>
   );
 };
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { apiFetch, setTokens } from '../api/client';
 import { logger } from '../utils/logger';
 
@@ -56,65 +57,145 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-
+    <div style={{
+      minHeight: '100vh',
+      background: 'var(--color-bg-base)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '16px',
+    }}>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+        style={{ width: '100%', maxWidth: 380 }}
+      >
         {/* Logo & Title */}
-        <div className="flex flex-col items-center mb-5">
-          <div className="w-14 h-14 bg-black rounded-2xl flex items-center justify-center shadow-lg">
-            <span className="text-white font-bold text-lg">CRM</span>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{
+            width: 52,
+            height: 52,
+            background: 'var(--color-accent)',
+            borderRadius: 'var(--radius-lg)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: 'var(--shadow-lg)',
+            marginBottom: 12,
+          }}>
+            <span style={{
+              color: 'var(--color-text-inverse)',
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              fontSize: 16,
+            }}>CRM</span>
           </div>
-          <h1 className="mt-3 text-xl font-semibold text-gray-800">Auto CRM</h1>
+          <h1 style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 'var(--text-xl)',
+            fontWeight: 'var(--weight-semibold)',
+            color: 'var(--color-text-primary)',
+          }}>
+            AutoCRM
+          </h1>
+          <p style={{
+            fontSize: 'var(--text-sm)',
+            color: 'var(--color-text-tertiary)',
+            marginTop: 4,
+          }}>
+            Sign in to your workspace
+          </p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/70 p-6">
+        <div className="card" style={{ padding: 24 }}>
           <form onSubmit={handleLogin}>
 
             {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+              <div style={{
+                marginBottom: 16,
+                padding: 12,
+                background: 'var(--color-danger-subtle)',
+                border: '1px solid var(--color-danger)',
+                borderRadius: 'var(--radius)',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-danger)',
+              }}>
                 {error}
               </div>
             )}
 
             {/* Email */}
-            <div className="mb-4 relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                type="text"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email or Username"
-                className="w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-black outline-none transition"
-              />
+            <div style={{ marginBottom: 16, position: 'relative' }}>
+              <label className="label">Email or Username</label>
+              <div style={{ position: 'relative' }}>
+                <Mail size={16} style={{
+                  position: 'absolute',
+                  left: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--color-text-tertiary)',
+                }} />
+                <input
+                  type="text"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  className="input"
+                  style={{ paddingLeft: 36 }}
+                />
+              </div>
             </div>
 
             {/* Password */}
-<div className="mb-4 relative">
-  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-  
-  <input
-    type={showPassword ? 'text' : 'password'}
-    value={password}
-    onChange={(e) => setPassword(e.target.value)}
-    placeholder="Password"
-    autoComplete="new-password"   // Prevent browser autofill eye
-    name="password"                // Optional, ensures browser sees it as new password
-    className="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-black outline-none transition"
-  />
+            <div style={{ marginBottom: 16, position: 'relative' }}>
+              <label className="label">Password</label>
+              <div style={{ position: 'relative' }}>
+                <Lock size={16} style={{
+                  position: 'absolute',
+                  left: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--color-text-tertiary)',
+                }} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                  className="input"
+                  style={{ paddingLeft: 36, paddingRight: 40 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  style={{
+                    position: 'absolute',
+                    right: 10,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--color-text-tertiary)',
+                    display: 'flex',
+                    padding: 4,
+                  }}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
 
-  <button
-    type="button"
-    onClick={() => setShowPassword(!showPassword)}
-    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 flex items-center justify-center"
-  >
-    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-  </button>
-</div>
-
-
-            <div className="text-right mb-4">
-              <a href="#" className="text-xs text-gray-500 hover:text-gray-700">
+            <div style={{ textAlign: 'right', marginBottom: 16 }}>
+              <a href="#" style={{
+                fontSize: 'var(--text-xs)',
+                color: 'var(--color-text-tertiary)',
+                textDecoration: 'none',
+              }}>
                 Forgot Password?
               </a>
             </div>
@@ -122,25 +203,36 @@ export default function Login({ onLogin }) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-black text-white py-2.5 rounded-lg font-medium hover:bg-gray-800 transition disabled:opacity-50"
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '10px 16px', fontSize: 'var(--text-base)', fontWeight: 'var(--weight-semibold)' }}
             >
-              {loading ? 'Logging in...' : 'Login'}
+              {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
 
-          <div className="relative my-5">
-            <div className="border-t border-gray-200"></div>
-            <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white px-2 text-xs text-gray-400">or</span>
+          <div style={{ position: 'relative', margin: '20px 0' }}>
+            <hr className="separator" />
+            <span style={{
+              position: 'absolute',
+              top: '-9px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'var(--color-bg-surface)',
+              padding: '0 8px',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--color-text-tertiary)',
+            }}>or</span>
           </div>
 
           <button
             onClick={handleEmailLink}
-            className="w-full bg-gray-100 text-gray-700 py-2.5 rounded-lg font-medium hover:bg-gray-200 transition"
+            className="btn btn-secondary"
+            style={{ width: '100%', padding: '10px 16px', fontSize: 'var(--text-base)' }}
           >
             Login with Email Link
           </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
