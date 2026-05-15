@@ -96,7 +96,37 @@ const Sidebar = ({ onLogout, user, permissions }) => {
   const showAdminCenter = canOpenConsole;
 
   return (
-    <div className="relative flex" style={{ zIndex: 30 }}>
+    <div style={{ position: 'relative', display: 'flex', zIndex: 30 }}>
+      {/* Edge collapse toggle */}
+      <button
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: isCollapsed ? 52 : 228,
+          transform: 'translateY(-50%)',
+          width: 24,
+          height: 24,
+          borderRadius: '50%',
+          background: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          zIndex: 40,
+          color: 'var(--color-text-tertiary)',
+          transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.15s, background 0.15s',
+          boxShadow: 'var(--shadow-sm)',
+          padding: 0,
+        }}
+        onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.borderColor = 'var(--color-accent)'; }}
+        onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text-tertiary)'; e.currentTarget.style.borderColor = 'var(--color-border)'; }}
+      >
+        {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+      </button>
+
       {/* Sidebar */}
       <motion.aside
         layout
@@ -112,9 +142,10 @@ const Sidebar = ({ onLogout, user, permissions }) => {
           flexShrink: 0,
         }}
       >
+
         {/* Logo */}
         <div style={{
-          padding: '16px',
+          padding: '16px 12px',
           borderBottom: '1px solid var(--color-border)',
           display: 'flex',
           alignItems: 'center',
@@ -155,42 +186,24 @@ const Sidebar = ({ onLogout, user, permissions }) => {
           </AnimatePresence>
         </div>
 
-        {/* Collapse Toggle */}
-        <div style={{ padding: '8px 8px 0' }}>
-          <button
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="btn-ghost btn-icon"
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            style={{ width: '100%', justifyContent: isCollapsed ? 'center' : 'flex-start', padding: '6px 8px', gap: '8px' }}
-          >
-            {isCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
-            <AnimatePresence>
-              {!isCollapsed && (
-                <motion.span
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1, transition: { delay: 0.1 } }}
-                  exit={{ opacity: 0, transition: { duration: 0.05 } }}
-                  style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}
-                >
-                  Collapse
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </button>
-        </div>
-
         {/* Notification Button */}
         {!isAdminRoute && (
-          <div style={{ padding: '4px 8px' }}>
+          <div style={{ padding: '4px 12px' }}>
             <button
               onClick={() => setIsNotifOpen(true)}
               className="btn-ghost"
               aria-label="Notifications"
               style={{
+                display: 'flex',
                 width: '100%',
                 justifyContent: isCollapsed ? 'center' : 'flex-start',
-                padding: '8px',
-                gap: '8px',
+                alignItems: 'center',
+                padding: '8px 10px',
+                border: 'none',
+                borderLeft: '3px solid transparent',
+                gap: '10px',
+                fontSize: 'var(--text-sm)',
+                cursor: 'pointer',
               }}
             >
               <Bell size={16} />
@@ -210,14 +223,13 @@ const Sidebar = ({ onLogout, user, permissions }) => {
           </div>
         )}
 
-        <hr className="separator" style={{ margin: '4px 12px' }} />
 
         {/* Nav Items */}
         <motion.nav
           variants={navContainer}
           initial="initial"
           animate="animate"
-          style={{ flex: 1, overflowY: 'auto', padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: '2px' }}
+          style={{ flex: 1, overflowY: 'auto', padding: '4px 12px', display: 'flex', flexDirection: 'column', gap: '2px' }}
         >
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
@@ -270,8 +282,8 @@ const Sidebar = ({ onLogout, user, permissions }) => {
 
         {/* Bottom Section */}
         <div style={{
-          padding: '12px',
-          borderTop: '1px solid var(--color-border)',
+          padding: '4px 12px',
+          borderTop: 'none',
           display: 'flex',
           flexDirection: 'column',
           gap: '4px',
@@ -288,8 +300,9 @@ const Sidebar = ({ onLogout, user, permissions }) => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '10px',
                 padding: '8px 10px',
+                borderLeft: '3px solid transparent',
                 borderRadius: 'var(--radius)',
                 fontSize: 'var(--text-sm)',
                 color: 'var(--color-text-secondary)',
@@ -320,8 +333,9 @@ const Sidebar = ({ onLogout, user, permissions }) => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '10px',
                 padding: '8px 10px',
+                borderLeft: '3px solid transparent',
                 borderRadius: 'var(--radius)',
                 fontSize: 'var(--text-sm)',
                 color: 'var(--color-text-secondary)',
@@ -347,14 +361,14 @@ const Sidebar = ({ onLogout, user, permissions }) => {
             </Link>
           )}
 
-          <hr className="separator" style={{ margin: '4px 0' }} />
 
           {/* User + Role Badge */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
-            padding: '6px 8px',
+            padding: '6px 10px',
+            borderLeft: '3px solid transparent',
             justifyContent: isCollapsed ? 'center' : 'flex-start',
           }}>
             <div className="avatar avatar-md avatar-accent">
@@ -391,12 +405,17 @@ const Sidebar = ({ onLogout, user, permissions }) => {
             onClick={onLogout}
             className="btn-ghost"
             style={{
+              display: 'flex',
               width: '100%',
               justifyContent: isCollapsed ? 'center' : 'flex-start',
+              alignItems: 'center',
               padding: '8px 10px',
-              gap: '8px',
+              border: 'none',
+              borderLeft: '3px solid transparent',
+              gap: '10px',
               color: 'var(--color-danger)',
               fontSize: 'var(--text-sm)',
+              cursor: 'pointer',
             }}
           >
             <LogOut size={16} />
