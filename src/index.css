@@ -201,6 +201,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .btn-ghost {
+  display: inline-flex;
+  align-items: center;
   background: transparent;
   color: var(--color-text-secondary);
   border-color: transparent;
