@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Plus, Search, LayoutList, Columns2, RotateCcw, Eye, Pencil, Trash2, MoreHorizontal, Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
@@ -28,6 +29,7 @@ const mapLeadToRow = (lead) => ({
   email: lead.email || '-',
   mobile: lead.phone || '-',
   modified: formatDate(lead.updated_at),
+  ownerId: lead.owner_id || null,
 });
 
 const Leads = ({ user }) => {
@@ -43,6 +45,8 @@ const Leads = ({ user }) => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionMenu, setActionMenu] = useState(null);
+  const [teamReps, setTeamReps] = useState([]);
+  const [assigningLeadId, setAssigningLeadId] = useState('');
   const [tbodyRef] = useAutoAnimate();
 
   const [formData, setFormData] = useState({
@@ -51,6 +55,7 @@ const Leads = ({ user }) => {
 
   const canDelete = user?.role === 'admin';
   const canEdit = user?.role === 'admin' || (user?.role || '').toLowerCase().includes('manager');
+  const canAssignLead = ['admin', 'sales_manager', 'manager'].includes((user?.role || '').toLowerCase());
 
   const resetForm = () => setFormData({ salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'New' });
 
@@ -77,6 +82,22 @@ const Leads = ({ user }) => {
   }, []);
 
   useEffect(() => { fetchLeads(0, false); }, [fetchLeads]);
+  useEffect(() => {
+    let active = true;
+    const fetchReps = async () => {
+      if (!canAssignLead) return;
+      try {
+        const data = await apiFetch('/api/admin/users/?page=1&page_size=200');
+        const items = Array.isArray(data?.items) ? data.items : [];
+        const reps = items.filter((u) => (u.role || '').toLowerCase() === 'agent');
+        if (active) setTeamReps(reps);
+      } catch {
+        if (active) setTeamReps([]);
+      }
+    };
+    fetchReps();
+    return () => { active = false; };
+  }, [canAssignLead]);
 
   const filteredLeads = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -109,6 +130,34 @@ const Leads = ({ user }) => {
     setError('');
     try { await apiFetch(`/api/leads/${id}`, { method: 'DELETE' }); setLeads((prev) => prev.filter((l) => l.id !== id)); }
     catch (err) { setError(err?.message || 'Unable to delete lead.'); }
+  };
+
+  const handleAssignLead = async (leadId, repId) => {
+    if (!repId) return;
+    setAssigningLeadId(leadId);
+    setError('');
+    try {
+      const updated = await apiFetch(`/api/leads/${leadId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ owner_id: repId }),
+      });
+      const mapped = mapLeadToRow(updated);
+      setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ...mapped } : lead)));
+    } catch (err) {
+      setError(err?.message || 'Unable to assign lead.');
+    } finally {
+      setAssigningLeadId('');
+    }
+  };
+
+  const getAssignedRepLabel = (ownerId) => {
+    if (!ownerId) return 'Unassigned';
+    const assignedRep = teamReps.find((rep) => rep.id === ownerId);
+    if (assignedRep) return assignedRep.full_name || assignedRep.email || 'Assigned';
+    if (String(user?.id || '') === String(ownerId)) {
+      return user?.full_name || user?.email || 'Assigned';
+    }
+    return 'Assigned';
   };
 
   const exportToExcel = () => {
@@ -185,7 +234,7 @@ const Leads = ({ user }) => {
             {/* TABLE VIEW */}
             {viewMode === 'table' && (
               filteredLeads.length === 0 ? <EmptyState type="leads" /> : (
-                <div className="card" style={{ overflow: 'hidden' }}>
+                <div className="card">
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -195,6 +244,7 @@ const Leads = ({ user }) => {
                         <th>Status</th>
                         <th>Email</th>
                         <th>Phone</th>
+                        <th>Assigned Rep</th>
                         <th>Modified</th>
                         <th style={{ width: 60, textAlign: 'right' }}>Actions</th>
                       </tr>
@@ -203,11 +253,40 @@ const Leads = ({ user }) => {
                       {filteredLeads.map((l) => (
                         <motion.tr key={l.id} variants={staggerItem}>
                           <td><input type="checkbox" className="checkbox-input" /></td>
-                          <td style={{ fontWeight: 'var(--weight-medium)' }}>{l.name}</td>
+                          <td style={{ fontWeight: 'var(--weight-medium)' }}>
+                            <Link
+                              to={`/leads/${l.id}`}
+                              style={{ color: 'inherit', textDecoration: 'none' }}
+                            >
+                              {l.name}
+                            </Link>
+                          </td>
                           <td style={{ color: 'var(--color-text-secondary)' }}>{l.org}</td>
                           <td><span className={`badge ${STATUS_BADGE[l.status] || 'badge-muted'}`}>{formatLeadStatus(l.status)}</span></td>
                           <td style={{ color: 'var(--color-text-secondary)' }}>{l.email}</td>
                           <td style={{ color: 'var(--color-text-secondary)' }}>{l.mobile}</td>
+                          <td>
+                            {canAssignLead ? (
+                              <select
+                                className="input"
+                                value={l.ownerId || ''}
+                                onChange={(e) => handleAssignLead(l.id, e.target.value)}
+                                disabled={assigningLeadId === l.id}
+                                style={{ minWidth: 170, height: 34, padding: '0 10px' }}
+                              >
+                                <option value="">Unassigned</option>
+                                {teamReps.map((rep) => (
+                                  <option key={rep.id} value={rep.id}>
+                                    {rep.full_name || rep.email}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span style={{ color: 'var(--color-text-secondary)' }}>
+                                {getAssignedRepLabel(l.ownerId)}
+                              </span>
+                            )}
+                          </td>
                           <td style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>{l.modified}</td>
                           <td style={{ textAlign: 'right' }}>
                             <div style={{ position: 'relative', display: 'inline-block' }}>

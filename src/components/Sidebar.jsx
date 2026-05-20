@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -7,6 +7,7 @@ import {
   UserCircle, PanelLeftClose, PanelLeft
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
+import { apiFetch } from '../api/client';
 
 const isAdminUser = (user) => {
   if (!user) return false;
@@ -37,12 +38,59 @@ const navItemVariant = {
 const Sidebar = ({ onLogout, user, permissions }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notifLoading, setNotifLoading] = useState(false);
   const location = useLocation();
   const displayName = user?.full_name || user?.email || 'User';
   const isAdminRoute = location.pathname.startsWith('/admin');
   const adminUser = isAdminUser(user);
   const consoleLabel = adminUser ? 'Admin Console' : 'Manager Console';
   const roleBadge = getRoleBadge(user);
+  const unreadCount = useMemo(
+    () => notifications.filter((item) => !item.read_at).length,
+    [notifications],
+  );
+
+  useEffect(() => {
+    let active = true;
+    const fetchNotifications = async () => {
+      setNotifLoading(true);
+      try {
+        const data = await apiFetch('/api/notifications/?skip=0&limit=30');
+        if (active) setNotifications(Array.isArray(data) ? data : []);
+      } catch {
+        if (active) setNotifications([]);
+      } finally {
+        if (active) setNotifLoading(false);
+      }
+    };
+
+    if (!isAdminRoute) fetchNotifications();
+    return () => { active = false; };
+  }, [isAdminRoute]);
+
+  const handleOpenNotifications = async () => {
+    setIsNotifOpen(true);
+    try {
+      const data = await apiFetch('/api/notifications/?skip=0&limit=30');
+      setNotifications(Array.isArray(data) ? data : []);
+    } catch {}
+  };
+
+  const markOneRead = async (id) => {
+    try {
+      await apiFetch(`/api/notifications/${id}/read`, { method: 'PATCH' });
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n)));
+    } catch {}
+  };
+
+  const markAllRead = async () => {
+    try {
+      await apiFetch('/api/notifications/read-all', { method: 'PATCH' });
+      const now = new Date().toISOString();
+      setNotifications((prev) => prev.map((n) => ({ ...n, read_at: n.read_at || now })));
+    } catch {}
+  };
 
   const menuItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/', permission: 'dashboard' },
@@ -190,7 +238,7 @@ const Sidebar = ({ onLogout, user, permissions }) => {
         {!isAdminRoute && (
           <div style={{ padding: '4px 12px' }}>
             <button
-              onClick={() => setIsNotifOpen(true)}
+              onClick={handleOpenNotifications}
               className="btn-ghost"
               aria-label="Notifications"
               style={{
@@ -216,6 +264,7 @@ const Sidebar = ({ onLogout, user, permissions }) => {
                     style={{ fontSize: 'var(--text-sm)' }}
                   >
                     Notifications
+                    {unreadCount > 0 ? ` (${unreadCount})` : ''}
                   </motion.span>
                 )}
               </AnimatePresence>
@@ -470,25 +519,57 @@ const Sidebar = ({ onLogout, user, permissions }) => {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                 <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 'var(--text-md)' }}>
-                  Notifications
+                  Notifications {unreadCount > 0 ? `(${unreadCount})` : ''}
                 </h3>
-                <button
-                  onClick={() => setIsNotifOpen(false)}
-                  className="btn-ghost btn-icon"
-                  aria-label="Close notifications"
-                >
-                  <X size={16} />
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {unreadCount > 0 && (
+                    <button onClick={markAllRead} className="btn btn-ghost btn-sm" type="button">
+                      Mark all read
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setIsNotifOpen(false)}
+                    className="btn-ghost btn-icon"
+                    aria-label="Close notifications"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
-              <div style={{
-                textAlign: 'center',
-                color: 'var(--color-text-tertiary)',
-                marginTop: 60,
-                fontSize: 'var(--text-sm)',
-              }}>
-                <Bell size={28} style={{ margin: '0 auto 8px', color: 'var(--color-text-tertiary)' }} />
-                No new notifications
-              </div>
+              {notifLoading ? (
+                <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>Loading...</div>
+              ) : notifications.length === 0 ? (
+                <div style={{
+                  textAlign: 'center',
+                  color: 'var(--color-text-tertiary)',
+                  marginTop: 60,
+                  fontSize: 'var(--text-sm)',
+                }}>
+                  <Bell size={28} style={{ margin: '0 auto 8px', color: 'var(--color-text-tertiary)' }} />
+                  No new notifications
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 'calc(100vh - 110px)', overflowY: 'auto' }}>
+                  {notifications.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => !item.read_at && markOneRead(item.id)}
+                      style={{
+                        textAlign: 'left',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius)',
+                        background: item.read_at ? 'var(--color-bg-elevated)' : 'var(--color-accent-subtle)',
+                        padding: '10px 12px',
+                        cursor: item.read_at ? 'default' : 'pointer',
+                      }}
+                    >
+                      <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.title}</div>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: 4 }}>{item.message}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </motion.div>
           </>
         )}

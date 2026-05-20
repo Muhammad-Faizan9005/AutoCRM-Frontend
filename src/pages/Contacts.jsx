@@ -135,7 +135,7 @@ const Contacts = ({ user }) => {
 
         {loading ? <SkeletonTable rows={8} cols={6} /> : (
           filteredContacts.length === 0 ? <EmptyState type="contacts" /> : (
-            <div className="card" style={{ overflow: 'hidden' }}>
+            <div className="card">
               <table className="data-table">
                 <thead><tr>
                   <th style={{ width: 36 }}><input type="checkbox" className="checkbox-input" /></th>
