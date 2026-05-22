@@ -46,7 +46,9 @@ const Leads = ({ user }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [actionMenu, setActionMenu] = useState(null);
   const [teamReps, setTeamReps] = useState([]);
-  const [assigningLeadId, setAssigningLeadId] = useState('');
+  const [assigningMap, setAssigningMap] = useState({});
+  const leadAssignStateRef = useRef(new Map());
+  const lastConfirmedOwnerRef = useRef(new Map());
   const [tbodyRef] = useAutoAnimate();
 
   const [formData, setFormData] = useState({
@@ -69,6 +71,9 @@ const Leads = ({ user }) => {
       if (requestId !== latestRequestId.current) return;
       const mappedData = data.map(mapLeadToRow);
       if (append) setLeads((prev) => [...prev, ...mappedData]); else setLeads(mappedData);
+      mappedData.forEach((lead) => {
+        lastConfirmedOwnerRef.current.set(String(lead.id), lead.ownerId || null);
+      });
       setTotalLoaded((prev) => prev + mappedData.length);
       setHasMore(mappedData.length === limit);
     } catch (err) {
@@ -87,9 +92,9 @@ const Leads = ({ user }) => {
     const fetchReps = async () => {
       if (!canAssignLead) return;
       try {
-        const data = await apiFetch('/api/admin/users/?page=1&page_size=200');
-        const items = Array.isArray(data?.items) ? data.items : [];
-        const reps = items.filter((u) => (u.role || '').toLowerCase() === 'agent');
+        const data = await apiFetch('/api/leads/assignment-reps');
+        const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+        const reps = items.filter((u) => ['agent', 'sales_rep'].includes((u.role || '').toLowerCase()));
         if (active) setTeamReps(reps);
       } catch {
         if (active) setTeamReps([]);
@@ -132,22 +137,76 @@ const Leads = ({ user }) => {
     catch (err) { setError(err?.message || 'Unable to delete lead.'); }
   };
 
-  const handleAssignLead = async (leadId, repId) => {
-    if (!repId) return;
-    setAssigningLeadId(leadId);
-    setError('');
+  const setLeadAssigning = (leadId, isAssigning) => {
+    setAssigningMap((prev) => ({ ...prev, [leadId]: isAssigning }));
+  };
+
+  const sendLeadAssignment = async (leadId, repId, version) => {
     try {
       const updated = await apiFetch(`/api/leads/${leadId}`, {
         method: 'PATCH',
         body: JSON.stringify({ owner_id: repId }),
       });
+
+      const state = leadAssignStateRef.current.get(leadId);
+      if (!state || state.version !== version) {
+        return;
+      }
+
       const mapped = mapLeadToRow(updated);
+      lastConfirmedOwnerRef.current.set(leadId, mapped.ownerId || null);
       setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ...mapped } : lead)));
     } catch (err) {
+      const state = leadAssignStateRef.current.get(leadId);
+      if (!state || state.version !== version) {
+        return;
+      }
+      const lastOwnerId = lastConfirmedOwnerRef.current.get(leadId) || null;
+      setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ownerId: lastOwnerId } : lead)));
       setError(err?.message || 'Unable to assign lead.');
     } finally {
-      setAssigningLeadId('');
+      const state = leadAssignStateRef.current.get(leadId);
+      if (!state) return;
+      if (state.queuedOwnerId && state.version > version) {
+        const nextOwnerId = state.queuedOwnerId;
+        const nextVersion = state.version;
+        state.queuedOwnerId = null;
+        state.inFlight = true;
+        leadAssignStateRef.current.set(leadId, state);
+        await sendLeadAssignment(leadId, nextOwnerId, nextVersion);
+        return;
+      }
+      state.inFlight = false;
+      state.queuedOwnerId = null;
+      leadAssignStateRef.current.set(leadId, state);
+      setLeadAssigning(leadId, false);
     }
+  };
+
+  const handleAssignLead = async (leadId, repId) => {
+    if (!repId) return;
+    setError('');
+
+    setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ownerId: repId } : lead)));
+    setLeadAssigning(leadId, true);
+
+    const existing = leadAssignStateRef.current.get(leadId) || {
+      inFlight: false,
+      queuedOwnerId: null,
+      version: 0,
+    };
+    const nextVersion = existing.version + 1;
+    existing.version = nextVersion;
+
+    if (existing.inFlight) {
+      existing.queuedOwnerId = repId;
+      leadAssignStateRef.current.set(leadId, existing);
+      return;
+    }
+
+    existing.inFlight = true;
+    leadAssignStateRef.current.set(leadId, existing);
+    await sendLeadAssignment(leadId, repId, nextVersion);
   };
 
   const getAssignedRepLabel = (ownerId) => {
@@ -267,20 +326,26 @@ const Leads = ({ user }) => {
                           <td style={{ color: 'var(--color-text-secondary)' }}>{l.mobile}</td>
                           <td>
                             {canAssignLead ? (
-                              <select
-                                className="input"
-                                value={l.ownerId || ''}
-                                onChange={(e) => handleAssignLead(l.id, e.target.value)}
-                                disabled={assigningLeadId === l.id}
-                                style={{ minWidth: 170, height: 34, padding: '0 10px' }}
-                              >
-                                <option value="">Unassigned</option>
-                                {teamReps.map((rep) => (
-                                  <option key={rep.id} value={rep.id}>
-                                    {rep.full_name || rep.email}
-                                  </option>
-                                ))}
-                              </select>
+                              <div>
+                                <select
+                                  className="input"
+                                  value={l.ownerId || ''}
+                                  onChange={(e) => handleAssignLead(l.id, e.target.value)}
+                                  style={{ minWidth: 170, height: 34, padding: '0 10px' }}
+                                >
+                                  <option value="">Unassigned</option>
+                                  {teamReps.map((rep) => (
+                                    <option key={rep.id} value={rep.id}>
+                                      {rep.full_name || rep.email}
+                                    </option>
+                                  ))}
+                                </select>
+                                {assigningMap[l.id] && (
+                                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 4 }}>
+                                    Saving...
+                                  </div>
+                                )}
+                              </div>
                             ) : (
                               <span style={{ color: 'var(--color-text-secondary)' }}>
                                 {getAssignedRepLabel(l.ownerId)}
