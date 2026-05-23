@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useState } from 'react';
 import {
   Briefcase,
   CheckCircle2,
@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   addTeamMember,
   createTeam,
+  deleteTeam,
   listTeams,
   getTeam,
   removeTeamMember,
@@ -28,7 +29,7 @@ import { listAdminUsers } from './adminApi';
 
 const getErr = (e, fallback) => e?.message || e?.data?.detail || fallback;
 
-/* ── Stat pill ─────────────────────────────────────────────────────────── */
+/* Section */
 const Stat = ({ icon: Icon, value, label, color }) => (
   <div className="flex items-center gap-1.5 text-xs rounded-xl border border-[color:var(--admin-border)]/60 px-3 py-1.5">
     <Icon size={12} style={{ color }} />
@@ -37,7 +38,7 @@ const Stat = ({ icon: Icon, value, label, color }) => (
   </div>
 );
 
-/* ── Create-Team modal ──────────────────────────────────────────────────── */
+/* Section */
 const CreateTeamModal = ({ onClose, onCreated }) => {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -76,7 +77,7 @@ const CreateTeamModal = ({ onClose, onCreated }) => {
           <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn btn-primary" onClick={submit} disabled={busy}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-            {busy ? 'Creating…' : 'Create'}
+            {busy ? 'Creating...' : 'Create'}
           </button>
         </div>
       </div>
@@ -84,7 +85,7 @@ const CreateTeamModal = ({ onClose, onCreated }) => {
   );
 };
 
-/* ── Rename-Team modal ──────────────────────────────────────────────────── */
+/* Section */
 const RenameTeamModal = ({ team, onClose, onRenamed }) => {
   const [name, setName] = useState(team?.name ?? '');
   const [busy, setBusy] = useState(false);
@@ -130,7 +131,7 @@ const RenameTeamModal = ({ team, onClose, onRenamed }) => {
   );
 };
 
-/* ── Add-member-to-team modal ───────────────────────────────────────────── */
+/* Section */
 const AddMemberModal = ({ team, onClose, onAdded }) => {
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -172,7 +173,7 @@ const AddMemberModal = ({ team, onClose, onAdded }) => {
         <div style={{ padding: '20px 24px' }}>
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
-              <Loader2 size={14} className="animate-spin" /> Loading agents…
+              <Loader2 size={14} className="animate-spin" /> Loading agents...
             </div>
           ) : agents.length === 0 ? (
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>No unassigned sales reps available.</p>
@@ -185,7 +186,7 @@ const AddMemberModal = ({ team, onClose, onAdded }) => {
                 onChange={(e) => setSelectedId(e.target.value)}
                 style={{ marginTop: 6 }}
               >
-                <option value="">— Choose a rep —</option>
+                <option value="">- Choose a rep -</option>
                 {agents.map((u) => (
                   <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
                 ))}
@@ -198,7 +199,7 @@ const AddMemberModal = ({ team, onClose, onAdded }) => {
           <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn btn-primary" onClick={submit} disabled={busy || loading || agents.length === 0}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-            {busy ? 'Adding…' : 'Add rep'}
+            {busy ? 'Adding...' : 'Add rep'}
           </button>
         </div>
       </div>
@@ -206,8 +207,8 @@ const AddMemberModal = ({ team, onClose, onAdded }) => {
   );
 };
 
-/* ── Team card (collapsible) ────────────────────────────────────────────── */
-const TeamCard = ({ team: initialTeam, onRename }) => {
+/* Section */
+const TeamCard = ({ team: initialTeam, onRename, onDelete }) => {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const [team, setTeam] = useState(initialTeam);
@@ -258,7 +259,7 @@ const TeamCard = ({ team: initialTeam, onRename }) => {
             <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)' }}>{team.name}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 2 }}>
               <User size={11} /> {team.manager_name ?? 'Unknown manager'}
-              <span style={{ opacity: 0.4 }}>·</span>
+              <span style={{ opacity: 0.4 }}>-</span>
               <Mail size={11} /> {team.manager_email ?? ''}
             </div>
           </div>
@@ -271,6 +272,9 @@ const TeamCard = ({ team: initialTeam, onRename }) => {
           </span>
           <button className="btn btn-secondary" onClick={() => onRename(team)}>
             <Edit2 size={13} /> Rename
+          </button>
+          <button className="btn btn-ghost" style={{ color: 'var(--color-danger)' }} onClick={() => onDelete(team)}>
+            <Trash2 size={13} /> Delete
           </button>
           <button className="btn btn-primary" onClick={() => { setShowAddMember(true); if (!expanded) { setExpanded(true); loadMembers(); } }}>
             <Plus size={13} /> Add rep
@@ -290,7 +294,7 @@ const TeamCard = ({ team: initialTeam, onRename }) => {
           )}
           {loadingMembers ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
-              <Loader2 size={14} className="animate-spin" /> Loading members…
+              <Loader2 size={14} className="animate-spin" /> Loading members...
             </div>
           ) : members.length === 0 ? (
             <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-lg)' }}>
@@ -300,11 +304,7 @@ const TeamCard = ({ team: initialTeam, onRename }) => {
             members.map((member) => (
               <div
                 key={member.id}
-                style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12,
-                  padding: '12px 16px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)',
-                  transition: 'background 0.1s',
-                }}
+                className="team-member-row"
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg-hover)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               >
@@ -327,9 +327,9 @@ const TeamCard = ({ team: initialTeam, onRename }) => {
 
                 {/* Stats + actions */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span className="badge badge-accent" style={{ gap: 4 }}><TrendingUp size={11} /> {member.leads_count ?? 0} Leads</span>
-                  <span className="badge badge-success" style={{ gap: 4 }}><Briefcase size={11} /> {member.deals_count ?? 0} Deals</span>
-                  <span className="badge badge-warning" style={{ gap: 4 }}><CheckCircle2 size={11} /> {member.tasks_open ?? 0} Tasks</span>
+                  <span className="team-metric-chip" style={{ color: 'var(--color-accent-text)' }}><TrendingUp size={11} /> {member.leads_count ?? 0} Leads</span>
+                  <span className="team-metric-chip" style={{ color: 'var(--color-success)' }}><Briefcase size={11} /> {member.deals_count ?? 0} Deals</span>
+                  <span className="team-metric-chip" style={{ color: 'var(--color-warning)' }}><CheckCircle2 size={11} /> {member.tasks_open ?? 0} Tasks</span>
                   <button className="btn btn-secondary" onClick={() => navigate(`/admin/permissions?user=${encodeURIComponent(String(member.id))}`)}>
                     <ShieldCheck size={13} /> Permissions
                   </button>
@@ -360,8 +360,8 @@ const TeamCard = ({ team: initialTeam, onRename }) => {
   );
 };
 
-/* ── Main AdminTeams component ──────────────────────────────────────────── */
-const AdminTeams = ({ currentUser }) => {
+/* Section */
+const AdminTeams = () => {
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -384,6 +384,19 @@ const AdminTeams = ({ currentUser }) => {
       prev.map((t) => (String(t.id) === String(updated.id) ? { ...t, name: updated.name } : t))
     );
     setRenaming(null);
+  };
+
+  const handleDelete = async (team) => {
+    if (!team) return;
+    const confirmDelete = window.confirm(`Delete team "${team.name}"? This removes members from the team.`);
+    if (!confirmDelete) return;
+    setErr('');
+    try {
+      await deleteTeam(team.id);
+      setTeams((prev) => prev.filter((t) => String(t.id) !== String(team.id)));
+    } catch (e) {
+      setErr(getErr(e, 'Failed to delete team.'));
+    }
   };
 
   return (
@@ -447,7 +460,7 @@ const AdminTeams = ({ currentUser }) => {
       {/* Teams list */}
       {loading ? (
         <div className="card card-padding" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
-          <Loader2 size={16} className="animate-spin" /> Loading teams…
+          <Loader2 size={16} className="animate-spin" /> Loading teams...
         </div>
       ) : teams.length === 0 ? (
         <div className="card" style={{ padding: 40, textAlign: 'center' }}>
@@ -463,6 +476,7 @@ const AdminTeams = ({ currentUser }) => {
               key={team.id}
               team={team}
               onRename={(t) => setRenaming(t)}
+              onDelete={handleDelete}
             />
           ))}
         </div>
@@ -491,3 +505,4 @@ const AdminTeams = ({ currentUser }) => {
 };
 
 export default AdminTeams;
+

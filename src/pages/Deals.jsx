@@ -10,6 +10,15 @@ import { SkeletonTable } from '../components/Skeleton';
 
 const STAGE_LABELS = { prospecting:'Prospecting', qualification:'Qualification', proposal:'Proposal', negotiation:'Negotiation', closed:'Closed', closed_won:'Closed Won', closed_lost:'Closed Lost' };
 const STAGE_BADGE = { prospecting:'badge-muted', qualification:'badge-accent', proposal:'badge-warning', negotiation:'badge-warning', closed:'badge-success', closed_won:'badge-success', closed_lost:'badge-danger' };
+const STATUS_LABELS = { qualified: 'Qualified', won: 'Won', lost: 'Lost', open: 'Open' };
+const STATUS_BADGE = { qualified: 'badge-accent', won: 'badge-success', lost: 'badge-danger', open: 'badge-muted' };
+const STATUS_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'qualified', label: 'Qualified' },
+  { id: 'won', label: 'Won' },
+  { id: 'lost', label: 'Lost' },
+  { id: 'open', label: 'Open' },
+];
 const normalizeStage = (s) => (s||'').toString().trim().toLowerCase().replace(/\s+/g,'_') || 'prospecting';
 const formatStage = (s) => STAGE_LABELS[normalizeStage(s)] || s || 'Unknown';
 const formatDate = (v) => { if (!v) return '-'; const d=new Date(v); return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); };
@@ -17,7 +26,14 @@ const inferCurrency = (v) => { const t=String(v||'').toUpperCase(); if(t.include
 const parseAmount = (v) => { if(v===null||v===undefined||v==='')return undefined; const p=Number(String(v).replace(/[^0-9.-]+/g,'')); return Number.isNaN(p)?undefined:p; };
 const formatMoney = (v,c) => { if(v===null||v===undefined||v==='')return'-'; const n=Number(v); if(Number.isNaN(n))return String(v); try{return new Intl.NumberFormat('en-US',{style:'currency',currency:c||'USD',maximumFractionDigits:2}).format(n);}catch{return`${c||'USD'} ${n.toFixed(2)}`;}};
 
-const mapDeal = (deal,orgIdx) => ({ id:deal.id, org:orgIdx.get(deal.organization_id)||deal.organization_id||'-', revenue:formatMoney(deal.value,deal.currency), status:normalizeStage(deal.stage), modified:formatDate(deal.updated_at) });
+const mapDeal = (deal,orgIdx) => ({
+  id: deal.id,
+  org: orgIdx.get(deal.organization_id) || deal.organization_id || '-',
+  revenue: formatMoney(deal.value, deal.currency),
+  stage: normalizeStage(deal.stage),
+  status: (deal.status || '').toString().trim().toLowerCase() || 'qualified',
+  modified: formatDate(deal.updated_at),
+});
 
 const Deals = ({ user }) => {
   const [viewMode, setViewMode] = useState('table');
@@ -25,6 +41,7 @@ const Deals = ({ user }) => {
   const [organizations, setOrganizations] = useState([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [actionMenu, setActionMenu] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -56,10 +73,23 @@ const Deals = ({ user }) => {
     finally{if(rid===latestReq.current){if(!append)setLoading(false);else setIsLoadingMore(false);}}
   },[]);
 
-  const fetchOrgs = useCallback(async()=>{try{setOrganizations(await apiFetch('/api/organizations/'));}catch{}},[]);
+  const fetchOrgs = useCallback(async () => {
+    try {
+      setOrganizations(await apiFetch('/api/organizations/'));
+    } catch {
+      setOrganizations([]);
+    }
+  }, []);
   useEffect(()=>{fetchDeals(0,false);fetchOrgs();},[fetchDeals,fetchOrgs]);
 
-  const filtered = useMemo(()=>{const t=searchTerm.trim().toLowerCase();if(!t)return deals;return deals.filter(d=>String(d.org).toLowerCase().includes(t));}, [deals,searchTerm]);
+  const filtered = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return deals.filter((deal) => {
+      if (statusFilter !== 'all' && deal.status !== statusFilter) return false;
+      if (!term) return true;
+      return String(deal.org).toLowerCase().includes(term);
+    });
+  }, [deals, searchTerm, statusFilter]);
 
   const ensureOrgId = async()=>{const n=formData.orgName.trim();if(!n)return null;const ex=organizations.find(o=>o.name?.toLowerCase()===n.toLowerCase());if(ex)return ex.id;const c=await apiFetch('/api/organizations/',{method:'POST',body:JSON.stringify({name:n,website:formData.website.trim()||undefined,industry:formData.industry||undefined,revenue:parseAmount(formData.revenue)})});setOrganizations(p=>[c,...p]);return c.id;};
   const ensureLeadId = async()=>{const nm=[formData.firstName.trim(),formData.lastName.trim()].filter(Boolean).join(' ');const em=formData.email.trim();if(!nm&&!em)return null;const c=await apiFetch('/api/leads/',{method:'POST',body:JSON.stringify({name:nm||'New Lead',email:em||undefined,phone:formData.mobile.trim()||undefined,company:formData.orgName.trim()||undefined,status:'new'})});return c.id;};
@@ -90,9 +120,31 @@ const Deals = ({ user }) => {
           </div>
         </div>
 
-        <div style={{ position:'relative', maxWidth:320 }}>
-          <Search size={16} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--color-text-tertiary)' }}/>
-          <input type="text" placeholder="Search deals..." className="search-input" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+          <div style={{ position:'relative', maxWidth:320, flex: '1 1 240px' }}>
+            <Search size={16} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--color-text-tertiary)' }}/>
+            <input type="text" placeholder="Search deals..." className="search-input" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
+          </div>
+          <div className="filter-group">
+            {STATUS_FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                className={`btn btn-sm ${statusFilter === filter.id ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setStatusFilter(filter.id)}
+                type="button"
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+          {statusFilter !== 'all' && (
+            <div className="filter-pill">
+              <span>Filter: {STATUS_LABELS[statusFilter] || statusFilter}</span>
+              <button type="button" onClick={() => setStatusFilter('all')} aria-label="Clear filter">
+                X
+              </button>
+            </div>
+          )}
         </div>
 
         {error && <div style={{ padding:12, background:'var(--color-danger-subtle)', border:'1px solid var(--color-danger)', borderRadius:'var(--radius)', fontSize:'var(--text-sm)', color:'var(--color-danger)' }}>{error}</div>}
@@ -101,19 +153,24 @@ const Deals = ({ user }) => {
           <>
             {viewMode==='table' && (
               filtered.length===0 ? <EmptyState type="leads" title="No deals yet" desc="Create your first deal"/> : (
-                <div className="card" style={{ overflow:'hidden' }}>
+                <div className="card">
                   <table className="data-table">
                     <thead><tr>
                       <th style={{ width:36 }}><input type="checkbox" className="checkbox-input"/></th>
-                      <th>Organization</th><th>Revenue</th><th>Stage</th><th>Modified</th><th style={{ width:60, textAlign:'right' }}>Actions</th>
+                      <th>Organization</th><th>Revenue</th><th>Stage</th><th>Status</th><th>Modified</th><th style={{ width:60, textAlign:'right' }}>Actions</th>
                     </tr></thead>
                     <motion.tbody ref={tbodyRef} variants={staggerContainer} initial="initial" animate="animate">
                       {filtered.map(d=>(
-                        <motion.tr key={d.id} variants={staggerItem}>
+                        <motion.tr
+                          key={d.id}
+                          variants={staggerItem}
+                          className={d.status === 'lost' ? 'deal-row deal-row-lost' : 'deal-row'}
+                        >
                           <td><input type="checkbox" className="checkbox-input"/></td>
                           <td style={{ fontWeight:'var(--weight-medium)' }}>{d.org}</td>
                           <td style={{ color:'var(--color-text-secondary)' }}>{d.revenue}</td>
-                          <td><span className={`badge ${STAGE_BADGE[d.status]||'badge-muted'}`}>{formatStage(d.status)}</span></td>
+                          <td><span className={`badge ${STAGE_BADGE[d.stage]||'badge-muted'}`}>{formatStage(d.stage)}</span></td>
+                          <td><span className={`badge ${STATUS_BADGE[d.status]||'badge-muted'}`}>{STATUS_LABELS[d.status] || d.status || 'Unknown'}</span></td>
                           <td style={{ color:'var(--color-text-tertiary)', fontSize:'var(--text-sm)' }}>{d.modified}</td>
                           <td style={{ textAlign:'right' }}>
                             <div style={{ position:'relative', display:'inline-block' }}>

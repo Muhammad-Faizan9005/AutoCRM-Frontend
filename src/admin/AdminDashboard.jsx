@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowUpRight, Clock, FileSpreadsheet, Loader2, ShieldCheck, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -76,7 +76,7 @@ const AdminDashboard = () => {
           <>
             {/* KPI Cards */}
             <motion.div variants={staggerContainer} initial="initial" animate="animate" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-              {overview.highlights.map((item, i) => {
+              {overview.highlights.map((item) => {
                 const Icon = ICON_BY_LABEL[item.label] || Activity;
                 return (
                   <motion.div key={item.label} variants={staggerItem} className="card card-padding">
@@ -140,7 +140,7 @@ const AdminDashboard = () => {
                       </div>
                       <div>
                         <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-semibold)' }}>{item.title}</div>
-                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{item.value} – {item.note}</div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{item.value} - {item.note}</div>
                       </div>
                     </div>
                   ))}
@@ -199,3 +199,4 @@ const AdminDashboard = () => {
 };
 
 export default AdminDashboard;
+

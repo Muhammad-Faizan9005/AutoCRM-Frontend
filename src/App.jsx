@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import Login from './pages/Login';
+import AcceptInvite from './pages/AcceptInvite';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
+import LeadDetail from './pages/LeadDetail';
 import Deals from './pages/Deals';
 import Contacts from './pages/Contacts';
 import Organizations from './pages/Organizations';
@@ -223,6 +225,7 @@ function App() {
                 <Routes location={location} key={location.pathname}>
                   <Route path="/" element={guardRoute('dashboard', <Dashboard />)} />
                   <Route path="/leads" element={guardRoute('leads', <Leads user={user} />)} />
+                  <Route path="/leads/:leadId" element={guardRoute('leads', <LeadDetail user={user} />)} />
                   <Route path="/deals" element={guardRoute('deals', <Deals user={user} />)} />
                   <Route
                     path="/contacts"
@@ -265,6 +268,7 @@ function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route
           path="/login"
           element={user ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />}

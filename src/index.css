@@ -372,6 +372,46 @@ textarea.input {
   background: var(--color-bg-hover);
 }
 
+
+.filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-elevated);
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.filter-pill button {
+  border: none;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.filter-pill button:hover {
+  background: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
 /* ─── MODAL OVERLAY ─── */
 .modal-overlay {
   position: fixed;
@@ -999,3 +1039,69 @@ textarea.input {
 .bg-red-50      { background: var(--color-danger-subtle) !important; }
 .text-red-700   { color: var(--color-danger) !important; }
 .bg-gray-50     { background: var(--color-bg-elevated) !important; }
+
+/* Team UI globals */
+.team-stat-card {
+  min-width: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: var(--color-bg-elevated);
+}
+
+.team-member-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+}
+
+.team-metric-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  border-radius: var(--radius);
+  background: var(--color-bg-elevated);
+  padding: 4px 10px;
+}
+
+.team-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.manager-team-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.2fr) minmax(280px, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 12px;
+}
+
+.manager-team-stats {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 280px;
+}
+
+@media (max-width: 1024px) {
+  .manager-team-row {
+    grid-template-columns: 1fr;
+  }
+
+  .manager-team-stats {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+}

@@ -14,7 +14,7 @@ const entityColumns = {
   tickets: ['subject (required)', 'customer_id (required unless customer_email exists)', 'customer_email', 'description', 'status', 'priority', 'category', 'assigned_to'],
 };
 
-const ImportData = ({ variant = 'default' }) => {
+const ImportData = () => {
   const [entity, setEntity] = useState('customers');
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);

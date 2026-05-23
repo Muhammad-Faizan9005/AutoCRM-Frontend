@@ -1,10 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, ShieldCheck, UserCheck, CheckCircle } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { useSearchParams } from 'react-router-dom';
 import { DEFAULT_PERMISSIONS, PERMISSION_GROUPS } from './permissionsStore';
 import { getAdminUserPermissions, listAdminUsers, updateAdminUserPermissions } from './adminApi';
-import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
+import { PageTransition } from '../components/PageTransition';
 
 const getErr = (e, f) => e?.message || e?.data?.detail || f;
 
@@ -46,6 +45,8 @@ const AdminPermissions = ({ currentUser }) => {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [error, setError] = useState('');
+  const [savingKeys, setSavingKeys] = useState({});
+  const saveQueueRef = useRef({ inFlight: false, queued: null });
 
   // Managers only see CRM Core + Data Operations; admins see everything
   const adminActor = isAdminUser(currentUser);
@@ -90,23 +91,76 @@ const AdminPermissions = ({ currentUser }) => {
     return () => { mounted = false; };
   }, [activeUser]);
 
-  const save = async (next) => {
+  const markSavingKeys = (keys) => {
+    setSavingKeys((prev) => {
+      const next = { ...prev };
+      keys.forEach((key) => { next[key] = true; });
+      return next;
+    });
+  };
+
+  const clearSavingKeys = (keys) => {
+    setSavingKeys((prev) => {
+      const next = { ...prev };
+      keys.forEach((key) => { delete next[key]; });
+      return next;
+    });
+  };
+
+  const saveNow = async (next, keys) => {
     if (!activeUser?.id) return;
-    setSaving(true); setError('');
+    saveQueueRef.current.inFlight = true;
+    setSaving(true);
+    setError('');
     try {
       const r = await updateAdminUserPermissions(activeUser.id, next);
       const saved = { ...DEFAULT_PERMISSIONS, ...(r?.permissions || next) };
-      setPermissions(saved); setSavedAt(new Date());
+      setPermissions(saved);
+      setSavedAt(new Date());
       window.dispatchEvent(new CustomEvent('autocrm-permissions-updated', { detail: { userId: activeUser.id, permissions: saved } }));
-    } catch (e) { setError(getErr(e, 'Failed to save.')); }
-    finally { setSaving(false); }
+    } catch (e) {
+      setError(getErr(e, 'Failed to save.'));
+    }
+    clearSavingKeys(keys);
+    const queued = saveQueueRef.current.queued;
+    if (queued) {
+      saveQueueRef.current.queued = null;
+      await saveNow(queued.permissions, queued.keys);
+      return;
+    }
+    saveQueueRef.current.inFlight = false;
+    setSaving(false);
   };
 
-  const toggle = (key) => { const n = { ...permissions, [key]: !permissions[key] }; setPermissions(n); save(n); };
-  const setAll = (v) => {
-    const n = visibleGroups.reduce((a, g) => { g.permissions.forEach(p => { a[p.key] = v; }); return a; }, { ...permissions });
+  const enqueueSave = (next, keys) => {
+    markSavingKeys(keys);
+    if (saveQueueRef.current.inFlight) {
+      const queued = saveQueueRef.current.queued;
+      if (queued) {
+        const mergedKeys = new Set([...queued.keys, ...keys]);
+        saveQueueRef.current.queued = { permissions: next, keys: mergedKeys };
+      } else {
+        saveQueueRef.current.queued = { permissions: next, keys };
+      }
+      return;
+    }
+    saveNow(next, keys);
+  };
+
+  const toggle = (key) => {
+    const n = { ...permissions, [key]: !permissions[key] };
     setPermissions(n);
-    save(n);
+    enqueueSave(n, new Set([key]));
+  };
+
+  const setAll = (v) => {
+    const keys = new Set();
+    const n = visibleGroups.reduce((a, g) => {
+      g.permissions.forEach((p) => { a[p.key] = v; keys.add(p.key); });
+      return a;
+    }, { ...permissions });
+    setPermissions(n);
+    enqueueSave(n, keys);
   };
 
   return (
@@ -122,8 +176,8 @@ const AdminPermissions = ({ currentUser }) => {
               <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 4 }}>Toggle what each operator can see inside the CRM. Changes apply instantly.</p>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary" onClick={() => setAll(true)} disabled={!activeUser || saving}>Enable all</button>
-              <button className="btn btn-ghost" onClick={() => setAll(false)} disabled={!activeUser || saving}>Lock down</button>
+              <button className="btn btn-secondary" onClick={() => setAll(true)} disabled={!activeUser}>Enable all</button>
+              <button className="btn btn-ghost" onClick={() => setAll(false)} disabled={!activeUser}>Lock down</button>
             </div>
           </div>
         </div>
@@ -182,7 +236,10 @@ const AdminPermissions = ({ currentUser }) => {
                         <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-medium)' }}>{perm.label}</div>
                         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 2 }}>{perm.description}</div>
                       </div>
-                      <ToggleSwitch checked={!!permissions?.[perm.key]} onChange={() => toggle(perm.key)} disabled={!activeUser || permissionsLoading || saving} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {savingKeys[perm.key] && <Loader2 size={14} className="animate-spin" />}
+                        <ToggleSwitch checked={!!permissions?.[perm.key]} onChange={() => toggle(perm.key)} disabled={!activeUser || permissionsLoading} />
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -5,16 +5,25 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
 const DEFAULT_TIMEOUT_MS = 8000;
-const DEFAULT_CACHE_TTL_MS = 60000;
+const DEFAULT_CACHE_TTL_MS = 120000;
 
 const CACHEABLE_PREFIXES = [
   "/api/leads/",
-  "/api/customers/",
   "/api/deals/",
   "/api/organizations/",
   "/api/notes/",
   "/api/tasks/",
+  "/api/dashboard/",
 ];
+
+const CACHE_TTL_BY_PREFIX = {
+  "/api/dashboard/": 20000,
+  "/api/leads/": 120000,
+  "/api/deals/": 120000,
+  "/api/organizations/": 120000,
+  "/api/notes/": 120000,
+  "/api/tasks/": 120000,
+};
 
 const memoryCache = new Map();
 
@@ -78,6 +87,13 @@ function getCacheablePrefix(path) {
 
 function getCacheKey(method, path) {
   return `${method}:${path}`;
+}
+
+function getCacheTtlMs(prefix, overrideTtlMs) {
+  if (typeof overrideTtlMs === "number") {
+    return overrideTtlMs;
+  }
+  return CACHE_TTL_BY_PREFIX[prefix] || DEFAULT_CACHE_TTL_MS;
 }
 
 function getCachedEntry(cacheKey) {
@@ -193,7 +209,7 @@ export async function apiFetch(path, init = {}, options = {}) {
     skipAuth = false,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     cache = true,
-    cacheTtlMs = DEFAULT_CACHE_TTL_MS,
+    cacheTtlMs,
   } = options;
   const headers = new Headers(init.headers || {});
   const isFormData = init.body instanceof FormData;
@@ -271,7 +287,7 @@ export async function apiFetch(path, init = {}, options = {}) {
 
   if (shouldCache) {
     const cacheKey = getCacheKey(method, path);
-    setCacheEntry(cacheKey, data, cacheTtlMs);
+    setCacheEntry(cacheKey, data, getCacheTtlMs(cachePrefix, cacheTtlMs));
   } else if (method !== "GET" && cachePrefix) {
     invalidateCacheByPrefix(cachePrefix);
   }

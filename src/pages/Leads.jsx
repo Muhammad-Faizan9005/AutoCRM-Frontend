@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Plus, Search, LayoutList, Columns2, RotateCcw, Eye, Pencil, Trash2, MoreHorizontal, Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
@@ -28,6 +29,7 @@ const mapLeadToRow = (lead) => ({
   email: lead.email || '-',
   mobile: lead.phone || '-',
   modified: formatDate(lead.updated_at),
+  ownerId: lead.owner_id || null,
 });
 
 const Leads = ({ user }) => {
@@ -43,6 +45,10 @@ const Leads = ({ user }) => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionMenu, setActionMenu] = useState(null);
+  const [teamReps, setTeamReps] = useState([]);
+  const [assigningMap, setAssigningMap] = useState({});
+  const leadAssignStateRef = useRef(new Map());
+  const lastConfirmedOwnerRef = useRef(new Map());
   const [tbodyRef] = useAutoAnimate();
 
   const [formData, setFormData] = useState({
@@ -51,6 +57,7 @@ const Leads = ({ user }) => {
 
   const canDelete = user?.role === 'admin';
   const canEdit = user?.role === 'admin' || (user?.role || '').toLowerCase().includes('manager');
+  const canAssignLead = ['admin', 'sales_manager', 'manager'].includes((user?.role || '').toLowerCase());
 
   const resetForm = () => setFormData({ salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'New' });
 
@@ -64,6 +71,9 @@ const Leads = ({ user }) => {
       if (requestId !== latestRequestId.current) return;
       const mappedData = data.map(mapLeadToRow);
       if (append) setLeads((prev) => [...prev, ...mappedData]); else setLeads(mappedData);
+      mappedData.forEach((lead) => {
+        lastConfirmedOwnerRef.current.set(String(lead.id), lead.ownerId || null);
+      });
       setTotalLoaded((prev) => prev + mappedData.length);
       setHasMore(mappedData.length === limit);
     } catch (err) {
@@ -77,6 +87,22 @@ const Leads = ({ user }) => {
   }, []);
 
   useEffect(() => { fetchLeads(0, false); }, [fetchLeads]);
+  useEffect(() => {
+    let active = true;
+    const fetchReps = async () => {
+      if (!canAssignLead) return;
+      try {
+        const data = await apiFetch('/api/leads/assignment-reps');
+        const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+        const reps = items.filter((u) => ['agent', 'sales_rep'].includes((u.role || '').toLowerCase()));
+        if (active) setTeamReps(reps);
+      } catch {
+        if (active) setTeamReps([]);
+      }
+    };
+    fetchReps();
+    return () => { active = false; };
+  }, [canAssignLead]);
 
   const filteredLeads = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -109,6 +135,87 @@ const Leads = ({ user }) => {
     setError('');
     try { await apiFetch(`/api/leads/${id}`, { method: 'DELETE' }); setLeads((prev) => prev.filter((l) => l.id !== id)); }
     catch (err) { setError(err?.message || 'Unable to delete lead.'); }
+  };
+
+  const setLeadAssigning = (leadId, isAssigning) => {
+    setAssigningMap((prev) => ({ ...prev, [leadId]: isAssigning }));
+  };
+
+  const sendLeadAssignment = async (leadId, repId, version) => {
+    try {
+      const updated = await apiFetch(`/api/leads/${leadId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ owner_id: repId }),
+      });
+
+      const state = leadAssignStateRef.current.get(leadId);
+      if (!state || state.version !== version) {
+        return;
+      }
+
+      const mapped = mapLeadToRow(updated);
+      lastConfirmedOwnerRef.current.set(leadId, mapped.ownerId || null);
+      setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ...mapped } : lead)));
+    } catch (err) {
+      const state = leadAssignStateRef.current.get(leadId);
+      if (!state || state.version !== version) {
+        return;
+      }
+      const lastOwnerId = lastConfirmedOwnerRef.current.get(leadId) || null;
+      setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ownerId: lastOwnerId } : lead)));
+      setError(err?.message || 'Unable to assign lead.');
+    }
+    const state = leadAssignStateRef.current.get(leadId);
+    if (!state) return;
+    if (state.queuedOwnerId && state.version > version) {
+      const nextOwnerId = state.queuedOwnerId;
+      const nextVersion = state.version;
+      state.queuedOwnerId = null;
+      state.inFlight = true;
+      leadAssignStateRef.current.set(leadId, state);
+      await sendLeadAssignment(leadId, nextOwnerId, nextVersion);
+      return;
+    }
+    state.inFlight = false;
+    state.queuedOwnerId = null;
+    leadAssignStateRef.current.set(leadId, state);
+    setLeadAssigning(leadId, false);
+  };
+
+  const handleAssignLead = async (leadId, repId) => {
+    if (!repId) return;
+    setError('');
+
+    setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ownerId: repId } : lead)));
+    setLeadAssigning(leadId, true);
+
+    const existing = leadAssignStateRef.current.get(leadId) || {
+      inFlight: false,
+      queuedOwnerId: null,
+      version: 0,
+    };
+    const nextVersion = existing.version + 1;
+    existing.version = nextVersion;
+
+    if (existing.inFlight) {
+      existing.queuedOwnerId = repId;
+      leadAssignStateRef.current.set(leadId, existing);
+      return;
+    }
+
+    existing.inFlight = true;
+    leadAssignStateRef.current.set(leadId, existing);
+    await sendLeadAssignment(leadId, repId, nextVersion);
+  };
+
+  const getAssignedRepLabel = (ownerId) => {
+    if (!ownerId) return 'Unassigned';
+    const assignedRep = teamReps.find((rep) => rep.id === ownerId);
+    if (assignedRep) return assignedRep.full_name || assignedRep.email || 'Assigned';
+    if (String(user?.id || '') === String(ownerId)) {
+      return user?.full_name || user?.email || 'Assigned';
+    }
+    return 'Assigned';
   };
 
   const exportToExcel = () => {
@@ -185,7 +292,7 @@ const Leads = ({ user }) => {
             {/* TABLE VIEW */}
             {viewMode === 'table' && (
               filteredLeads.length === 0 ? <EmptyState type="leads" /> : (
-                <div className="card" style={{ overflow: 'hidden' }}>
+                <div className="card">
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -195,6 +302,7 @@ const Leads = ({ user }) => {
                         <th>Status</th>
                         <th>Email</th>
                         <th>Phone</th>
+                        <th>Assigned Rep</th>
                         <th>Modified</th>
                         <th style={{ width: 60, textAlign: 'right' }}>Actions</th>
                       </tr>
@@ -203,11 +311,46 @@ const Leads = ({ user }) => {
                       {filteredLeads.map((l) => (
                         <motion.tr key={l.id} variants={staggerItem}>
                           <td><input type="checkbox" className="checkbox-input" /></td>
-                          <td style={{ fontWeight: 'var(--weight-medium)' }}>{l.name}</td>
+                          <td style={{ fontWeight: 'var(--weight-medium)' }}>
+                            <Link
+                              to={`/leads/${l.id}`}
+                              style={{ color: 'inherit', textDecoration: 'none' }}
+                            >
+                              {l.name}
+                            </Link>
+                          </td>
                           <td style={{ color: 'var(--color-text-secondary)' }}>{l.org}</td>
                           <td><span className={`badge ${STATUS_BADGE[l.status] || 'badge-muted'}`}>{formatLeadStatus(l.status)}</span></td>
                           <td style={{ color: 'var(--color-text-secondary)' }}>{l.email}</td>
                           <td style={{ color: 'var(--color-text-secondary)' }}>{l.mobile}</td>
+                          <td>
+                            {canAssignLead ? (
+                              <div>
+                                <select
+                                  className="input"
+                                  value={l.ownerId || ''}
+                                  onChange={(e) => handleAssignLead(l.id, e.target.value)}
+                                  style={{ minWidth: 170, height: 34, padding: '0 10px' }}
+                                >
+                                  <option value="">Unassigned</option>
+                                  {teamReps.map((rep) => (
+                                    <option key={rep.id} value={rep.id}>
+                                      {rep.full_name || rep.email}
+                                    </option>
+                                  ))}
+                                </select>
+                                {assigningMap[l.id] && (
+                                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 4 }}>
+                                    Saving...
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ color: 'var(--color-text-secondary)' }}>
+                                {getAssignedRepLabel(l.ownerId)}
+                              </span>
+                            )}
+                          </td>
                           <td style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>{l.modified}</td>
                           <td style={{ textAlign: 'right' }}>
                             <div style={{ position: 'relative', display: 'inline-block' }}>
