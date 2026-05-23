@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   addTeamMember,
   createTeam,
+  deleteTeam,
   listTeams,
   getTeam,
   removeTeamMember,
@@ -207,7 +208,7 @@ const AddMemberModal = ({ team, onClose, onAdded }) => {
 };
 
 /* Section */
-const TeamCard = ({ team: initialTeam, onRename }) => {
+const TeamCard = ({ team: initialTeam, onRename, onDelete }) => {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const [team, setTeam] = useState(initialTeam);
@@ -271,6 +272,9 @@ const TeamCard = ({ team: initialTeam, onRename }) => {
           </span>
           <button className="btn btn-secondary" onClick={() => onRename(team)}>
             <Edit2 size={13} /> Rename
+          </button>
+          <button className="btn btn-ghost" style={{ color: 'var(--color-danger)' }} onClick={() => onDelete(team)}>
+            <Trash2 size={13} /> Delete
           </button>
           <button className="btn btn-primary" onClick={() => { setShowAddMember(true); if (!expanded) { setExpanded(true); loadMembers(); } }}>
             <Plus size={13} /> Add rep
@@ -357,7 +361,7 @@ const TeamCard = ({ team: initialTeam, onRename }) => {
 };
 
 /* Section */
-const AdminTeams = ({ currentUser }) => {
+const AdminTeams = () => {
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -380,6 +384,19 @@ const AdminTeams = ({ currentUser }) => {
       prev.map((t) => (String(t.id) === String(updated.id) ? { ...t, name: updated.name } : t))
     );
     setRenaming(null);
+  };
+
+  const handleDelete = async (team) => {
+    if (!team) return;
+    const confirmDelete = window.confirm(`Delete team "${team.name}"? This removes members from the team.`);
+    if (!confirmDelete) return;
+    setErr('');
+    try {
+      await deleteTeam(team.id);
+      setTeams((prev) => prev.filter((t) => String(t.id) !== String(team.id)));
+    } catch (e) {
+      setErr(getErr(e, 'Failed to delete team.'));
+    }
   };
 
   return (
@@ -459,6 +476,7 @@ const AdminTeams = ({ currentUser }) => {
               key={team.id}
               team={team}
               onRename={(t) => setRenaming(t)}
+              onDelete={handleDelete}
             />
           ))}
         </div>

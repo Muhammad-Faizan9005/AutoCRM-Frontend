@@ -74,14 +74,18 @@ const Sidebar = ({ onLogout, user, permissions }) => {
     try {
       const data = await apiFetch('/api/notifications/?skip=0&limit=30');
       setNotifications(Array.isArray(data) ? data : []);
-    } catch {}
+    } catch {
+      setNotifications([]);
+    }
   };
 
   const markOneRead = async (id) => {
     try {
       await apiFetch(`/api/notifications/${id}/read`, { method: 'PATCH' });
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n)));
-    } catch {}
+    } catch {
+      setNotifications((prev) => prev);
+    }
   };
 
   const markAllRead = async () => {
@@ -89,7 +93,9 @@ const Sidebar = ({ onLogout, user, permissions }) => {
       await apiFetch('/api/notifications/read-all', { method: 'PATCH' });
       const now = new Date().toISOString();
       setNotifications((prev) => prev.map((n) => ({ ...n, read_at: n.read_at || now })));
-    } catch {}
+    } catch {
+      setNotifications((prev) => prev);
+    }
   };
 
   const menuItems = [

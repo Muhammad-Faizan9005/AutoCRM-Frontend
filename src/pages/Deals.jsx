@@ -73,7 +73,13 @@ const Deals = ({ user }) => {
     finally{if(rid===latestReq.current){if(!append)setLoading(false);else setIsLoadingMore(false);}}
   },[]);
 
-  const fetchOrgs = useCallback(async()=>{try{setOrganizations(await apiFetch('/api/organizations/'));}catch{}},[]);
+  const fetchOrgs = useCallback(async () => {
+    try {
+      setOrganizations(await apiFetch('/api/organizations/'));
+    } catch {
+      setOrganizations([]);
+    }
+  }, []);
   useEffect(()=>{fetchDeals(0,false);fetchOrgs();},[fetchDeals,fetchOrgs]);
 
   const filtered = useMemo(() => {

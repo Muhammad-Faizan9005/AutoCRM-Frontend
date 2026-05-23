@@ -56,7 +56,6 @@ const Notes = ({ user }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({ title: '', content: '' });
   const [leadOptions, setLeadOptions] = useState([]);
-  const [leadDirectory, setLeadDirectory] = useState({});
   const [selectedLeadId, setSelectedLeadId] = useState('');
   const latestRequestId = useRef(0);
   const leadDirectoryRef = useRef({});
@@ -101,7 +100,6 @@ const Notes = ({ user }) => {
         options.forEach((lead) => { directory[lead.id] = lead.name; });
         if (!mounted) return;
         setLeadOptions(options);
-        setLeadDirectory(directory);
         leadDirectoryRef.current = directory;
         if (options.length) setSelectedLeadId(options[0].id);
         await fetchNotes(0, false, directory);

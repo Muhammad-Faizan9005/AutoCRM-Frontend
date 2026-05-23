@@ -150,7 +150,7 @@ const RenameTeamModal = ({ team, onClose, onRenamed }) => {
 };
 
 /* Section */
-const INIT_FORM = { full_name: '', email: '', password: '', status: 'active' };
+const INIT_FORM = { full_name: '', email: '', password: '', status: 'invited' };
 
 const AddRepModal = ({ team, onClose, onAdded }) => {
   const [tab, setTab] = useState('new'); // 'new' | 'existing'
@@ -219,8 +219,8 @@ const AddRepModal = ({ team, onClose, onAdded }) => {
       <div className="admin-panel p-6 max-w-lg mx-auto">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--admin-muted)]">Add member</p>
-            <h3 className="admin-title text-xl mt-2">Add sales rep to team</h3>
+            <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--admin-muted)]">Invite member</p>
+            <h3 className="admin-title text-xl mt-2">Invite sales rep to team</h3>
           </div>
           <button className="admin-pill admin-pill-muted" onClick={onClose}><X size={14} /> Close</button>
         </div>
@@ -269,6 +269,9 @@ const AddRepModal = ({ team, onClose, onAdded }) => {
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
+              <span className="text-[10px] mt-2 block text-[color:var(--admin-muted)]">
+                Invited reps receive an email link to complete signup.
+              </span>
             </label>
             <label className="text-xs text-[color:var(--admin-muted)]">
               Password
@@ -320,7 +323,7 @@ const AddRepModal = ({ team, onClose, onAdded }) => {
             disabled={busy}
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-            {busy ? 'Adding...' : 'Add rep'}
+            {busy ? 'Sending...' : 'Send invite'}
           </button>
         </div>
       </div>
@@ -329,7 +332,7 @@ const AddRepModal = ({ team, onClose, onAdded }) => {
 };
 
 /* Section */
-const ManagerTeam = ({ currentUser }) => {
+const ManagerTeam = () => {
   const navigate = useNavigate();
   const [team, setTeam] = useState(null);
   const [loading, setLoading] = useState(true);

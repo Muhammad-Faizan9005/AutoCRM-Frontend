@@ -104,7 +104,7 @@ const Tasks = ({ user }) => {
         setAssigneeDirectory(directory);
         setAssigneeOptions(reps);
         setFormData((prev) => ({ ...prev, assignedTo: prev.assignedTo || String(reps[0]?.id || '') }));
-      } catch (_) {
+      } catch {
         setAssigneeOptions([]);
       } finally {
       setLoadingAssignees(false);
@@ -124,7 +124,7 @@ const Tasks = ({ user }) => {
       setLeadDirectory(directory);
       leadDirectoryRef.current = directory;
       setFormData((prev) => ({ ...prev, leadId: prev.leadId || String(leads[0]?.id || '') }));
-    } catch (_) {
+    } catch {
       setLeadOptions([]);
       setLeadDirectory({});
       leadDirectoryRef.current = {};
@@ -172,7 +172,7 @@ const Tasks = ({ user }) => {
           });
           leadDirectoryRef.current = directory;
           setLeadDirectory(directory);
-        } catch (_) {
+        } catch {
           // Ignore lead lookup failures and fall back to IDs.
         }
       }

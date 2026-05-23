@@ -76,7 +76,7 @@ const AdminDashboard = () => {
           <>
             {/* KPI Cards */}
             <motion.div variants={staggerContainer} initial="initial" animate="animate" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-              {overview.highlights.map((item, i) => {
+              {overview.highlights.map((item) => {
                 const Icon = ICON_BY_LABEL[item.label] || Activity;
                 return (
                   <motion.div key={item.label} variants={staggerItem} className="card card-padding">

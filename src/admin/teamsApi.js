@@ -45,3 +45,9 @@ export async function removeTeamMember(teamId, agentId) {
     { method: 'DELETE' }
   );
 }
+
+export async function deleteTeam(teamId) {
+  return apiFetch(`/api/admin/teams/${encodeURIComponent(teamId)}`, {
+    method: 'DELETE',
+  });
+}

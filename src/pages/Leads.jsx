@@ -164,23 +164,22 @@ const Leads = ({ user }) => {
       const lastOwnerId = lastConfirmedOwnerRef.current.get(leadId) || null;
       setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ownerId: lastOwnerId } : lead)));
       setError(err?.message || 'Unable to assign lead.');
-    } finally {
-      const state = leadAssignStateRef.current.get(leadId);
-      if (!state) return;
-      if (state.queuedOwnerId && state.version > version) {
-        const nextOwnerId = state.queuedOwnerId;
-        const nextVersion = state.version;
-        state.queuedOwnerId = null;
-        state.inFlight = true;
-        leadAssignStateRef.current.set(leadId, state);
-        await sendLeadAssignment(leadId, nextOwnerId, nextVersion);
-        return;
-      }
-      state.inFlight = false;
-      state.queuedOwnerId = null;
-      leadAssignStateRef.current.set(leadId, state);
-      setLeadAssigning(leadId, false);
     }
+    const state = leadAssignStateRef.current.get(leadId);
+    if (!state) return;
+    if (state.queuedOwnerId && state.version > version) {
+      const nextOwnerId = state.queuedOwnerId;
+      const nextVersion = state.version;
+      state.queuedOwnerId = null;
+      state.inFlight = true;
+      leadAssignStateRef.current.set(leadId, state);
+      await sendLeadAssignment(leadId, nextOwnerId, nextVersion);
+      return;
+    }
+    state.inFlight = false;
+    state.queuedOwnerId = null;
+    leadAssignStateRef.current.set(leadId, state);
+    setLeadAssigning(leadId, false);
   };
 
   const handleAssignLead = async (leadId, repId) => {

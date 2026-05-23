@@ -46,6 +46,19 @@ export async function deactivateAdminUser(userId) {
   });
 }
 
+export async function enableAdminUser(userId) {
+  return apiFetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'active' }),
+  });
+}
+
+export async function revokeAdminInvite(userId) {
+  return apiFetch(`/api/admin/invites/${encodeURIComponent(userId)}/revoke`, {
+    method: 'POST',
+  });
+}
+
 export async function getAdminUserPermissions(userId) {
   return apiFetch(`/api/admin/users/${encodeURIComponent(userId)}/permissions`);
 }
@@ -54,5 +67,21 @@ export async function updateAdminUserPermissions(userId, permissions) {
   return apiFetch(`/api/admin/users/${encodeURIComponent(userId)}/permissions`, {
     method: 'PUT',
     body: JSON.stringify({ permissions }),
+  });
+}
+
+export async function listFailedInvites() {
+  return apiFetch('/api/admin/failed-invites');
+}
+
+export async function reinviteFailedInvite(failedId) {
+  return apiFetch(`/api/admin/failed-invites/${encodeURIComponent(failedId)}/reinvite`, {
+    method: 'POST',
+  });
+}
+
+export async function deleteFailedInvite(failedId) {
+  return apiFetch(`/api/admin/failed-invites/${encodeURIComponent(failedId)}`, {
+    method: 'DELETE',
   });
 }

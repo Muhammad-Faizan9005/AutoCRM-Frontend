@@ -20,7 +20,7 @@ const formatCurrency = (value) => {
       currency: 'USD',
       maximumFractionDigits: 0,
     }).format(numeric);
-  } catch (error) {
+  } catch {
     return `USD ${numeric.toLocaleString()}`;
   }
 };
@@ -201,30 +201,33 @@ const Dashboard = () => {
     ];
   }, [summary]);
 
-  const activitySeries = activity?.series || [];
-  const activityChartData = useMemo(() =>
-    activitySeries.map((point) => ({
+  const activityChartData = useMemo(() => {
+    const series = activity?.series || [];
+    return series.map((point) => ({
       date: formatDateLabel(point.day),
       leads: point.leads || 0,
       deals: point.deals || 0,
-    })), [activitySeries]);
+    }));
+  }, [activity?.series]);
 
-  const pipelineStages = summary?.pipeline || [];
-  const pipelineData = useMemo(() =>
-    pipelineStages.map((stage) => ({
+  const pipelineData = useMemo(() => {
+    const stages = summary?.pipeline || [];
+    return stages.map((stage) => ({
       stage: stage.stage,
       count: stage.count || 0,
       value: stage.value_total || 0,
-    })), [pipelineStages]);
+    }));
+  }, [summary?.pipeline]);
 
   const leadsByStatus = summary?.leads_by_status || [];
   const donutData = useMemo(() => {
-    if (!leadsByStatus.length) return [{ name: 'No data', value: 1 }];
-    return leadsByStatus.map((stat) => ({
+    const statuses = summary?.leads_by_status || [];
+    if (!statuses.length) return [{ name: 'No data', value: 1 }];
+    return statuses.map((stat) => ({
       name: stat.status,
       value: stat.count,
     }));
-  }, [leadsByStatus]);
+  }, [summary?.leads_by_status]);
 
   const donutColors = [chartColors.accent, chartColors.success, chartColors.warning, chartColors.muted, chartColors.danger];
 

@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, ShieldCheck, UserCheck, CheckCircle } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { useSearchParams } from 'react-router-dom';
 import { DEFAULT_PERMISSIONS, PERMISSION_GROUPS } from './permissionsStore';
 import { getAdminUserPermissions, listAdminUsers, updateAdminUserPermissions } from './adminApi';
-import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
+import { PageTransition } from '../components/PageTransition';
 
 const getErr = (e, f) => e?.message || e?.data?.detail || f;
 
@@ -121,17 +120,16 @@ const AdminPermissions = ({ currentUser }) => {
       window.dispatchEvent(new CustomEvent('autocrm-permissions-updated', { detail: { userId: activeUser.id, permissions: saved } }));
     } catch (e) {
       setError(getErr(e, 'Failed to save.'));
-    } finally {
-      clearSavingKeys(keys);
-      const queued = saveQueueRef.current.queued;
-      if (queued) {
-        saveQueueRef.current.queued = null;
-        await saveNow(queued.permissions, queued.keys);
-        return;
-      }
-      saveQueueRef.current.inFlight = false;
-      setSaving(false);
     }
+    clearSavingKeys(keys);
+    const queued = saveQueueRef.current.queued;
+    if (queued) {
+      saveQueueRef.current.queued = null;
+      await saveNow(queued.permissions, queued.keys);
+      return;
+    }
+    saveQueueRef.current.inFlight = false;
+    setSaving(false);
   };
 
   const enqueueSave = (next, keys) => {

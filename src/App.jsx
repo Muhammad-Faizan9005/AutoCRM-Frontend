@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import Login from './pages/Login';
+import AcceptInvite from './pages/AcceptInvite';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
@@ -267,6 +268,7 @@ function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route
           path="/login"
           element={user ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />}
