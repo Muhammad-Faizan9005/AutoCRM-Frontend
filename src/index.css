@@ -1110,6 +1110,10 @@ textarea.input {
   z-index: 100;
 }
 
+.admin-modal .admin-panel {
+  width: 100%;
+}
+
 /* ─── Tailwind-like Utility Overrides for Admin ─── */
 .space-y-2 > * + * { margin-top: 0.5rem; }
 .space-y-3 > * + * { margin-top: 0.75rem; }
