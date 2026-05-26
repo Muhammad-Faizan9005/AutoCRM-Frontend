@@ -65,8 +65,8 @@ const CreateTeamModal = ({ onClose, onCreated }) => {
   };
 
   return (
-    <div className="admin-modal">
-      <div className="admin-panel p-6 max-w-md mx-auto">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content p-6" style={{ maxWidth: 448 }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--admin-muted)]">
@@ -122,8 +122,8 @@ const RenameTeamModal = ({ team, onClose, onRenamed }) => {
   };
 
   return (
-    <div className="admin-modal">
-      <div className="admin-panel p-6 max-w-md mx-auto">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content p-6" style={{ maxWidth: 448 }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="admin-title text-xl">Rename team</h3>
           <button className="admin-pill admin-pill-muted" onClick={onClose}><X size={14} /> Close</button>
@@ -215,114 +215,123 @@ const AddRepModal = ({ team, onClose, onAdded }) => {
   };
 
   return (
-    <div className="admin-modal">
-      <div className="admin-panel p-6 max-w-lg mx-auto">
-        <div className="flex items-center justify-between">
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-content"
+        style={{ maxWidth: 520, maxHeight: 'calc(100vh - 48px)', overflow: 'auto' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-[color:var(--admin-muted)]">Invite member</p>
-            <h3 className="admin-title text-xl mt-2">Invite sales rep to team</h3>
+            <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.15em', color: 'var(--color-text-tertiary)' }}>Invite member</div>
+            <h3 className="section-title" style={{ marginTop: 2 }}>Invite sales rep to team</h3>
           </div>
-          <button className="admin-pill admin-pill-muted" onClick={onClose}><X size={14} /> Close</button>
+          <button onClick={onClose} className="btn btn-ghost btn-icon" aria-label="Close">
+            <X size={18} />
+          </button>
         </div>
 
-        {/* Tabs */}
-        <div className="mt-5 flex gap-2">
-          {[['new', 'Create new rep'], ['existing', 'Add existing rep']].map(([t, lbl]) => (
-            <button
-              key={t}
-              onClick={() => { setTab(t); setErr(''); }}
-              className={`admin-pill ${tab === t ? 'admin-pill-accent' : 'admin-pill-muted'}`}
-            >
-              {lbl}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'new' && (
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <label className="text-xs text-[color:var(--admin-muted)]">
-              Full name
-              <input
-                className="admin-input mt-1"
-                placeholder="e.g. Sara Khan"
-                value={form.full_name}
-                onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))}
-              />
-            </label>
-            <label className="text-xs text-[color:var(--admin-muted)]">
-              Email
-              <input
-                className="admin-input mt-1"
-                placeholder="rep@company.com"
-                value={form.email}
-                onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-              />
-            </label>
-            <label className="text-xs text-[color:var(--admin-muted)]">
-              Status
-              <select
-                className="admin-select mt-1"
-                value={form.status}
-                onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
+        <div style={{ padding: 20 }}>
+          {/* Tabs */}
+          <div className="flex flex-wrap gap-2">
+            {[['new', 'Create new rep'], ['existing', 'Add existing rep']].map(([t, lbl]) => (
+              <button
+                key={t}
+                onClick={() => { setTab(t); setErr(''); }}
+                className={`admin-pill ${tab === t ? 'admin-pill-accent' : 'admin-pill-muted'}`}
               >
-                {['active', 'invited', 'disabled'].map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-              <span className="text-[10px] mt-2 block text-[color:var(--admin-muted)]">
-                Invited reps receive an email link to complete signup.
-              </span>
-            </label>
-            <label className="text-xs text-[color:var(--admin-muted)]">
-              Password
-              <input
-                type="password"
-                className="admin-input mt-1"
-                placeholder="Required if status = active"
-                value={form.password}
-                onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
-              />
-            </label>
+                {lbl}
+              </button>
+            ))}
           </div>
-        )}
 
-        {tab === 'existing' && (
-          <div className="mt-5">
-            {loadingExisting ? (
-              <div className="flex items-center gap-2 text-sm text-[color:var(--admin-muted)]">
-                <Loader2 size={14} className="animate-spin" /> Loading agents...
+          {tab === 'new' && (
+            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <label className="label">
+                Full name
+                <input
+                  className="input"
+                  placeholder="e.g. Sara Khan"
+                  value={form.full_name}
+                  onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))}
+                  style={{ marginTop: 6 }}
+                />
+              </label>
+              <label className="label">
+                Email
+                <input
+                  className="input"
+                  placeholder="rep@company.com"
+                  value={form.email}
+                  onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                  style={{ marginTop: 6 }}
+                />
+              </label>
+              <label className="label">
+                Status
+                <select
+                  className="input"
+                  value={form.status}
+                  onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
+                  style={{ marginTop: 6 }}
+                >
+                  {['active', 'invited', 'disabled'].map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 6 }}>
+                  Invited reps receive an email link to complete signup.
+                </div>
+              </label>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label className="label">Password</label>
+                Password
+                <input
+                  type="password"
+                  className="input"
+                  placeholder="Required if status = active"
+                  value={form.password}
+                  onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
+                  style={{ marginTop: 6 }}
+                />
               </div>
-            ) : existing.length === 0 ? (
-              <p className="text-sm text-[color:var(--admin-muted)]">
-                No unassigned sales reps found.
-              </p>
-            ) : (
-              <select
-                className="admin-select w-full"
-                value={selectedId}
-                onChange={(e) => setSelectedId(e.target.value)}
-              >
-                <option value="">- Select a rep -</option>
-                {existing.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.email})
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-        )}
+            </div>
+          )}
 
-        {err && <p className="mt-3 text-xs text-[color:var(--admin-accent-2)]">{err}</p>}
+          {tab === 'existing' && (
+            <div style={{ marginTop: 14 }}>
+              {loadingExisting ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+                  <Loader2 size={14} className="animate-spin" /> Loading agents...
+                </div>
+              ) : existing.length === 0 ? (
+                <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>
+                  No unassigned sales reps found.
+                </p>
+              ) : (
+                <select
+                  className="input"
+                  value={selectedId}
+                  onChange={(e) => setSelectedId(e.target.value)}
+                  style={{ marginTop: 6 }}
+                >
+                  <option value="">- Select a rep -</option>
+                  {existing.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name} ({u.email})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
 
-        <div className="mt-6 flex justify-end gap-3">
-          <button className="admin-pill admin-pill-muted" onClick={onClose} disabled={busy}>Cancel</button>
-          <button
-            className="admin-pill admin-pill-accent"
-            onClick={tab === 'new' ? submitNew : submitExisting}
-            disabled={busy}
-          >
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+          {err && <div style={{ marginTop: 10, padding: '8px 12px', background: 'var(--color-danger-subtle)', borderRadius: 'var(--radius)', fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>{err}</div>}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn btn-primary" onClick={tab === 'new' ? submitNew : submitExisting} disabled={busy}>
             {busy ? 'Sending...' : 'Send invite'}
           </button>
         </div>
