@@ -1,52 +1,54 @@
-import React, { useState } from 'react';
-import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Lock } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { apiFetch, setTokens } from '../api/client';
-import { logger } from '../utils/logger';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { apiFetch } from '../api/client';
 
-export default function Login({ onLogin }) {
-  const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState(''); 
+export default function ResetPassword() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const token = useMemo(() => new URLSearchParams(location.search).get('token') || '', [location.search]);
+
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
+    setMessage('');
 
-    if (!email || !password) {
-      setError('Please enter both email and password');
-      setLoading(false);
+    if (!token) {
+      setError('Reset token is missing.');
       return;
     }
 
-    try {
-      const payload = {
-        email: email.trim(),
-        password,
-      };
+    if (password.trim().length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
 
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
+    try {
       const data = await apiFetch(
-        '/api/auth/login',
+        '/api/auth/reset-password',
         {
           method: 'POST',
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ token, password }),
         },
         { skipAuth: true, retryOn401: false }
       );
-
-      setTokens({
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-      });
-      onLogin(data.user);
-      logger.info('auth.login.success');
+      setMessage(data?.message || 'Password reset successful.');
+      setTimeout(() => navigate('/login'), 1200);
     } catch (err) {
-      logger.warn('auth.login.failed', { status: err?.status || 'unknown' });
-      const message = err?.message || 'Login failed. Please try again.';
-      setError(message);
+      setError(err?.message || 'Unable to reset password.');
     } finally {
       setLoading(false);
     }
@@ -67,22 +69,17 @@ export default function Login({ onLogin }) {
         transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
         style={{ width: '100%', maxWidth: 380 }}
       >
-        {/* Card */}
         <div className="card" style={{ padding: 24 }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 20 }}>
             <img
               src="/brand/autocrm-lockup.svg"
               alt="AutoCRM"
-              style={{
-                width: 180,
-                height: 'auto',
-                display: 'block',
-              }}
+              style={{ width: 180, height: 'auto', display: 'block' }}
             />
             <div style={{ width: '100%', height: 1, background: 'var(--color-border)', opacity: 0.6 }} />
           </div>
-          <form onSubmit={handleLogin}>
 
+          <form onSubmit={handleSubmit}>
             {error && (
               <div style={{
                 marginBottom: 16,
@@ -97,31 +94,22 @@ export default function Login({ onLogin }) {
               </div>
             )}
 
-            {/* Email */}
-            <div style={{ marginBottom: 16, position: 'relative' }}>
-              <label className="label">Email or Username</label>
-              <div style={{ position: 'relative' }}>
-                <Mail size={16} style={{
-                  position: 'absolute',
-                  left: 12,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--color-text-tertiary)',
-                }} />
-                <input
-                  type="text"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@company.com"
-                  className="input"
-                  style={{ paddingLeft: 36 }}
-                />
+            {message && (
+              <div style={{
+                marginBottom: 16,
+                padding: 12,
+                background: 'var(--color-success-subtle)',
+                border: '1px solid var(--color-success)',
+                borderRadius: 'var(--radius)',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-success)',
+              }}>
+                {message}
               </div>
-            </div>
+            )}
 
-            {/* Password */}
             <div style={{ marginBottom: 16, position: 'relative' }}>
-              <label className="label">Password</label>
+              <label className="label">New Password</label>
               <div style={{ position: 'relative' }}>
                 <Lock size={16} style={{
                   position: 'absolute',
@@ -131,44 +119,35 @@ export default function Login({ onLogin }) {
                   color: 'var(--color-text-tertiary)',
                 }} />
                 <input
-                  type={showPassword ? 'text' : 'password'}
+                  type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  autoComplete="new-password"
                   className="input"
-                  style={{ paddingLeft: 36, paddingRight: 40 }}
+                  style={{ paddingLeft: 36 }}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  style={{
-                    position: 'absolute',
-                    right: 10,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: 'var(--color-text-tertiary)',
-                    display: 'flex',
-                    padding: 4,
-                  }}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
               </div>
             </div>
 
-            <div style={{ textAlign: 'right', marginBottom: 16 }}>
-              <a href="#" style={{
-                fontSize: 'var(--text-xs)',
-                color: 'var(--color-text-tertiary)',
-                textDecoration: 'none',
-              }}>
-                Forgot Password?
-              </a>
+            <div style={{ marginBottom: 16, position: 'relative' }}>
+              <label className="label">Confirm Password</label>
+              <div style={{ position: 'relative' }}>
+                <Lock size={16} style={{
+                  position: 'absolute',
+                  left: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--color-text-tertiary)',
+                }} />
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="input"
+                  style={{ paddingLeft: 36 }}
+                />
+              </div>
             </div>
 
             <button
@@ -177,10 +156,22 @@ export default function Login({ onLogin }) {
               className="btn btn-primary"
               style={{ width: '100%', padding: '10px 16px', fontSize: 'var(--text-base)', fontWeight: 'var(--weight-semibold)' }}
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'Resetting...' : 'Reset Password'}
             </button>
           </form>
 
+          <div style={{ marginTop: 16, textAlign: 'center' }}>
+            <Link
+              to="/login"
+              style={{
+                fontSize: 'var(--text-xs)',
+                color: 'var(--color-text-tertiary)',
+                textDecoration: 'none',
+              }}
+            >
+              Back to sign in
+            </Link>
+          </div>
         </div>
       </motion.div>
     </div>

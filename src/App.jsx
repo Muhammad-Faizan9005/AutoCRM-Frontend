@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import AcceptInvite from './pages/AcceptInvite';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
@@ -25,6 +27,8 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState(() => getPermissionsForUser(null));
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [inactiveNotice, setInactiveNotice] = useState(null);
 
   const clearSession = () => {
     clearTokens();
@@ -134,6 +138,52 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleInactive = (event) => {
+      const detail = event?.detail || {};
+      clearSession();
+      setInactiveNotice({
+        title: 'Account disabled',
+        message:
+          detail.message ||
+          'This account has been disabled. Please contact your administrator to regain access.',
+      });
+    };
+
+    window.addEventListener('autocrm-inactive', handleInactive);
+    return () => {
+      window.removeEventListener('autocrm-inactive', handleInactive);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    let isMounted = true;
+
+    const checkActive = async () => {
+      try {
+        await apiFetch('/api/auth/me', {}, { timeoutMs: 3000 });
+      } catch (error) {
+        if (!isMounted) return;
+        if (error?.status === 403 && /inactive/i.test(error?.message || '')) {
+          clearSession();
+          setInactiveNotice({
+            title: 'Account disabled',
+            message:
+              'This account has been disabled. Please contact your administrator to regain access.',
+          });
+        }
+      }
+    };
+
+    checkActive();
+    const intervalId = setInterval(checkActive, 6000);
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [user]);
+
   const handleLogin = (userData) => {
     setUser(userData);
     setPermissions(getPermissionsForUser(userData));
@@ -141,6 +191,7 @@ function App() {
   };
 
   const handleLogout = async () => {
+    setIsLoggingOut(true);
     try {
       const refreshToken = getRefreshToken();
       await apiFetch(
@@ -157,6 +208,7 @@ function App() {
     }
 
     clearSession();
+    setIsLoggingOut(false);
     logger.info('auth.logout', { reason: 'user' });
   };
 
@@ -267,8 +319,34 @@ function App() {
 
   return (
     <Router>
+      {isLoggingOut && (
+        <div className="logout-overlay" role="status" aria-live="polite">
+          <div className="logout-card">
+            <div className="logout-spinner" />
+            <div className="logout-text">Signing out...</div>
+          </div>
+        </div>
+      )}
+      {inactiveNotice && (
+        <div className="logout-overlay" role="dialog" aria-live="polite">
+          <div className="inactive-card">
+            <button
+              className="inactive-close"
+              type="button"
+              aria-label="Close"
+              onClick={() => setInactiveNotice(null)}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+            <div className="inactive-title">{inactiveNotice.title}</div>
+            <div className="inactive-body">{inactiveNotice.message}</div>
+          </div>
+        </div>
+      )}
       <Routes>
         <Route path="/accept-invite" element={<AcceptInvite />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route
           path="/login"
           element={user ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />}

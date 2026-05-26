@@ -1,47 +1,56 @@
 # AutoCRM Frontend
 
-A modern Customer Relationship Management (CRM) system built with React and Vite, designed to streamline customer interactions, sales processes, and business operations.
+A modern Customer Relationship Management (CRM) interface built with React and Vite. The UI focuses on admin operations, team management, and a full CRM workspace for leads, deals, customers, and tasks.
 
 ## 🚀 Features
 
-- **Customer Management**: Organize and manage customer information efficiently
-- **Sales Pipeline**: Track deals and opportunities through customizable stages
-- **Contact Management**: Store and access contact details, communication history, and notes
-- **Dashboard & Analytics**: Visualize key metrics and business insights
-- **Task & Activity Tracking**: Monitor tasks, appointments, and follow-ups
-- **Responsive Design**: Fully responsive interface for desktop and mobile devices
+- **Admin Console**: user invites, enable/disable, delete, and permission matrix
+- **Failed Invites**: view, re-invite, or delete failed invites
+- **Team Management**: create teams, assign reps, remove members, delete teams
+- **CRM Workspace**: leads, deals, contacts, organizations, notes, tasks
+- **Imports**: CSV/XLSX import UI for customers and tickets
+- **Responsive Design**: optimized for desktop and mobile
 
 ## 🛠️ Tech Stack
 
-- **React 19.2.0** - Modern UI library with latest features
-- **Vite 7.2.4** - Fast build tool and development server
+- **React 19** - Modern UI library
+- **Vite 7** - Fast build tool and dev server
+- **Framer Motion** - Motion and layout transitions
 - **ESLint** - Code linting and quality assurance
-- **React Compiler** - Optimized performance with automatic optimization
 
 ## 📋 Prerequisites
 
-Before you begin, ensure you have the following installed:
 - Node.js (v18 or higher recommended)
 - npm or yarn package manager
 
 ## 🔧 Installation
 
 1. Clone the repository:
+
 ```bash
 git clone <repository-url>
-cd AutoCRM_frontend
+cd AutoCRM
 ```
 
 2. Install dependencies:
+
 ```bash
+cd forntend/AutoCRM-Frontend
 npm install
 ```
 
 ## 🚀 Getting Started
 
+### Environment
+
+Create `.env` in `forntend/AutoCRM-Frontend/`:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
+```
+
 ### Development Server
 
-Start the development server with hot module replacement (HMR):
 ```bash
 npm run dev
 ```
@@ -50,21 +59,18 @@ The application will be available at `http://localhost:5173`
 
 ### Build for Production
 
-Create an optimized production build:
 ```bash
 npm run build
 ```
 
 ### Preview Production Build
 
-Preview the production build locally:
 ```bash
 npm run preview
 ```
 
 ### Linting
 
-Run ESLint to check code quality:
 ```bash
 npm run lint
 ```
@@ -72,18 +78,22 @@ npm run lint
 ## 📁 Project Structure
 
 ```
-AutoCRM_frontend/
-├── public/              # Static assets
+forntend/AutoCRM-Frontend/
+├── public/                # Static assets
 ├── src/
-│   ├── assets/         # Images, icons, and other media
-│   ├── App.jsx         # Main application component
-│   ├── App.css         # Application styles
-│   ├── main.jsx        # Application entry point
-│   └── index.css       # Global styles
-├── index.html          # HTML template
-├── package.json        # Project dependencies and scripts
-├── vite.config.js      # Vite configuration
-└── eslint.config.js    # ESLint configuration
+│   ├── admin/             # Admin console pages and API helpers
+│   ├── api/               # API client and auth handling
+│   ├── components/        # Shared UI components
+│   ├── hooks/             # UI hooks and theme helpers
+│   ├── pages/             # CRM workspace pages
+│   ├── App.jsx            # App shell and routing
+│   ├── App.css            # App-level styles
+│   ├── main.jsx           # Entry point
+│   └── index.css          # Global styles + theme tokens
+├── index.html             # HTML template
+├── package.json           # Dependencies and scripts
+├── vite.config.js         # Vite configuration
+└── eslint.config.js       # ESLint configuration
 ```
 
 ## 🔑 Key Scripts
@@ -97,9 +107,9 @@ AutoCRM_frontend/
 
 ## 🎨 Development Notes
 
-- **React Compiler**: This project uses the React Compiler for automatic optimization. This may impact build times but improves runtime performance.
-- **HMR**: Hot Module Replacement is enabled for instant feedback during development
-- **ESLint**: Code quality rules are enforced to maintain consistency
+- Permission checks are enforced by backend endpoints and mirrored in UI access guards.
+- `apiFetch` automatically refreshes tokens on `401` and does not log out on `403`.
+- Admin and manager consoles use the same permission matrix and user list APIs.
 
 ## 🤝 Contributing
 

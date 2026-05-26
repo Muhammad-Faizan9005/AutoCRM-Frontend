@@ -260,7 +260,7 @@ export async function apiFetch(path, init = {}, options = {}) {
 
   const data = await parseResponseBody(response);
   if (!response.ok) {
-    if (!skipAuth && (response.status === 401 || response.status === 403)) {
+    if (!skipAuth && response.status === 401) {
       clearTokens();
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("autocrm-logout"));
@@ -278,6 +278,18 @@ export async function apiFetch(path, init = {}, options = {}) {
         : null) ||
       (typeof data === "string" ? data : null) ||
       "Request failed";
+
+    if (!skipAuth && response.status === 403 && /inactive/i.test(message || "")) {
+      clearTokens();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("autocrm-inactive", {
+            detail: { message },
+          })
+        );
+      }
+      logger.warn("auth.inactive_user", { status: response.status, path });
+    }
 
     const error = new Error(message);
     error.status = response.status;

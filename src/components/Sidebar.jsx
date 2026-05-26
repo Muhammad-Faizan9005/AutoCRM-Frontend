@@ -206,22 +206,16 @@ const Sidebar = ({ onLogout, user, permissions }) => {
           gap: '10px',
           minHeight: '56px',
         }}>
-          <div style={{
-            width: 34,
-            height: 34,
-            background: 'var(--color-accent)',
-            color: 'var(--color-text-inverse)',
-            fontFamily: 'var(--font-display)',
-            fontWeight: 700,
-            fontSize: 11,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 'var(--radius)',
-            flexShrink: 0,
-          }}>
-            CRM
-          </div>
+          <img
+            src="/brand/autocrm-mark.svg"
+            alt="AutoCRM"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 'var(--radius)',
+              flexShrink: 0,
+            }}
+          />
           <AnimatePresence>
             {!isCollapsed && (
               <motion.div
