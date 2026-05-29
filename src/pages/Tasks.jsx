@@ -7,6 +7,7 @@ import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
+import { toast } from '../utils/toast';
 
 const LEAD_ENTITY_TYPE = 'lead';
 const STATUS_BADGE = { open: 'badge-accent', in_progress: 'badge-warning', done: 'badge-success' };
@@ -286,9 +287,14 @@ const Tasks = ({ user }) => {
         });
         setTasks((prev) => prev.map((t) => (t.id === selectedTask.id ? normalizeTask(updated, user, assigneeDirectory, leadDirectory) : t)));
       }
+      const assigneeLabel = getAssigneeLabel(payload.assigned_to, user, assigneeDirectory);
+      const leadName = leadDirectory[String(payload.entity_id)] || 'lead';
+      toast.success(`Task saved for ${assigneeLabel} on ${leadName}.`);
       closeModal();
     } catch (err) {
-      setError(err?.message || (modalType === 'edit' ? 'Update failed.' : 'Create failed.'));
+      const message = err?.message || (modalType === 'edit' ? 'Update failed.' : 'Create failed.');
+      setError(message);
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }
@@ -302,8 +308,11 @@ const Tasks = ({ user }) => {
         body: JSON.stringify({ status: next }),
       });
       setTasks((prev) => prev.map((t) => (t.id === task.id ? normalizeTask(updated, user, assigneeDirectory, leadDirectory) : t)));
+      toast.success(`Task marked ${next === 'done' ? 'done' : 'open'}.`);
     } catch (err) {
-      setError(err?.message || 'Status update failed.');
+      const message = err?.message || 'Status update failed.';
+      setError(message);
+      toast.error(message);
     }
   };
 
@@ -318,8 +327,11 @@ const Tasks = ({ user }) => {
     try {
       await apiFetch(`/api/tasks/${id}`, { method: 'DELETE' });
       setTasks((prev) => prev.filter((task) => task.id !== id));
+      toast.success('Task deleted.');
     } catch (err) {
-      setError(err?.message || 'Delete failed.');
+      const message = err?.message || 'Delete failed.';
+      setError(message);
+      toast.error(message);
     }
   };
 
@@ -347,7 +359,6 @@ const Tasks = ({ user }) => {
           <input type="text" placeholder="Search tasks..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
 
-        {error && <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>}
 
         {loading ? (
           <div className="masonry-grid">{[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}</div>

@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Calendar, CheckSquare, Mail, Phone, Plus, StickyNote } from 'lucide-react';
+import { Calendar, CheckSquare, Mail, Phone, PhoneOff, Plus, StickyNote } from 'lucide-react';
 import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
+import { useCallSession } from '../hooks/useCallSession';
+import { useCallRecording } from '../hooks/useCallRecording';
+import { toast } from '../utils/toast';
 
 const TABS = [
   { id: 'activity', label: 'Activity' },
@@ -33,6 +36,20 @@ const formatDateTime = (value) => {
   const diffHr = Math.floor(diffMin / 60);
   if (diffHr < 24) return `${diffHr}h ago`;
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+
+const formatTimer = (seconds) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+const buildRecordingUrl = (recordingPath) => {
+  if (!recordingPath) return '';
+  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  const normalized = recordingPath.replace(/\\/g, '/');
+  const urlPath = normalized.replace(/^storage\//, '/static/');
+  return `${apiBase}${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
 };
 
 const normalizeTask = (task) => ({
@@ -64,9 +81,19 @@ const LeadDetail = ({ user }) => {
   const [activeTab, setActiveTab] = useState('activity');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [refreshTick, setRefreshTick] = useState(0);
   const [notice, setNotice] = useState('');
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [callModalOpen, setCallModalOpen] = useState(false);
+  const [callSession, setCallSession] = useState(null);
+  const [inviteUrl, setInviteUrl] = useState('');
+  const [callTimer, setCallTimer] = useState(0);
+  const [callWorking, setCallWorking] = useState(false);
+  const [callNotice, setCallNotice] = useState('');
+  const localAudioRef = useRef(null);
+  const remoteAudioRef = useRef(null);
+  const recordingUploadedRef = useRef(new Set());
   const [noteContent, setNoteContent] = useState('');
   const [isConverting, setIsConverting] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
@@ -79,6 +106,29 @@ const LeadDetail = ({ user }) => {
   });
   const isManager = ['sales_manager', 'manager', 'admin'].includes(String(user?.role || '').toLowerCase());
 
+  const {
+    status: callStatus,
+    error: callError,
+    localStream,
+    remoteStream,
+    muted,
+    recordingActive,
+    start: startCallSession,
+    end: endCallSession,
+    toggleMute,
+    sendSignal,
+  } = useCallSession();
+
+  const {
+    isRecording,
+    isPaused,
+    start: startRecording,
+    stop: stopRecording,
+    pause: pauseRecording,
+    resume: resumeRecording,
+    attachRemoteStream,
+  } = useCallRecording();
+
   useEffect(() => {
     let active = true;
     const fetchAll = async () => {
@@ -86,7 +136,7 @@ const LeadDetail = ({ user }) => {
       setLoading(true);
       setError('');
       try {
-        const [leadData, ownerData, emailData, callData, taskData, noteData] = await Promise.all([
+        const results = await Promise.allSettled([
           apiFetch(`/api/leads/${leadId}`),
           apiFetch(`/api/leads/${leadId}/owner`),
           apiFetch(`/api/leads/${leadId}/emails`),
@@ -95,12 +145,32 @@ const LeadDetail = ({ user }) => {
           apiFetch(`/api/notes/?entity_type=lead&entity_id=${leadId}&skip=0&limit=50`),
         ]);
         if (!active) return;
-        setLead(leadData);
-        setOwnerName(ownerData?.name || ownerData?.email || 'Unassigned');
-        setEmails(Array.isArray(emailData) ? emailData : []);
-        setCalls(Array.isArray(callData) ? callData : []);
-        setTasks(Array.isArray(taskData) ? taskData.map(normalizeTask) : []);
-        setNotes(Array.isArray(noteData) ? noteData.map(normalizeNote) : []);
+        const [leadRes, ownerRes, emailRes, callRes, taskRes, noteRes] = results;
+
+        if (leadRes.status === 'fulfilled') {
+          setLead(leadRes.value);
+        } else if (leadRes.reason?.status === 404) {
+          setLead(null);
+          setError('Lead not found.');
+        } else {
+          setError(leadRes.reason?.message || 'Unable to load lead details.');
+        }
+
+        if (ownerRes.status === 'fulfilled') {
+          setOwnerName(ownerRes.value?.name || ownerRes.value?.email || 'Unassigned');
+        }
+        if (emailRes.status === 'fulfilled') {
+          setEmails(Array.isArray(emailRes.value) ? emailRes.value : []);
+        }
+        if (callRes.status === 'fulfilled') {
+          setCalls(Array.isArray(callRes.value) ? callRes.value : []);
+        }
+        if (taskRes.status === 'fulfilled') {
+          setTasks(Array.isArray(taskRes.value) ? taskRes.value.map(normalizeTask) : []);
+        }
+        if (noteRes.status === 'fulfilled') {
+          setNotes(Array.isArray(noteRes.value) ? noteRes.value.map(normalizeNote) : []);
+        }
       } catch (err) {
         if (active) setError(err?.message || 'Unable to load lead details.');
       } finally {
@@ -109,7 +179,65 @@ const LeadDetail = ({ user }) => {
     };
     fetchAll();
     return () => { active = false; };
-  }, [leadId]);
+  }, [leadId, refreshTick]);
+
+  const handleRetryLoad = () => {
+    setRefreshTick((prev) => prev + 1);
+  };
+
+  useEffect(() => {
+    if (callStatus === 'active' && callModalOpen) {
+      const timer = setInterval(() => {
+        setCallTimer((prev) => prev + 1);
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+    setCallTimer(0);
+    return undefined;
+  }, [callStatus, callModalOpen]);
+
+  useEffect(() => {
+    if (remoteStream) {
+      attachRemoteStream(remoteStream);
+    }
+  }, [remoteStream, attachRemoteStream]);
+
+  const uploadRecordingBlob = async ({ blob, mimeType }) => {
+    if (!blob || !callSession?.id) return;
+    const extension = mimeType.includes('ogg') ? 'ogg' : 'webm';
+    const formData = new FormData();
+    formData.append('file', blob, `call-${callSession.id}.${extension}`);
+    const uploadResponse = await apiFetch(
+      `/api/calls/${callSession.id}/recording`,
+      {
+        method: 'POST',
+        body: formData,
+      },
+      { timeoutMs: 30000, cache: false }
+    );
+    setCalls((prev) => prev.map((call) => (
+      call.id === callSession.id
+        ? { ...call, recording_path: uploadResponse.recording_path }
+        : call
+    )));
+    recordingUploadedRef.current.add(callSession.id);
+    toast.success('Recording saved successfully.');
+  };
+
+  useEffect(() => {
+    if (localAudioRef.current && localStream) {
+      localAudioRef.current.srcObject = localStream;
+      localAudioRef.current.muted = true;
+      localAudioRef.current.play().catch(() => {});
+    }
+  }, [localStream]);
+
+  useEffect(() => {
+    if (remoteAudioRef.current && remoteStream) {
+      remoteAudioRef.current.srcObject = remoteStream;
+      remoteAudioRef.current.play().catch(() => {});
+    }
+  }, [remoteStream]);
 
   const activityItems = useMemo(() => {
     const items = [];
@@ -169,8 +297,11 @@ const LeadDetail = ({ user }) => {
       setNotes((prev) => [normalizeNote(created), ...prev]);
       setNoteContent('');
       setNoteModalOpen(false);
+      toast.success('Note added successfully.');
     } catch (err) {
-      setError(err?.message || 'Unable to create note.');
+      const message = err?.message || 'Unable to create note.';
+      setError(message);
+      toast.error(message);
     }
   };
 
@@ -194,8 +325,12 @@ const LeadDetail = ({ user }) => {
       setTasks((prev) => [normalizeTask(created), ...prev]);
       setTaskForm({ title: '', description: '', dueDate: '', priority: 'medium' });
       setTaskModalOpen(false);
+      const assigneeLabel = ownerName || 'sales rep';
+      toast.success(`Task added for ${assigneeLabel}.`);
     } catch (err) {
-      setError(err?.message || 'Unable to create task.');
+      const message = err?.message || 'Unable to create task.';
+      setError(message);
+      toast.error(message);
     }
   };
 
@@ -212,8 +347,11 @@ const LeadDetail = ({ user }) => {
       setLead((prev) => (prev ? { ...prev, converted: true, status: 'qualified' } : prev));
       setDealDiscarded(false);
       setNotice('Lead converted to deal.');
+      toast.success('Deal converted successfully.');
     } catch (err) {
-      setError(err?.message || 'Unable to convert lead.');
+      const message = err?.message || 'Unable to convert lead.';
+      setError(message);
+      toast.error(message);
     } finally {
       setIsConverting(false);
     }
@@ -238,6 +376,135 @@ const LeadDetail = ({ user }) => {
     }
   };
 
+  const handleStartCall = async () => {
+    if (!leadId) return;
+    setCallWorking(true);
+    setCallNotice('');
+    try {
+      const response = await apiFetch(
+        '/api/calls/start',
+        {
+          method: 'POST',
+          body: JSON.stringify({ lead_id: leadId, direction: 'outbound' }),
+        },
+        { timeoutMs: 20000, cache: false }
+      );
+      setCallSession(response.call);
+      setCalls((prev) => [response.call, ...prev]);
+      setInviteUrl(response.invite_url || '');
+      if (lead?.email) {
+        setCallNotice(`Invite emailed to ${lead.email}.`);
+      }
+      setCallModalOpen(true);
+      await startCallSession({ roomId: response.call.room_id, token: response.room_token, isCaller: true });
+      toast.success('Call started successfully.');
+    } catch (err) {
+      const message = err?.message || 'Unable to start call.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setCallWorking(false);
+    }
+  };
+
+  const handleEndCall = async () => {
+    if (!callSession?.id) {
+      endCallSession();
+      setCallModalOpen(false);
+      return;
+    }
+    setCallWorking(true);
+    try {
+      endCallSession();
+      try {
+        await apiFetch(
+          `/api/calls/${callSession.id}/end`,
+          { method: 'POST' },
+          { timeoutMs: 20000, cache: false }
+        );
+      } catch (err) {
+        setCallNotice('Call ended locally. Server sync pending.');
+      }
+
+      if (isRecording) {
+        const { blob, mimeType } = await stopRecording();
+        if (!recordingUploadedRef.current.has(callSession.id)) {
+          try {
+            await uploadRecordingBlob({ blob, mimeType });
+          } catch (err) {
+            setCallNotice('Recording upload failed. You can retry later.');
+            toast.error('Recording upload failed.');
+          }
+        }
+      }
+
+      try {
+        const refreshed = await apiFetch(`/api/leads/${leadId}/calls`, {}, { cache: false });
+        setCalls(Array.isArray(refreshed) ? refreshed : []);
+        setCallNotice('Call ended and saved.');
+        toast.success('Call ended and saved.');
+      } catch (err) {
+        setCallNotice('Call ended. Sync will update later.');
+      }
+    } catch (err) {
+      const message = err?.message || 'Unable to end call.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      sendSignal({ type: 'recording', active: false });
+      setCallWorking(false);
+      setCallModalOpen(false);
+    }
+  };
+
+  const handleToggleRecording = async () => {
+    if (!localStream) {
+      setCallNotice('Microphone not ready. Please start the call first.');
+      return;
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      setCallNotice('Recording is not supported in this browser.');
+      return;
+    }
+    if (!isRecording) {
+      try {
+        await startRecording(localStream);
+        if (remoteStream) {
+          attachRemoteStream(remoteStream);
+        }
+        sendSignal({ type: 'recording', active: true });
+        setCallNotice('Recording started.');
+        toast.success('Recording started.');
+      } catch (err) {
+        const message = err?.message || 'Unable to start recording.';
+        setCallNotice(message);
+        toast.error(message);
+      }
+      return;
+    }
+
+    if (isPaused) {
+      resumeRecording();
+      sendSignal({ type: 'recording', active: true });
+      setCallNotice('Recording resumed.');
+      return;
+    }
+
+    pauseRecording();
+    sendSignal({ type: 'recording', active: false });
+    setCallNotice('Recording paused.');
+  };
+
+  const handleCopyInvite = async () => {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCallNotice('Invite link copied.');
+    } catch (err) {
+      setCallNotice('Unable to copy invite link.');
+    }
+  };
+
   if (loading) {
     return (
       <PageTransition>
@@ -249,10 +516,16 @@ const LeadDetail = ({ user }) => {
     );
   }
 
-  if (!lead) {
+  if (!lead && !loading) {
     return (
       <PageTransition>
-        <EmptyState type="leads" title="Lead not found" desc="We could not find this lead." />
+        <EmptyState
+          type="leads"
+          title={error || 'Lead not found'}
+          desc="Try refreshing the page or retry the request."
+          actionLabel="Retry"
+          onAction={handleRetryLoad}
+        />
       </PageTransition>
     );
   }
@@ -275,6 +548,9 @@ const LeadDetail = ({ user }) => {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary btn-sm" onClick={handleStartCall} disabled={callWorking}>
+                <Phone size={14} /> {callWorking ? 'Starting...' : 'Call'}
+              </button>
               {activeTab === 'tasks' && (
                 <button className="btn btn-primary btn-sm" onClick={() => setTaskModalOpen(true)}>
                   <Plus size={14} /> New Task
@@ -308,17 +584,6 @@ const LeadDetail = ({ user }) => {
             })}
           </div>
 
-          {error && (
-            <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>
-              {error}
-            </div>
-          )}
-
-          {notice && (
-            <div style={{ padding: 12, background: 'var(--color-accent-subtle)', border: '1px solid var(--color-accent)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-accent-text)' }}>
-              {notice}
-            </div>
-          )}
 
           {activeTab === 'activity' && (
             activityItems.length ? (
@@ -369,8 +634,19 @@ const LeadDetail = ({ user }) => {
                       <div style={{ fontWeight: 'var(--weight-medium)' }}>{call.direction === 'outbound' ? 'Outbound call' : 'Inbound call'}</div>
                       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{formatDateTime(call.started_at)}</div>
                     </div>
-                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{call.outcome} - {Math.round((call.duration_seconds || 0) / 60)} min</div>
-                    <div style={{ marginTop: 6, color: 'var(--color-text-secondary)' }}>{call.note}</div>
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+                      {(call.outcome || 'Call')} · {Math.round((call.duration_seconds || 0) / 60)} min
+                    </div>
+                    {call.recording_path && (
+                      <audio
+                        controls
+                        style={{ marginTop: 10, width: '100%' }}
+                        src={buildRecordingUrl(call.recording_path)}
+                      />
+                    )}
+                    <div style={{ marginTop: 8, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+                      Transcript: {call.transcript ? 'Available' : 'Processing'}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -539,6 +815,48 @@ const LeadDetail = ({ user }) => {
                 <button type="submit" className="btn btn-primary">Save Task</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {callModalOpen && (
+        <div className="modal-overlay no-blur">
+          <div className="modal-content" style={{ maxWidth: 520 }} onClick={(event) => event.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+              <div>
+                <h3 className="section-title">Live Call</h3>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{callStatus === 'active' ? 'Connected' : 'Connecting...'}</div>
+              </div>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{formatTimer(callTimer)}</div>
+            </div>
+            <div style={{ padding: 20, display: 'grid', gap: 12 }}>
+              {callError && (
+                <div style={{ padding: 12, borderRadius: 8, background: 'var(--color-danger-subtle)', color: 'var(--color-danger)', fontSize: 'var(--text-sm)' }}>
+                  {callError}
+                </div>
+              )}
+              <div style={{ display: 'grid', gap: 6, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+                <div>Recording: {isRecording ? (isPaused ? 'Paused' : 'On') : 'Off'}</div>
+                <div>Invite link: {inviteUrl ? 'Ready' : 'Generating...'}</div>
+                <div>Lead email: {lead?.email || 'Missing'}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-secondary" onClick={toggleMute} disabled={callWorking}>
+                  {muted ? 'Unmute' : 'Mute'}
+                </button>
+                <button className="btn btn-secondary" onClick={handleToggleRecording} disabled={!localStream}>
+                  {!isRecording ? 'Start recording' : isPaused ? 'Resume recording' : 'Pause recording'}
+                </button>
+                <button className="btn btn-secondary" onClick={handleCopyInvite} disabled={!inviteUrl}>
+                  Copy invite link
+                </button>
+                <button className="btn btn-danger" onClick={handleEndCall} disabled={callWorking}>
+                  <PhoneOff size={14} /> End call
+                </button>
+              </div>
+            </div>
+            <audio ref={localAudioRef} autoPlay playsInline style={{ display: 'none' }} />
+            <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
           </div>
         </div>
       )}

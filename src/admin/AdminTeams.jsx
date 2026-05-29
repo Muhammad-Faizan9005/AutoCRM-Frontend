@@ -26,6 +26,7 @@ import {
   updateTeam,
 } from './teamsApi';
 import { listAdminUsers } from './adminApi';
+import { toast } from '../utils/toast';
 
 const getErr = (e, fallback) => e?.message || e?.data?.detail || fallback;
 
@@ -50,7 +51,12 @@ const CreateTeamModal = ({ onClose, onCreated }) => {
     try {
       const team = await createTeam({ name: name.trim() });
       onCreated(team);
-    } catch (e) { setErr(getErr(e, 'Failed to create team.')); }
+      toast.success('Team created successfully.');
+    } catch (e) {
+      const message = getErr(e, 'Failed to create team.');
+      setErr(message);
+      toast.error(message);
+    }
     finally { setBusy(false); }
   };
 
@@ -98,7 +104,12 @@ const RenameTeamModal = ({ team, onClose, onRenamed }) => {
     try {
       const updated = await updateTeam(team.id, { name: name.trim() });
       onRenamed(updated);
-    } catch (e) { setErr(getErr(e, 'Failed to rename.')); }
+      toast.success('Team renamed successfully.');
+    } catch (e) {
+      const message = getErr(e, 'Failed to rename.');
+      setErr(message);
+      toast.error(message);
+    }
     finally { setBusy(false); }
   };
 
@@ -159,7 +170,12 @@ const AddMemberModal = ({ team, onClose, onAdded }) => {
     try {
       await addTeamMember(team.id, selectedId);
       onAdded();
-    } catch (e) { setErr(getErr(e, 'Failed to add member.')); }
+      toast.success('Rep added to team.');
+    } catch (e) {
+      const message = getErr(e, 'Failed to add member.');
+      setErr(message);
+      toast.error(message);
+    }
     finally { setBusy(false); }
   };
 
@@ -239,7 +255,12 @@ const TeamCard = ({ team: initialTeam, onRename, onDelete }) => {
       await removeTeamMember(team.id, agentId);
       setMembers((prev) => prev.filter((m) => String(m.id) !== String(agentId)));
       setTeam((prev) => ({ ...prev, member_count: Math.max(0, prev.member_count - 1) }));
-    } catch (e) { setErr(getErr(e, 'Failed to remove.')); }
+      toast.success('Rep removed from team.');
+    } catch (e) {
+      const message = getErr(e, 'Failed to remove.');
+      setErr(message);
+      toast.error(message);
+    }
     finally { setRemovingId(''); }
   };
 
@@ -394,8 +415,11 @@ const AdminTeams = () => {
     try {
       await deleteTeam(team.id);
       setTeams((prev) => prev.filter((t) => String(t.id) !== String(team.id)));
+      toast.success('Team deleted.');
     } catch (e) {
-      setErr(getErr(e, 'Failed to delete team.'));
+      const message = getErr(e, 'Failed to delete team.');
+      setErr(message);
+      toast.error(message);
     }
   };
 

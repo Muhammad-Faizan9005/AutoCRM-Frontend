@@ -8,6 +8,7 @@ import { apiFetch } from '../api/client';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
+import { toast } from '../utils/toast';
 
 const STATUS_LABELS = { new: 'New', contacted: 'Contacted', qualified: 'Qualified', converted: 'Converted' };
 const STATUS_BADGE = { new: 'badge-accent', contacted: 'badge-warning', qualified: 'badge-success', converted: 'badge-muted' };
@@ -125,7 +126,12 @@ const Leads = ({ user }) => {
       setLeads((prev) => [mapLeadToRow(created), ...prev]);
       setIsCreateModalOpen(false);
       resetForm();
-    } catch (err) { setError(err?.message || 'Unable to create lead.'); }
+      toast.success('Lead created successfully.');
+    } catch (err) {
+      const message = err?.message || 'Unable to create lead.';
+      setError(message);
+      toast.error(message);
+    }
     finally { setIsSaving(false); }
   };
 
@@ -156,6 +162,7 @@ const Leads = ({ user }) => {
       const mapped = mapLeadToRow(updated);
       lastConfirmedOwnerRef.current.set(leadId, mapped.ownerId || null);
       setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ...mapped } : lead)));
+      toast.success(`Lead assigned to ${getAssignedRepLabel(repId)}.`);
     } catch (err) {
       const state = leadAssignStateRef.current.get(leadId);
       if (!state || state.version !== version) {
@@ -163,7 +170,9 @@ const Leads = ({ user }) => {
       }
       const lastOwnerId = lastConfirmedOwnerRef.current.get(leadId) || null;
       setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ownerId: lastOwnerId } : lead)));
-      setError(err?.message || 'Unable to assign lead.');
+      const message = err?.message || 'Unable to assign lead.';
+      setError(message);
+      toast.error(message);
     }
     const state = leadAssignStateRef.current.get(leadId);
     if (!state) return;
@@ -281,11 +290,6 @@ const Leads = ({ user }) => {
           <input type="text" placeholder="Search leads..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
 
-        {error && (
-          <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>
-            {error}
-          </div>
-        )}
 
         {loading ? <SkeletonTable rows={8} cols={6} /> : (
           <>

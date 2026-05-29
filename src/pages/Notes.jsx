@@ -6,6 +6,7 @@ import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
+import { toast } from '../utils/toast';
 
 const NOTE_BORDERS = ['note-border-accent', 'note-border-success', 'note-border-warning'];
 
@@ -139,8 +140,11 @@ const Notes = ({ user }) => {
     try {
       await apiFetch(`/api/notes/${id}`, { method: 'DELETE' });
       setNotes((prev) => prev.filter((n) => n.id !== id));
+      toast.success('Note deleted.');
     } catch (err) {
-      setError(err?.message || 'Delete failed.');
+      const message = err?.message || 'Delete failed.';
+      setError(message);
+      toast.error(message);
     }
   };
 
@@ -158,8 +162,12 @@ const Notes = ({ user }) => {
       });
       setNotes((prev) => [mapNote(created, uid, leadDirectoryRef.current), ...prev]);
       closeModal();
+      const leadName = leadDirectoryRef.current[selectedLeadId] || 'lead';
+      toast.success(`Note added for ${leadName}.`);
     } catch (err) {
-      setError(err?.message || 'Save failed.');
+      const message = err?.message || 'Save failed.';
+      setError(message);
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }
@@ -179,8 +187,11 @@ const Notes = ({ user }) => {
       });
       setNotes((prev) => prev.map((n) => (n.id === selectedNote.id ? mapNote(updated, uid, leadDirectoryRef.current) : n)));
       closeModal();
+      toast.success('Note updated successfully.');
     } catch (err) {
-      setError(err?.message || 'Update failed.');
+      const message = err?.message || 'Update failed.';
+      setError(message);
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }
@@ -202,7 +213,6 @@ const Notes = ({ user }) => {
           <input type="text" placeholder="Search notes..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
 
-        {error && <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>}
 
         {loading ? (
           <div className="masonry-grid">{[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}</div>
