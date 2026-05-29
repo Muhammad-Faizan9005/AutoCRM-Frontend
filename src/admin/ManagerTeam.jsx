@@ -23,6 +23,7 @@ import {
   removeTeamMember,
   updateTeam,
 } from './teamsApi';
+import { toast } from '../utils/toast';
 
 const getErr = (e, fallback) => e?.message || e?.data?.detail || fallback;
 
@@ -57,8 +58,11 @@ const CreateTeamModal = ({ onClose, onCreated }) => {
     try {
       const team = await createTeam({ name: name.trim() });
       onCreated(team);
+      toast.success('Team created successfully.');
     } catch (e) {
-      setErr(getErr(e, 'Failed to create team.'));
+      const message = getErr(e, 'Failed to create team.');
+      setErr(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -114,8 +118,11 @@ const RenameTeamModal = ({ team, onClose, onRenamed }) => {
     try {
       const updated = await updateTeam(team.id, { name: name.trim() });
       onRenamed(updated);
+      toast.success('Team renamed successfully.');
     } catch (e) {
-      setErr(getErr(e, 'Failed to rename team.'));
+      const message = getErr(e, 'Failed to rename team.');
+      setErr(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -194,8 +201,11 @@ const AddRepModal = ({ team, onClose, onAdded }) => {
       // Backend auto-assigns to manager's team on creation - just create
       await createAdminUser(payload);
       onAdded();
+      toast.success('Sales rep added to your team.');
     } catch (e) {
-      setErr(getErr(e, 'Failed to add rep.'));
+      const message = getErr(e, 'Failed to add rep.');
+      setErr(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -207,8 +217,11 @@ const AddRepModal = ({ team, onClose, onAdded }) => {
     try {
       await addTeamMember(team.id, selectedId);
       onAdded();
+      toast.success('Sales rep added to your team.');
     } catch (e) {
-      setErr(getErr(e, 'Failed to add rep.'));
+      const message = getErr(e, 'Failed to add rep.');
+      setErr(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -377,8 +390,11 @@ const ManagerTeam = () => {
         ...prev,
         members: prev.members.filter((m) => String(m.id) !== String(agentId)),
       }));
+      toast.success('Sales rep removed from team.');
     } catch (e) {
-      setErr(getErr(e, 'Failed to remove member.'));
+      const message = getErr(e, 'Failed to remove member.');
+      setErr(message);
+      toast.error(message);
     } finally {
       setRemovingId('');
     }

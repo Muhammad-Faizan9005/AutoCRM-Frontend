@@ -15,6 +15,7 @@ import {
   updateAdminUser,
 } from './adminApi';
 import { PageTransition } from '../components/PageTransition';
+import { toast } from '../utils/toast';
 
 const ROLE_OPTIONS = ['admin', 'manager', 'agent'];
 const ROLE_BADGE = { admin: 'badge-accent', manager: 'badge-success', agent: 'badge-muted' };
@@ -134,8 +135,11 @@ const AdminUsers = ({ currentUser }) => {
       await load(query);
       setIsAdding(false);
       setForm({ ...INITIAL_FORM, role: defaultRole });
+      toast.success('User added successfully.');
     } catch (createError) {
-      setError(getErrorMessage(createError, 'Failed to create user.'));
+      const message = getErrorMessage(createError, 'Failed to create user.');
+      setError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }

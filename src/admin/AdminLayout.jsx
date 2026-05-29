@@ -53,11 +53,11 @@ const AdminLayout = ({ user, onLogout, permissions }) => {
   const showDashboard = adminUser;
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg-base)' }}>
+    <div className="admin-shell">
       <Sidebar onLogout={onLogout} user={user} permissions={permissions} />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <main className="flex-1 overflow-x-hidden overflow-y-auto pt-10 pb-8 px-10">
-          <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+      <div className="admin-content">
+        <main className="admin-main">
+          <div className="admin-container">
           <Routes>
             {/* Admin command dashboard */}
             <Route

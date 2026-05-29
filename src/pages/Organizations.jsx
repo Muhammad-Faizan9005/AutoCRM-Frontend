@@ -7,6 +7,7 @@ import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard } from '../components/Skeleton';
+import { toast } from '../utils/toast';
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -90,15 +91,28 @@ const Organizations = ({ user }) => {
       setOrgs((prev) => [mapOrg(created), ...prev]);
       setIsCreateModalOpen(false);
       resetForm();
-    } catch (err) { setError(err?.message || 'Unable to create organization.'); }
+      toast.success('Organization created successfully.');
+    } catch (err) {
+      const message = err?.message || 'Unable to create organization.';
+      setError(message);
+      toast.error(message);
+    }
     finally { setIsSaving(false); }
   };
 
   const handleDeleteOrg = async (id) => {
     if (!canDelete || !window.confirm('Delete this organization?')) return;
     setError('');
-    try { await apiFetch(`/api/organizations/${id}`, { method: 'DELETE' }); setOrgs((prev) => prev.filter((o) => o.id !== id)); }
-    catch (err) { setError(err?.message || 'Unable to delete organization.'); }
+    try {
+      await apiFetch(`/api/organizations/${id}`, { method: 'DELETE' });
+      setOrgs((prev) => prev.filter((o) => o.id !== id));
+      toast.success('Organization deleted.');
+    }
+    catch (err) {
+      const message = err?.message || 'Unable to delete organization.';
+      setError(message);
+      toast.error(message);
+    }
   };
 
   return (
@@ -117,7 +131,6 @@ const Organizations = ({ user }) => {
           <input type="text" placeholder="Search organizations..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
 
-        {error && <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>}
 
         {loading ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>

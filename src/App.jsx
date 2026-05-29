@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import AcceptInvite from './pages/AcceptInvite';
+import CallJoin from './pages/CallJoin';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
@@ -345,6 +346,7 @@ function App() {
       )}
       <Routes>
         <Route path="/accept-invite" element={<AcceptInvite />} />
+        <Route path="/call/join" element={<CallJoin />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route
