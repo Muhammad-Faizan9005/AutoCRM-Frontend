@@ -74,6 +74,15 @@ export async function listFailedInvites() {
   return apiFetch('/api/admin/failed-invites');
 }
 
+export async function listDeletedUsers({ page = 1, pageSize = DEFAULT_PAGE_SIZE } = {}) {
+  const suffix = buildQuery({ page, page_size: pageSize });
+  const data = await apiFetch(`/api/admin/deleted-users${suffix}`);
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    total: Number.isFinite(Number(data?.total)) ? Number(data.total) : 0,
+  };
+}
+
 export async function reinviteFailedInvite(failedId) {
   return apiFetch(`/api/admin/failed-invites/${encodeURIComponent(failedId)}/reinvite`, {
     method: 'POST',

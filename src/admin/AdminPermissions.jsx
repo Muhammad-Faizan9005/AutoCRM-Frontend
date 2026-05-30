@@ -65,10 +65,11 @@ const AdminPermissions = ({ currentUser }) => {
       try {
         const d = await listAdminUsers({ page: 1, pageSize: 200 });
         if (!mounted) return;
-        setUsers(d.items);
-        if (d.items.length === 0) { setActiveUserId(''); return; }
-        const match = d.items.find(u => String(u.id) === String(uid));
-        setActiveUserId(String((match || d.items[0]).id));
+        const selectableUsers = d.items.filter((user) => String(user.status || '').toLowerCase() !== 'disabled');
+        setUsers(selectableUsers);
+        if (selectableUsers.length === 0) { setActiveUserId(''); return; }
+        const match = selectableUsers.find(u => String(u.id) === String(uid));
+        setActiveUserId(String((match || selectableUsers[0]).id));
       } catch (e) { if (mounted) setError(getErr(e, 'Failed to load users.')); }
       finally { if (mounted) setUsersLoading(false); }
     })();

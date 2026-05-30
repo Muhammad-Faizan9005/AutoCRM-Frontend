@@ -10,10 +10,12 @@ import {
   listAdminUsers,
   listFailedInvites,
   deleteFailedInvite,
+  listDeletedUsers,
   reinviteFailedInvite,
   revokeAdminInvite,
   updateAdminUser,
 } from './adminApi';
+import { listTeams } from './teamsApi';
 import { PageTransition } from '../components/PageTransition';
 import { toast } from '../utils/toast';
 
@@ -25,7 +27,7 @@ const INITIAL_FORM = {
   full_name: '',
   email: '',
   role: 'manager',
-  status: 'invited',
+  status: 'active',
   password: '',
   team_id: '',
 };
@@ -65,8 +67,12 @@ const AdminUsers = ({ currentUser }) => {
   const [failedBusyId, setFailedBusyId] = useState('');
   const [form, setForm] = useState(() => ({ ...INITIAL_FORM, role: defaultRole }));
   const [error, setError] = useState('');
+  const [teams, setTeams] = useState([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
   const [failedInvites, setFailedInvites] = useState([]);
   const [failedLoading, setFailedLoading] = useState(false);
+  const [deletedUsers, setDeletedUsers] = useState([]);
+  const [deletedTotal, setDeletedTotal] = useState(0);
   const [listRef] = useAutoAnimate();
 
   const isRepRole = (role) => ['agent', 'sales_rep'].includes(role);
@@ -74,19 +80,46 @@ const AdminUsers = ({ currentUser }) => {
   const load = useCallback(async (s = '') => {
     setError(''); setIsLoading(true); setFailedLoading(true);
     try {
-      const [usersPayload, failedPayload] = await Promise.all([
+      const [usersPayload, failedPayload, deletedPayload] = await Promise.all([
         listAdminUsers({ search: s, page: 1, pageSize: 200 }),
         listFailedInvites(),
+        listDeletedUsers({ page: 1, pageSize: 200 }),
       ]);
       setUsers(usersPayload.items);
       setTotal(usersPayload.total);
       setFailedInvites(Array.isArray(failedPayload) ? failedPayload : []);
+      setDeletedUsers(deletedPayload.items);
+      setDeletedTotal(deletedPayload.total);
     }
     catch (e) { setError(getErrorMessage(e, 'Failed to load users.')); }
     finally { setIsLoading(false); setFailedLoading(false); }
   }, []);
 
   useEffect(() => { const t = setTimeout(() => load(query), 250); return () => clearTimeout(t); }, [load, query]);
+
+  useEffect(() => {
+    if (!adminActor) {
+      setTeams([]);
+      return undefined;
+    }
+
+    let isActive = true;
+    setTeamsLoading(true);
+    listTeams()
+      .then((payload) => {
+        if (isActive) setTeams(payload.items || []);
+      })
+      .catch(() => {
+        if (isActive) setTeams([]);
+      })
+      .finally(() => {
+        if (isActive) setTeamsLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [adminActor]);
 
   const filtered = useMemo(() => adminActor ? users : users.filter(u => u.role === 'agent'), [users, adminActor]);
 
@@ -154,7 +187,7 @@ const AdminUsers = ({ currentUser }) => {
 
   const disable = async (id) => {
     setBusyId(String(id)); setError('');
-    try { await deactivateAdminUser(id); setUsers(p => p.map(r => String(r.id) === String(id) ? { ...r, status: 'disabled' } : r)); }
+    try { const updated = await updateAdminUser(id, { status: 'disabled' }); setUsers(p => p.map(r => String(r.id) === String(id) ? updated : r)); }
     catch (e) { setError(getErrorMessage(e, 'Failed to disable.')); }
     finally { setBusyId(''); }
   };
@@ -180,14 +213,20 @@ const AdminUsers = ({ currentUser }) => {
   };
 
   const deleteUser = async (id) => {
-    const confirmDelete = window.confirm('Delete this user? This will deactivate the account.');
+    const confirmDelete = window.confirm('Delete this user? This will archive their permissions and unassign their leads, deals, tasks, and related records.');
     if (!confirmDelete) return;
     setBusyId(String(id)); setError('');
     try {
       await deactivateAdminUser(id);
       setUsers(p => p.filter(r => String(r.id) !== String(id)));
+      await load(query);
+      toast.success('User deleted and assignments cleared.');
     }
-    catch (e) { setError(getErrorMessage(e, 'Failed to delete user.')); }
+    catch (e) {
+      const message = getErrorMessage(e, 'Failed to delete user.');
+      setError(message);
+      toast.error(message);
+    }
     finally { setBusyId(''); }
   };
 
@@ -224,6 +263,11 @@ const AdminUsers = ({ currentUser }) => {
     return reason;
   };
 
+  const countEnabledPermissions = (permissions) => {
+    if (!permissions || typeof permissions !== 'object') return 0;
+    return Object.values(permissions).filter(Boolean).length;
+  };
+
   return (
     <PageTransition>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -236,7 +280,7 @@ const AdminUsers = ({ currentUser }) => {
               <h1 className="page-title" style={{ fontSize: 'var(--text-2xl)' }}>Manage operators</h1>
               <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 4 }}>Add, invite, or deactivate CRM users. Permissions can be tuned from the permissions panel.</p>
             </div>
-            <button className="btn btn-primary" onClick={() => setIsAdding(true)}><Plus size={15} /> Invite user</button>
+            <button className="btn btn-primary" onClick={() => setIsAdding(true)}><Plus size={15} /> Add user</button>
           </div>
         </div>
 
@@ -395,6 +439,64 @@ const AdminUsers = ({ currentUser }) => {
           )}
         </div>
 
+        <div className="card card-padding">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--color-text-tertiary)' }}>Deleted Users</div>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 4 }}>
+                Deleted operators are archived here with their permission snapshot and unassignment cleanup counts.
+              </div>
+            </div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+              {deletedTotal} total
+            </div>
+          </div>
+
+          {isLoading && (
+            <div style={{ marginTop: 16, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+              Loading deleted users...
+            </div>
+          )}
+
+          {!isLoading && deletedUsers.length === 0 && (
+            <div style={{ marginTop: 16, fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>
+              No deleted users yet.
+            </div>
+          )}
+
+          {!isLoading && deletedUsers.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
+              {deletedUsers.map((deletedUser) => {
+                const metadata = deletedUser.metadata || {};
+                const unassignedTotal = Object.values(metadata).reduce((sum, value) => sum + Number(value || 0), 0);
+                return (
+                  <div key={deletedUser.id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12,
+                    padding: '12px 16px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)',
+                  }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)' }}>
+                        {deletedUser.full_name || deletedUser.email}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+                        <Mail size={11} /> {deletedUser.email}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span className="badge badge-muted">{deletedUser.role}</span>
+                      <span className="badge badge-warning">{countEnabledPermissions(deletedUser.permissions)} permissions flagged</span>
+                      <span className="badge badge-muted">{unassignedTotal} records unassigned</span>
+                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+                        {deletedUser.deleted_at ? new Date(deletedUser.deleted_at).toLocaleDateString() : ''}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Add User Modal */}
         <AnimatePresence>
           {isAdding && (
@@ -402,15 +504,32 @@ const AdminUsers = ({ currentUser }) => {
               <motion.div className="modal-content" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()} initial={{ opacity: 0, scale: 0.97, y: 4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
                   <div>
-                    <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.15em', color: 'var(--color-text-tertiary)' }}>Invite user</div>
-                    <h3 className="section-title" style={{ marginTop: 2 }}>Invite a new operator</h3>
+                    <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.15em', color: 'var(--color-text-tertiary)' }}>Add user</div>
+                    <h3 className="section-title" style={{ marginTop: 2 }}>Add a new operator</h3>
                   </div>
                   <button onClick={() => { setIsAdding(false); setError(''); }} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18} /></button>
                 </div>
                 <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                   <div><label className="label">Full name</label><input className="input" value={form.full_name} onChange={e => setForm(p => ({ ...p, full_name: e.target.value }))} placeholder="e.g. Noor Ibrahim" /></div>
                   <div><label className="label">Email</label><input className="input" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="user@company.com" /></div>
-                  <div><label className="label">Role</label><select className="input" value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))} disabled={!adminActor}>{allowedRoles.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                  <div>
+                    <label className="label">Role</label>
+                    <select
+                      className="input"
+                      value={form.role}
+                      onChange={e => {
+                        const nextRole = e.target.value;
+                        setForm(p => ({
+                          ...p,
+                          role: nextRole,
+                          team_id: isRepRole(nextRole) ? p.team_id : '',
+                        }));
+                      }}
+                      disabled={!adminActor}
+                    >
+                      {allowedRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
                   <div>
                     <label className="label">Status</label>
                     <select className="input" value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>{STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}</select>
@@ -418,12 +537,35 @@ const AdminUsers = ({ currentUser }) => {
                       Invited users receive an email link to complete signup.
                     </div>
                   </div>
+                  {adminActor && isRepRole(form.role) && (
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label className="label">Team *</label>
+                      <select
+                        className="input"
+                        value={form.team_id}
+                        onChange={e => setForm(p => ({ ...p, team_id: e.target.value }))}
+                        disabled={teamsLoading}
+                      >
+                        <option value="">{teamsLoading ? 'Loading teams...' : 'Select team'}</option>
+                        {teams.map(team => (
+                          <option key={team.id} value={team.id}>
+                            {team.name || 'Unnamed team'}{team.manager_name ? ` - ${team.manager_name}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {!teamsLoading && teams.length === 0 && (
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 6 }}>
+                          Create a team first, then assign this sales rep to it.
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div style={{ gridColumn: '1 / -1' }}><label className="label">Password</label><input type="password" className="input" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} placeholder="Optional for invited, required for active" /></div>
                 </div>
                 {error && <div style={{ margin: '0 20px 12px', padding: 10, background: 'var(--color-danger-subtle)', borderRadius: 'var(--radius)', fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>{error}</div>}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
                   <button className="btn btn-ghost" onClick={() => { setIsAdding(false); setError(''); }} disabled={isSubmitting}>Cancel</button>
-                  <button className="btn btn-primary" onClick={addUser} disabled={isSubmitting}>{isSubmitting ? 'Sending...' : 'Send invite'}</button>
+                  <button className="btn btn-primary" onClick={addUser} disabled={isSubmitting}>{isSubmitting ? 'Adding...' : 'Add User'}</button>
                 </div>
               </motion.div>
             </motion.div>

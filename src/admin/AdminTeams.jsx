@@ -92,21 +92,42 @@ const CreateTeamModal = ({ onClose, onCreated }) => {
 };
 
 /* Section */
-const RenameTeamModal = ({ team, onClose, onRenamed }) => {
+/* Section */
+const EditTeamModal = ({ team, onClose, onEdited }) => {
+  const [managers, setManagers] = useState([]);
   const [name, setName] = useState(team?.name ?? '');
+  const [managerId, setManagerId] = useState(team?.manager_id || '');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
 
+  useEffect(() => {
+    setLoading(true); setErr('');
+    listAdminUsers({ pageSize: 200 })
+      .then((data) => {
+        setManagers(
+          (data.items ?? []).filter(
+            (user) => ['manager', 'admin'].includes(String(user.role || '').toLowerCase()) && user.status !== 'disabled'
+          )
+        );
+      })
+      .catch(() => setErr('Could not load managers.'))
+      .finally(() => setLoading(false));
+  }, []);
+
   const submit = async () => {
-    if (name.trim().length < 2) { setErr('Name must be at least 2 characters.'); return; }
-    if (name.trim() === team?.name) { onClose(); return; }
+    const trimmedName = name.trim();
+    if (trimmedName.length < 2) { setErr('Team name must have at least 2 characters.'); return; }
+    if (!managerId) { setErr('Please select a manager.'); return; }
+    const unchanged = trimmedName === team?.name && String(managerId) === String(team?.manager_id);
+    if (unchanged) { onClose(); return; }
     setBusy(true); setErr('');
     try {
-      const updated = await updateTeam(team.id, { name: name.trim() });
-      onRenamed(updated);
-      toast.success('Team renamed successfully.');
+      const updated = await updateTeam(team.id, { name: trimmedName, manager_id: managerId });
+      onEdited(updated);
+      toast.success('Team updated successfully.');
     } catch (e) {
-      const message = getErr(e, 'Failed to rename.');
+      const message = getErr(e, 'Failed to update team.');
       setErr(message);
       toast.error(message);
     }
@@ -115,26 +136,49 @@ const RenameTeamModal = ({ team, onClose, onRenamed }) => {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px', borderBottom: '1px solid var(--color-border)' }}>
-          <h3 className="section-title">Rename team</h3>
+          <h3 className="section-title">Edit team</h3>
           <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
         <div style={{ padding: '20px 24px' }}>
-          <label className="label">New name</label>
+          <label className="label">Team name</label>
           <input
             className="input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-            style={{ marginTop: 6 }}
+            style={{ marginTop: 6, marginBottom: 12 }}
           />
+          {loading ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+              <Loader2 size={14} className="animate-spin" /> Loading managers...
+            </div>
+          ) : managers.length === 0 ? (
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>No active managers available.</p>
+          ) : (
+            <>
+              <label className="label">Manager</label>
+              <select
+                className="input"
+                value={managerId}
+                onChange={(e) => setManagerId(e.target.value)}
+                style={{ marginTop: 6 }}
+              >
+                <option value="">- Choose a manager -</option>
+                {managers.map((manager) => (
+                  <option key={manager.id} value={manager.id}>
+                    {manager.full_name} ({manager.email})
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
           {err && <div style={{ marginTop: 10, padding: '8px 12px', background: 'var(--color-danger-subtle)', borderRadius: 'var(--radius)', fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>{err}</div>}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 24px', borderTop: '1px solid var(--color-border)' }}>
           <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn btn-primary" onClick={submit} disabled={busy}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : 'Save'}
+          <button className="btn btn-primary" onClick={submit} disabled={busy || loading || managers.length === 0}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : 'Save changes'}
           </button>
         </div>
       </div>
@@ -156,7 +200,7 @@ const AddMemberModal = ({ team, onClose, onAdded }) => {
         const memberIds = new Set((team?.members ?? []).map((m) => String(m.id)));
         setAgents(
           (data.items ?? []).filter(
-            (u) => u.role === 'agent' && !memberIds.has(String(u.id))
+            (u) => u.role === 'agent' && !u.team_id && !memberIds.has(String(u.id))
           )
         );
       })
@@ -224,7 +268,7 @@ const AddMemberModal = ({ team, onClose, onAdded }) => {
 };
 
 /* Section */
-const TeamCard = ({ team: initialTeam, onRename, onDelete }) => {
+const TeamCard = ({ team: initialTeam, onEdit, onDelete }) => {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const [team, setTeam] = useState(initialTeam);
@@ -291,8 +335,8 @@ const TeamCard = ({ team: initialTeam, onRename, onDelete }) => {
           <span className="badge badge-accent" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <Users size={12} /> {team.member_count ?? 0} reps
           </span>
-          <button className="btn btn-secondary" onClick={() => onRename(team)}>
-            <Edit2 size={13} /> Rename
+          <button className="btn btn-secondary" onClick={() => onEdit(team)}>
+            <Edit2 size={13} /> Edit
           </button>
           <button className="btn btn-ghost" style={{ color: 'var(--color-danger)' }} onClick={() => onDelete(team)}>
             <Trash2 size={13} /> Delete
@@ -387,7 +431,7 @@ const AdminTeams = () => {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [showCreate, setShowCreate] = useState(false);
-  const [renaming, setRenaming] = useState(null); // team object being renamed
+  const [editing, setEditing] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -400,11 +444,11 @@ const AdminTeams = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleRenamed = (updated) => {
+  const handleEdited = (updated) => {
     setTeams((prev) =>
-      prev.map((t) => (String(t.id) === String(updated.id) ? { ...t, name: updated.name } : t))
+      prev.map((t) => (String(t.id) === String(updated.id) ? { ...t, ...updated } : t))
     );
-    setRenaming(null);
+    setEditing(null);
   };
 
   const handleDelete = async (team) => {
@@ -499,7 +543,7 @@ const AdminTeams = () => {
             <TeamCard
               key={team.id}
               team={team}
-              onRename={(t) => setRenaming(t)}
+              onEdit={(t) => setEditing(t)}
               onDelete={handleDelete}
             />
           ))}
@@ -517,11 +561,11 @@ const AdminTeams = () => {
         />
       )}
 
-      {renaming && (
-        <RenameTeamModal
-          team={renaming}
-          onClose={() => setRenaming(null)}
-          onRenamed={handleRenamed}
+      {editing && (
+        <EditTeamModal
+          team={editing}
+          onClose={() => setEditing(null)}
+          onEdited={handleEdited}
         />
       )}
     </div>

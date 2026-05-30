@@ -2,14 +2,15 @@
 import { motion } from 'framer-motion';
 
 export const pageVariants = {
-  initial: { opacity: 0, y: 6 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.28, ease: [0.4, 0, 0.2, 1] } },
-  exit:    { opacity: 0, y: -4, transition: { duration: 0.18 } },
+  initial: { opacity: 0 },
+  animate: { opacity: 1, transition: { duration: 0.28, ease: [0.4, 0, 0.2, 1] } },
+  exit:    { opacity: 0, transition: { duration: 0.18 } },
 };
 
-export function PageTransition({ children }) {
+export function PageTransition({ children, className }) {
   return (
     <motion.div
+      className={className ? `page-transition ${className}` : 'page-transition'}
       variants={pageVariants}
       initial="initial"
       animate="animate"

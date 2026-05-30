@@ -10,9 +10,18 @@ import { EmptyState } from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { toast } from '../utils/toast';
 
-const STATUS_LABELS = { new: 'New', contacted: 'Contacted', qualified: 'Qualified', converted: 'Converted' };
-const STATUS_BADGE = { new: 'badge-accent', contacted: 'badge-warning', qualified: 'badge-success', converted: 'badge-muted' };
-const normalizeStatus = (status) => (status || '').toString().trim().toLowerCase();
+const STATUS_LABELS = { new: 'New', contacted: 'Contacted', nurture: 'Nurture', qualified: 'Qualified', unqualified: 'Unqualified', junk: 'Junk' };
+const STATUS_BADGE = { new: 'badge-muted', contacted: 'badge-accent', nurture: 'badge-success', qualified: 'badge-danger', unqualified: 'badge-purple', junk: 'badge-orange' };
+const STATUS_ORDER = ['new', 'contacted', 'nurture', 'qualified', 'unqualified', 'junk'];
+const MANUAL_LEAD_SOURCE = 'manual';
+const normalizeStatus = (status) => (status || '').toString().trim().toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_');
+const mapLeadStatus = (status) => {
+  const normalized = normalizeStatus(status);
+  if (normalized === 'converted' || normalized === 'won') return 'qualified';
+  if (normalized === 'lost') return 'unqualified';
+  if (STATUS_ORDER.includes(normalized)) return normalized;
+  return 'new';
+};
 const formatLeadStatus = (status) => STATUS_LABELS[normalizeStatus(status)] || status || 'Unknown';
 
 const formatDate = (value) => {
@@ -26,7 +35,7 @@ const mapLeadToRow = (lead) => ({
   id: lead.id,
   name: lead.name,
   org: lead.company || '-',
-  status: normalizeStatus(lead.status) || 'new',
+  status: mapLeadStatus(lead.status),
   email: lead.email || '-',
   mobile: lead.phone || '-',
   modified: formatDate(lead.updated_at),
@@ -50,17 +59,19 @@ const Leads = ({ user }) => {
   const [assigningMap, setAssigningMap] = useState({});
   const leadAssignStateRef = useRef(new Map());
   const lastConfirmedOwnerRef = useRef(new Map());
+  const [draggingLeadId, setDraggingLeadId] = useState(null);
+  const [dragOverStatus, setDragOverStatus] = useState(null);
   const [tbodyRef] = useAutoAnimate();
 
   const [formData, setFormData] = useState({
-    salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'New'
+    salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'new'
   });
 
   const canDelete = user?.role === 'admin';
   const canEdit = user?.role === 'admin' || (user?.role || '').toLowerCase().includes('manager');
   const canAssignLead = ['admin', 'sales_manager', 'manager'].includes((user?.role || '').toLowerCase());
 
-  const resetForm = () => setFormData({ salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'New' });
+  const resetForm = () => setFormData({ salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'new' });
 
   const fetchLeads = useCallback(async (skip = 0, append = false) => {
     const requestId = ++latestRequestId.current;
@@ -89,6 +100,15 @@ const Leads = ({ user }) => {
 
   useEffect(() => { fetchLeads(0, false); }, [fetchLeads]);
   useEffect(() => {
+    const className = 'crm-kanban-active';
+    if (viewMode === 'kanban') {
+      document.body.classList.add(className);
+    } else {
+      document.body.classList.remove(className);
+    }
+    return () => document.body.classList.remove(className);
+  }, [viewMode]);
+  useEffect(() => {
     let active = true;
     const fetchReps = async () => {
       if (!canAssignLead) return;
@@ -116,9 +136,10 @@ const Leads = ({ user }) => {
     setError('');
     const name = [formData.firstName.trim(), formData.lastName.trim()].filter(Boolean).join(' ').trim();
     if (!name) { setError('First name is required.'); return; }
+    const normalizedStatus = normalizeStatus(formData.status) || 'new';
     const payload = {
       name, email: formData.email.trim() || undefined, phone: formData.mobile.trim() || undefined,
-      company: formData.organization.trim() || undefined, status: normalizeStatus(formData.status) || 'new',
+      company: formData.organization.trim() || undefined, status: normalizedStatus, source: MANUAL_LEAD_SOURCE,
     };
     setIsSaving(true);
     try {
@@ -227,6 +248,32 @@ const Leads = ({ user }) => {
     return 'Assigned';
   };
 
+  const handleLeadStatusChange = async (leadId, nextStatus) => {
+    const normalized = normalizeStatus(nextStatus) || 'new';
+    const current = leads.find((lead) => String(lead.id) === String(leadId));
+    if (!current || current.status === normalized) return;
+    const previousStatus = current.status;
+
+    setLeads((prev) => prev.map((lead) => (
+      lead.id === current.id ? { ...lead, status: normalized } : lead
+    )));
+
+    try {
+      await apiFetch(`/api/leads/${current.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: normalized }),
+      });
+      toast.success(`Lead moved to ${formatLeadStatus(normalized)}.`);
+    } catch (err) {
+      setLeads((prev) => prev.map((lead) => (
+        lead.id === current.id ? { ...lead, status: previousStatus } : lead
+      )));
+      const message = err?.message || 'Unable to update lead status.';
+      setError(message);
+      toast.error(message);
+    }
+  };
+
   const exportToExcel = () => {
     const ws = XLSX.utils.json_to_sheet(leads);
     const wb = XLSX.utils.book_new();
@@ -235,19 +282,16 @@ const Leads = ({ user }) => {
   };
 
   const groupedLeads = useMemo(() => {
-    const groups = {
-      new: leads.filter((l) => l.status === 'new'),
-      contacted: leads.filter((l) => l.status === 'contacted'),
-      qualified: leads.filter((l) => l.status === 'qualified'),
-    };
-    const other = leads.filter((l) => !['new', 'contacted', 'qualified'].includes(l.status));
-    if (other.length) groups.other = other;
+    const groups = STATUS_ORDER.reduce((acc, status) => {
+      acc[status] = leads.filter((lead) => lead.status === status);
+      return acc;
+    }, {});
     return groups;
   }, [leads]);
 
   return (
     <PageTransition>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className={viewMode === 'kanban' ? 'crm-page crm-page-kanban' : 'crm-page'}>
 
         {/* HEADER */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -394,16 +438,44 @@ const Leads = ({ user }) => {
 
             {/* KANBAN VIEW */}
             {viewMode === 'kanban' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+              <div className="kanban-board">
                 {Object.entries(groupedLeads).map(([status, items]) => (
-                  <div key={status} className="kanban-column">
+                  <div
+                    key={status}
+                    className={`kanban-column${dragOverStatus === status ? ' drag-over' : ''}`}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                      setDragOverStatus(status);
+                    }}
+                    onDragLeave={() => setDragOverStatus(null)}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const leadId = event.dataTransfer.getData('text/plain');
+                      if (leadId) {
+                        handleLeadStatusChange(leadId, status);
+                      }
+                      setDraggingLeadId(null);
+                      setDragOverStatus(null);
+                    }}
+                  >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                       <span className={`badge ${STATUS_BADGE[status] || 'badge-muted'}`}>{STATUS_LABELS[status] || 'Other'}</span>
                       <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{items.length}</span>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div className="kanban-column-body">
                       {items.map((l) => (
-                        <div key={l.id} className="kanban-card">
+                        <div
+                          key={l.id}
+                          className={`kanban-card${draggingLeadId === l.id ? ' dragging' : ''}`}
+                          draggable
+                          onDragStart={(event) => {
+                            event.dataTransfer.setData('text/plain', String(l.id));
+                            event.dataTransfer.effectAllowed = 'move';
+                            setDraggingLeadId(l.id);
+                          }}
+                          onDragEnd={() => setDraggingLeadId(null)}
+                        >
                           <div style={{ fontWeight: 'var(--weight-medium)', fontSize: 'var(--text-base)', marginBottom: 4 }}>{l.name}</div>
                           <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{l.org}</div>
                           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 6 }}>{l.email}</div>
@@ -485,11 +557,14 @@ const Leads = ({ user }) => {
                     </div>
                     <div>
                       <label className="label">Status</label>
-                      <select className="input" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>
-                        <option>New</option>
-                        <option>Contacted</option>
-                        <option>Qualified</option>
-                        <option>Converted</option>
+                      <select
+                        className="input"
+                        value={formData.status}
+                        onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                      >
+                        {STATUS_ORDER.map((status) => (
+                          <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+                        ))}
                       </select>
                     </div>
                   </div>

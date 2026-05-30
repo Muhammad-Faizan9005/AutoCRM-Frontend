@@ -18,6 +18,17 @@ const TABS = [
   { id: 'attachments', label: 'Attachments' },
 ];
 
+const LEAD_STATUS_LABELS = { new: 'New', contacted: 'Contacted', nurture: 'Nurture', qualified: 'Qualified', unqualified: 'Unqualified', junk: 'Junk' };
+const TASK_STATUS_LABELS = { backlog: 'Backlog', todo: 'Todo', in_progress: 'In Progress', done: 'Done', canceled: 'Canceled' };
+const normalizeStatus = (status) => (status || '').toString().trim().toLowerCase().replace(/[/-]/g, '_').replace(/\s+/g, '_');
+const formatLeadStatus = (status) => LEAD_STATUS_LABELS[normalizeStatus(status)] || status || 'New';
+const formatTaskStatus = (status) => TASK_STATUS_LABELS[normalizeStatus(status) === 'open' ? 'todo' : normalizeStatus(status)] || status || 'Backlog';
+const formatLeadSource = (source) => {
+  const normalized = normalizeStatus(source);
+  if (!normalized || normalized === 'manual' || normalized === 'manually_added') return 'Manually Added';
+  return String(source).trim();
+};
+
 const formatDate = (value) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -56,7 +67,7 @@ const normalizeTask = (task) => ({
   id: task.id,
   title: task.title || 'Untitled task',
   description: task.description || '',
-  status: task.status || 'open',
+  status: task.status === 'open' ? 'todo' : task.status || 'backlog',
   priority: task.priority || 'medium',
   dueAt: task.due_at || '',
   dueDateLabel: formatDate(task.due_at),
@@ -307,6 +318,7 @@ const LeadDetail = ({ user }) => {
 
   const handleCreateTask = async (event) => {
     event.preventDefault();
+    if (!isManager) return;
     if (!taskForm.title.trim()) return;
     const assignee = lead?.owner_id || user?.id;
     try {
@@ -368,7 +380,7 @@ const LeadDetail = ({ user }) => {
         body: JSON.stringify({}),
       });
       setDealDiscarded(true);
-      setNotice('Deal marked as lost.');
+      setNotice('Deal moved back to Qualification.');
     } catch (err) {
       setError(err?.message || 'Unable to discard deal.');
     } finally {
@@ -551,7 +563,7 @@ const LeadDetail = ({ user }) => {
               <button className="btn btn-secondary btn-sm" onClick={handleStartCall} disabled={callWorking}>
                 <Phone size={14} /> {callWorking ? 'Starting...' : 'Call'}
               </button>
-              {activeTab === 'tasks' && (
+              {isManager && activeTab === 'tasks' && (
                 <button className="btn btn-primary btn-sm" onClick={() => setTaskModalOpen(true)}>
                   <Plus size={14} /> New Task
                 </button>
@@ -662,7 +674,7 @@ const LeadDetail = ({ user }) => {
                   <div key={task.id} style={{ padding: 12, border: '1px solid var(--color-border)', borderRadius: 'var(--radius)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                       <div style={{ fontWeight: 'var(--weight-medium)' }}>{task.title}</div>
-                      <div className="badge badge-muted">{task.status}</div>
+                      <div className="badge badge-muted">{formatTaskStatus(task.status)}</div>
                     </div>
                     <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{task.description || 'No description.'}</div>
                     <div style={{ display: 'flex', gap: 10, marginTop: 8, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
@@ -706,8 +718,8 @@ const LeadDetail = ({ user }) => {
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Lead</div>
             <div style={{ fontWeight: 'var(--weight-medium)', marginBottom: 12 }}>{lead.name || 'Lead'}</div>
             <div style={{ display: 'grid', gap: 8, fontSize: 'var(--text-sm)' }}>
-              <div><strong>Status:</strong> {lead.status || 'new'}</div>
-              <div><strong>Source:</strong> {lead.source || '-'}</div>
+              <div><strong>Status:</strong> {formatLeadStatus(lead.status)}</div>
+              <div><strong>Source:</strong> {formatLeadSource(lead.source)}</div>
               <div><strong>Organization:</strong> {lead.company || '-'}</div>
               <div><strong>Owner:</strong> {ownerName || 'Unassigned'}</div>
             </div>
@@ -761,7 +773,7 @@ const LeadDetail = ({ user }) => {
         </div>
       )}
 
-      {taskModalOpen && (
+      {isManager && taskModalOpen && (
         <div className="modal-overlay" onClick={() => setTaskModalOpen(false)}>
           <div className="modal-content" style={{ maxWidth: 520 }} onClick={(event) => event.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>

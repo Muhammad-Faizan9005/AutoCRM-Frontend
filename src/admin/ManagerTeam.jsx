@@ -178,7 +178,7 @@ const AddRepModal = ({ team, onClose, onAdded }) => {
         const memberIds = new Set((team?.members ?? []).map((m) => String(m.id)));
         setExisting(
           (data.items ?? []).filter(
-            (u) => u.role === 'agent' && !memberIds.has(String(u.id))
+            (u) => u.role === 'agent' && !u.team_id && !memberIds.has(String(u.id))
           )
         );
       })
