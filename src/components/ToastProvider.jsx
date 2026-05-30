@@ -45,7 +45,7 @@ const ToastProvider = ({ children, position = 'top-right', duration = DEFAULT_DU
             {toast.title && <div className="toast-title">{toast.title}</div>}
             <div className="toast-message">{toast.message}</div>
             <button className="toast-close" onClick={() => removeToast(toast.id)} aria-label="Dismiss">
-              x
+              ×
             </button>
           </div>
         ))}

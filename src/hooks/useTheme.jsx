@@ -1,11 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useState, useEffect, createContext, useContext } from 'react';
 
-const ThemeContext = createContext({ theme: 'dark', setTheme: () => {} });
+const ThemeContext = createContext({ theme: 'light', setTheme: () => {} });
 
 const THEME_KEY = 'autocrm-theme';
 
-export function ThemeProvider({ children, defaultTheme = 'dark' }) {
+export function ThemeProvider({ children, defaultTheme = 'light' }) {
   const [theme, setThemeState] = useState(() => {
     if (typeof window === 'undefined') return defaultTheme;
     const stored = localStorage.getItem(THEME_KEY);

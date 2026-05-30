@@ -254,26 +254,12 @@ function App() {
     };
 
     return (
-      <div style={{
-        display: 'flex',
-        height: '100vh',
-        background: 'var(--color-bg-base)',
-      }}>
+      <div className="crm-shell">
         <Sidebar onLogout={handleLogout} user={user} permissions={permissions} />
 
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}>
-          <main style={{
-            flex: 1,
-            overflowX: 'hidden',
-            overflowY: 'auto',
-            padding: '24px 32px',
-          }}>
-            <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+        <div className="crm-content">
+          <main className="crm-main">
+            <div className="crm-container">
               <AnimatePresence mode="wait">
                 <Routes location={location} key={location.pathname}>
                   <Route path="/" element={guardRoute('dashboard', <Dashboard />)} />

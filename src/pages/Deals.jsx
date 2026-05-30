@@ -7,17 +7,16 @@ import { apiFetch } from '../api/client';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
+import { toast } from '../utils/toast';
 
 const STAGE_LABELS = { prospecting:'Prospecting', qualification:'Qualification', proposal:'Proposal', negotiation:'Negotiation', closed:'Closed', closed_won:'Closed Won', closed_lost:'Closed Lost' };
 const STAGE_BADGE = { prospecting:'badge-muted', qualification:'badge-accent', proposal:'badge-warning', negotiation:'badge-warning', closed:'badge-success', closed_won:'badge-success', closed_lost:'badge-danger' };
-const STATUS_LABELS = { qualified: 'Qualified', won: 'Won', lost: 'Lost', open: 'Open' };
-const STATUS_BADGE = { qualified: 'badge-accent', won: 'badge-success', lost: 'badge-danger', open: 'badge-muted' };
+const STATUS_LABELS = { qualification: 'Qualification', demo_making: 'Demo/Making', proposal_quotation: 'Proposal/Quotation', negotiation: 'Negotiation', ready_to_close: 'Ready to Close', won: 'Won' };
+const STATUS_BADGE = { qualification: 'badge-muted', demo_making: 'badge-accent', proposal_quotation: 'badge-success', negotiation: 'badge-danger', ready_to_close: 'badge-purple', won: 'badge-orange' };
+const STATUS_ORDER = ['qualification', 'demo_making', 'proposal_quotation', 'negotiation', 'ready_to_close', 'won'];
 const STATUS_FILTERS = [
   { id: 'all', label: 'All' },
-  { id: 'qualified', label: 'Qualified' },
-  { id: 'won', label: 'Won' },
-  { id: 'lost', label: 'Lost' },
-  { id: 'open', label: 'Open' },
+  ...STATUS_ORDER.map((status) => ({ id: status, label: STATUS_LABELS[status] })),
 ];
 const normalizeStage = (s) => (s||'').toString().trim().toLowerCase().replace(/\s+/g,'_') || 'prospecting';
 const formatStage = (s) => STAGE_LABELS[normalizeStage(s)] || s || 'Unknown';
@@ -26,19 +25,34 @@ const inferCurrency = (v) => { const t=String(v||'').toUpperCase(); if(t.include
 const parseAmount = (v) => { if(v===null||v===undefined||v==='')return undefined; const p=Number(String(v).replace(/[^0-9.-]+/g,'')); return Number.isNaN(p)?undefined:p; };
 const formatMoney = (v,c) => { if(v===null||v===undefined||v==='')return'-'; const n=Number(v); if(Number.isNaN(n))return String(v); try{return new Intl.NumberFormat('en-US',{style:'currency',currency:c||'USD',maximumFractionDigits:2}).format(n);}catch{return`${c||'USD'} ${n.toFixed(2)}`;}};
 
-const mapDeal = (deal,orgIdx) => ({
+const mapDealStatus = (status) => {
+  const normalized = (status || '').toString().trim().toLowerCase().replace(/[/-]/g, '_').replace(/\s+/g, '_');
+  if (normalized === 'qualified') return 'qualification';
+  if (normalized === 'proposal') return 'proposal_quotation';
+  if (STATUS_ORDER.includes(normalized)) return normalized;
+  return 'qualification';
+};
+
+const MANUAL_LEAD_SOURCE = 'manual';
+
+const mapDeal = (deal,orgIdx,leadIdx) => {
+  const linkedLead = leadIdx.get(String(deal.lead_id || ''));
+  return {
   id: deal.id,
-  org: orgIdx.get(deal.organization_id) || deal.organization_id || '-',
+  org: orgIdx.get(deal.organization_id) || linkedLead?.company || linkedLead?.name || deal.organization_id || '-',
   revenue: formatMoney(deal.value, deal.currency),
   stage: normalizeStage(deal.stage),
-  status: (deal.status || '').toString().trim().toLowerCase() || 'qualified',
+  status: mapDealStatus(deal.status),
   modified: formatDate(deal.updated_at),
-});
+  };
+};
 
 const Deals = ({ user }) => {
   const [viewMode, setViewMode] = useState('table');
   const [dealRecords, setDealRecords] = useState([]);
   const [organizations, setOrganizations] = useState([]);
+  const [leadLookup, setLeadLookup] = useState({});
+  const leadLookupRef = useRef({});
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -51,13 +65,16 @@ const Deals = ({ user }) => {
   const [hasMore, setHasMore] = useState(true);
   const latestReq = useRef(0);
   const [tbodyRef] = useAutoAnimate();
+  const [draggingDealId, setDraggingDealId] = useState(null);
+  const [dragOverStatus, setDragOverStatus] = useState(null);
   const canDelete = user?.role === 'admin';
 
-  const [formData, setFormData] = useState({ orgName:'', website:'', revenue:'', industry:'', firstName:'', lastName:'', email:'', mobile:'', status:'Qualification' });
-  const resetForm = () => setFormData({ orgName:'', website:'', revenue:'', industry:'', firstName:'', lastName:'', email:'', mobile:'', status:'Qualification' });
+  const [formData, setFormData] = useState({ orgName:'', website:'', revenue:'', industry:'', firstName:'', lastName:'', email:'', mobile:'', status:'qualification' });
+  const resetForm = () => setFormData({ orgName:'', website:'', revenue:'', industry:'', firstName:'', lastName:'', email:'', mobile:'', status:'qualification' });
 
   const orgIdx = useMemo(() => new Map(organizations.map(o=>[o.id,o.name||'-'])), [organizations]);
-  const deals = useMemo(() => dealRecords.map(d=>mapDeal(d,orgIdx)), [dealRecords,orgIdx]);
+  const leadIdx = useMemo(() => new Map(Object.entries(leadLookup)), [leadLookup]);
+  const deals = useMemo(() => dealRecords.map(d=>mapDeal(d,orgIdx,leadIdx)), [dealRecords,orgIdx,leadIdx]);
 
   const fetchDeals = useCallback(async (skip=0,append=false) => {
     const rid = ++latestReq.current;
@@ -68,6 +85,26 @@ const Deals = ({ user }) => {
       const data = await apiFetch(`/api/deals/?skip=${skip}&limit=${lim}`);
       if(rid!==latestReq.current)return;
       if(append)setDealRecords(p=>[...p,...data]);else setDealRecords(data);
+      const missingLeadIds = Array.from(new Set(
+        data
+          .filter((deal) => !deal.organization_id && deal.lead_id && !leadLookupRef.current[String(deal.lead_id)])
+          .map((deal) => String(deal.lead_id))
+      ));
+      if (missingLeadIds.length) {
+        try {
+          const leads = await Promise.all(missingLeadIds.map((id) => apiFetch(`/api/leads/${id}`)));
+          setLeadLookup((prev) => {
+            const next = { ...prev };
+            leads.forEach((lead) => {
+              if (lead?.id) next[String(lead.id)] = { company: lead.company || '', name: lead.name || '' };
+            });
+            leadLookupRef.current = next;
+            return next;
+          });
+        } catch {
+          // If lead lookup fails, fall back to the deal organization id / dash.
+        }
+      }
       setTotalLoaded(p=>p+data.length); setHasMore(data.length===lim);
     } catch(e){if(rid===latestReq.current)setError(e?.message||'Unable to load deals.');}
     finally{if(rid===latestReq.current){if(!append)setLoading(false);else setIsLoadingMore(false);}}
@@ -81,6 +118,15 @@ const Deals = ({ user }) => {
     }
   }, []);
   useEffect(()=>{fetchDeals(0,false);fetchOrgs();},[fetchDeals,fetchOrgs]);
+  useEffect(() => {
+    const className = 'crm-kanban-active';
+    if (viewMode === 'kanban') {
+      document.body.classList.add(className);
+    } else {
+      document.body.classList.remove(className);
+    }
+    return () => document.body.classList.remove(className);
+  }, [viewMode]);
 
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -92,19 +138,52 @@ const Deals = ({ user }) => {
   }, [deals, searchTerm, statusFilter]);
 
   const ensureOrgId = async()=>{const n=formData.orgName.trim();if(!n)return null;const ex=organizations.find(o=>o.name?.toLowerCase()===n.toLowerCase());if(ex)return ex.id;const c=await apiFetch('/api/organizations/',{method:'POST',body:JSON.stringify({name:n,website:formData.website.trim()||undefined,industry:formData.industry||undefined,revenue:parseAmount(formData.revenue)})});setOrganizations(p=>[c,...p]);return c.id;};
-  const ensureLeadId = async()=>{const nm=[formData.firstName.trim(),formData.lastName.trim()].filter(Boolean).join(' ');const em=formData.email.trim();if(!nm&&!em)return null;const c=await apiFetch('/api/leads/',{method:'POST',body:JSON.stringify({name:nm||'New Lead',email:em||undefined,phone:formData.mobile.trim()||undefined,company:formData.orgName.trim()||undefined,status:'new'})});return c.id;};
+  const ensureLeadId = async()=>{const nm=[formData.firstName.trim(),formData.lastName.trim()].filter(Boolean).join(' ');const em=formData.email.trim();if(!nm&&!em)return null;const c=await apiFetch('/api/leads/',{method:'POST',body:JSON.stringify({name:nm||'New Lead',email:em||undefined,phone:formData.mobile.trim()||undefined,company:formData.orgName.trim()||undefined,status:'new',source:MANUAL_LEAD_SOURCE})});return c.id;};
 
-  const handleSave = async(e)=>{e.preventDefault();setError('');setIsSaving(true);try{const oid=await ensureOrgId();const lid=await ensureLeadId();const created=await apiFetch('/api/deals/',{method:'POST',body:JSON.stringify({organization_id:oid||undefined,lead_id:lid||undefined,stage:normalizeStage(formData.status),value:parseAmount(formData.revenue),currency:inferCurrency(formData.revenue)})});setDealRecords(p=>[created,...p]);setIsCreateOpen(false);resetForm();}catch(e){setError(e?.message||'Unable to create deal.');}finally{setIsSaving(false);}};
+  const handleSave = async(e)=>{e.preventDefault();setError('');setIsSaving(true);try{const oid=await ensureOrgId();const lid=await ensureLeadId();const created=await apiFetch('/api/deals/',{method:'POST',body:JSON.stringify({organization_id:oid||undefined,lead_id:lid||undefined,stage:normalizeStage(formData.status),status:formData.status,value:parseAmount(formData.revenue),currency:inferCurrency(formData.revenue)})});setDealRecords(p=>[created,...p]);setIsCreateOpen(false);resetForm();}catch(e){setError(e?.message||'Unable to create deal.');}finally{setIsSaving(false);}};
 
   const handleDelete = async(id)=>{if(!canDelete||!window.confirm('Delete this deal?'))return;try{await apiFetch(`/api/deals/${id}`,{method:'DELETE'});setDealRecords(p=>p.filter(d=>d.id!==id));}catch(e){setError(e?.message||'Delete failed.');}};
 
+  const handleDealStatusChange = async (dealId, nextStatus) => {
+    const current = dealRecords.find((deal) => String(deal.id) === String(dealId));
+    if (!current) return;
+    const currentStatus = (current.status || '').toString().trim().toLowerCase();
+    const targetStatus = (nextStatus || '').toString().trim().toLowerCase();
+    if (!targetStatus || currentStatus === targetStatus) return;
+
+    setDealRecords((prev) => prev.map((deal) => (
+      deal.id === current.id ? { ...deal, status: targetStatus } : deal
+    )));
+
+    try {
+      await apiFetch(`/api/deals/${current.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: targetStatus }),
+      });
+      toast.success(`Deal moved to ${STATUS_LABELS[targetStatus] || targetStatus}.`);
+    } catch (err) {
+      setDealRecords((prev) => prev.map((deal) => (
+        deal.id === current.id ? { ...deal, status: currentStatus } : deal
+      )));
+      const message = err?.message || 'Unable to update deal status.';
+      setError(message);
+      toast.error(message);
+    }
+  };
+
   const exportXl = ()=>{const ws=XLSX.utils.json_to_sheet(deals);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Deals");XLSX.writeFile(wb,"CRM_Deals.xlsx");};
 
-  const grouped = useMemo(()=>{const g={};deals.forEach(d=>{const s=d.status;if(!g[s])g[s]=[];g[s].push(d);});return g;},[deals]);
+  const grouped = useMemo(() => {
+    const groups = STATUS_ORDER.reduce((acc, status) => {
+      acc[status] = deals.filter((deal) => deal.status === status);
+      return acc;
+    }, {});
+    return groups;
+  }, [deals]);
 
   return (
     <PageTransition>
-      <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+      <div className={viewMode === 'kanban' ? 'crm-page crm-page-kanban' : 'crm-page'}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div style={{ display:'flex', alignItems:'center', gap:16 }}>
             <h1 className="page-title">Deals</h1>
@@ -164,7 +243,7 @@ const Deals = ({ user }) => {
                         <motion.tr
                           key={d.id}
                           variants={staggerItem}
-                          className={d.status === 'lost' ? 'deal-row deal-row-lost' : 'deal-row'}
+                          className="deal-row"
                         >
                           <td><input type="checkbox" className="checkbox-input"/></td>
                           <td style={{ fontWeight:'var(--weight-medium)' }}>{d.org}</td>
@@ -192,16 +271,42 @@ const Deals = ({ user }) => {
             )}
 
             {viewMode==='kanban' && (
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(260px, 1fr))', gap:16 }}>
+              <div className="kanban-board">
                 {Object.entries(grouped).map(([status,items])=>(
-                  <div key={status} className="kanban-column">
+                  <div
+                    key={status}
+                    className={`kanban-column${dragOverStatus === status ? ' drag-over' : ''}`}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setDragOverStatus(status);
+                    }}
+                    onDragLeave={() => setDragOverStatus(null)}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const dealId = event.dataTransfer.getData('text/plain');
+                      if (dealId) {
+                        handleDealStatusChange(dealId, status);
+                      }
+                      setDragOverStatus(null);
+                    }}
+                  >
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-                      <span className={`badge ${STAGE_BADGE[status]||'badge-muted'}`}>{STAGE_LABELS[status]||'Other'}</span>
+                      <span className={`badge ${STATUS_BADGE[status]||'badge-muted'}`}>{STATUS_LABELS[status]||'Other'}</span>
                       <span style={{ fontSize:'var(--text-xs)', color:'var(--color-text-tertiary)' }}>{items.length}</span>
                     </div>
-                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                    <div className="kanban-column-body">
                       {items.map(d=>(
-                        <div key={d.id} className="kanban-card">
+                        <div
+                          key={d.id}
+                          className={`kanban-card${draggingDealId === d.id ? ' dragging' : ''}`}
+                          draggable
+                          onDragStart={(event) => {
+                            event.dataTransfer.setData('text/plain', String(d.id));
+                            event.dataTransfer.effectAllowed = 'move';
+                            setDraggingDealId(d.id);
+                          }}
+                          onDragEnd={() => setDraggingDealId(null)}
+                        >
                           <div style={{ fontWeight:'var(--weight-medium)', marginBottom:4 }}>{d.org}</div>
                           <div style={{ fontSize:'var(--text-sm)', color:'var(--color-text-secondary)' }}>{d.revenue}</div>
                           {canDelete && <button onClick={()=>handleDelete(d.id)} className="btn btn-danger btn-sm" style={{ marginTop:8 }}><Trash2 size={12}/> Delete</button>}
@@ -233,7 +338,7 @@ const Deals = ({ user }) => {
                   </div>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
                     <div><label className="label">Revenue</label><input type="text" className="input" value={formData.revenue} onChange={e=>setFormData({...formData,revenue:e.target.value})}/></div>
-                    <div><label className="label">Stage</label><select className="input" value={formData.status} onChange={e=>setFormData({...formData,status:e.target.value})}><option>Prospecting</option><option>Qualification</option><option>Proposal</option><option>Closed</option></select></div>
+                    <div><label className="label">Status</label><select className="input" value={formData.status} onChange={e=>setFormData({...formData,status:e.target.value})}>{STATUS_ORDER.map((status)=><option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></div>
                   </div>
                   <div style={{ padding:14, background:'var(--color-bg-hover)', borderRadius:'var(--radius)', border:'1px solid var(--color-border)' }}>
                     <div style={{ fontSize:'var(--text-sm)', fontWeight:'var(--weight-semibold)', marginBottom:10, color:'var(--color-text-secondary)' }}>Primary Contact (Optional)</div>

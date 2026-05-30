@@ -7,7 +7,7 @@ import ToastProvider from './components/ToastProvider.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <ThemeProvider defaultTheme="dark">
+    <ThemeProvider defaultTheme="light">
       <ToastProvider position="top-right" duration={3000}>
         <App />
       </ToastProvider>

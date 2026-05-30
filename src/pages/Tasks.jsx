@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, RotateCcw, Trash2, X, Download, CheckSquare, SquarePen } from 'lucide-react';
+import { Plus, Search, RotateCcw, Trash2, X, Download, SquarePen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
@@ -10,8 +10,10 @@ import { SkeletonCard } from '../components/Skeleton';
 import { toast } from '../utils/toast';
 
 const LEAD_ENTITY_TYPE = 'lead';
-const STATUS_BADGE = { open: 'badge-accent', in_progress: 'badge-warning', done: 'badge-success' };
-const STATUS_LABEL = { open: 'Open', in_progress: 'In Progress', done: 'Done' };
+const STATUS_ORDER = ['backlog', 'todo', 'in_progress', 'done', 'canceled'];
+const REP_STATUS_OPTIONS = ['in_progress', 'done'];
+const STATUS_BADGE = { backlog: 'badge-muted', todo: 'badge-accent', in_progress: 'badge-success', done: 'badge-danger', canceled: 'badge-purple' };
+const STATUS_LABEL = { backlog: 'Backlog', todo: 'Todo', in_progress: 'In Progress', done: 'Done', canceled: 'Canceled' };
 const NOTE_BORDERS = ['note-border-accent', 'note-border-success', 'note-border-warning'];
 
 const formatDate = (value) => {
@@ -46,7 +48,7 @@ const normalizeTask = (task, currentUser, directory, leadDirectory) => ({
   id: task.id,
   title: task.title || 'Untitled task',
   description: task.description || '',
-  status: task.status || 'open',
+  status: task.status === 'open' ? 'todo' : task.status || 'backlog',
   priority: task.priority || 'medium',
   dueAt: task.due_at || '',
   dueDateLabel: formatDate(task.due_at),
@@ -58,8 +60,7 @@ const normalizeTask = (task, currentUser, directory, leadDirectory) => ({
 });
 
 const Tasks = ({ user }) => {
-  const isManager = ['sales_manager', 'manager'].includes(String(user?.role || '').toLowerCase());
-  const canDeleteAny = ['admin', 'sales_manager', 'manager'].includes(String(user?.role || '').toLowerCase());
+  const canManageTasks = ['admin', 'sales_manager', 'manager'].includes(String(user?.role || '').toLowerCase());
 
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -74,7 +75,7 @@ const Tasks = ({ user }) => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    status: 'open',
+    status: 'backlog',
     priority: 'medium',
     dueDate: '',
     assignedTo: '',
@@ -92,7 +93,7 @@ const Tasks = ({ user }) => {
   const [gridRef] = useAutoAnimate();
 
   const loadAssignees = useCallback(async () => {
-    if (!isManager) return;
+    if (!canManageTasks) return;
     setLoadingAssignees(true);
       try {
         const data = await apiFetch('/api/admin/users/?page=1&page_size=200');
@@ -110,7 +111,7 @@ const Tasks = ({ user }) => {
       } finally {
       setLoadingAssignees(false);
     }
-  }, [isManager]);
+  }, [canManageTasks]);
 
   const loadLeads = useCallback(async () => {
     setLoadingLeads(true);
@@ -135,9 +136,9 @@ const Tasks = ({ user }) => {
   }, []);
 
   useEffect(() => {
-    if (!isManager) return;
+    if (!canManageTasks) return;
     loadAssignees();
-  }, [isManager, loadAssignees]);
+  }, [canManageTasks, loadAssignees]);
 
   useEffect(() => {
     loadLeads();
@@ -203,35 +204,37 @@ const Tasks = ({ user }) => {
   );
 
   const openCreate = async () => {
+    if (!canManageTasks) return;
     setError('');
     setSelectedTask(null);
     setFormData({
       title: '',
       description: '',
-      status: 'open',
+      status: 'backlog',
       priority: 'medium',
       dueDate: '',
       assignedTo: '',
       leadId: leadOptions[0]?.id ? String(leadOptions[0].id) : '',
     });
     setModalType('create');
-    if (isManager) await loadAssignees();
+    await loadAssignees();
   };
 
   const openEdit = async (task) => {
+    if (!canManageTasks) return;
     setError('');
     setSelectedTask(task);
     setFormData({
       title: task.title || '',
       description: task.description || '',
-      status: task.status || 'open',
+      status: task.status || 'backlog',
       priority: task.priority || 'medium',
       dueDate: task.dueAt ? String(task.dueAt).slice(0, 10) : '',
       assignedTo: task.assignedTo ? String(task.assignedTo) : '',
       leadId: task.leadId ? String(task.leadId) : '',
     });
     setModalType('edit');
-    if (isManager) await loadAssignees();
+    await loadAssignees();
   };
 
   const closeModal = () => {
@@ -250,7 +253,11 @@ const Tasks = ({ user }) => {
       setError('User not identified.');
       return;
     }
-    if (isManager && !formData.assignedTo) {
+    if (!canManageTasks) {
+      setError('Only managers can create or update tasks.');
+      return;
+    }
+    if (!formData.assignedTo) {
       setError('Please select a sales rep.');
       return;
     }
@@ -267,7 +274,7 @@ const Tasks = ({ user }) => {
         status: formData.status,
         priority: formData.priority,
         due_at: formData.dueDate || undefined,
-        assigned_to: isManager ? formData.assignedTo : user.id,
+        assigned_to: formData.assignedTo,
         entity_type: LEAD_ENTITY_TYPE,
         entity_id: formData.leadId,
       };
@@ -300,15 +307,21 @@ const Tasks = ({ user }) => {
     }
   };
 
-  const toggleStatus = async (task) => {
-    const next = task.status === 'done' ? 'open' : 'done';
+  const statusOptionsFor = (task) => {
+    const options = canManageTasks ? STATUS_ORDER : REP_STATUS_OPTIONS;
+    if (options.includes(task.status)) return options;
+    return [task.status, ...options].filter(Boolean);
+  };
+
+  const updateTaskStatus = async (task, nextStatus) => {
+    if (!nextStatus || nextStatus === task.status) return;
     try {
       const updated = await apiFetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: next }),
+        body: JSON.stringify({ status: nextStatus }),
       });
       setTasks((prev) => prev.map((t) => (t.id === task.id ? normalizeTask(updated, user, assigneeDirectory, leadDirectory) : t)));
-      toast.success(`Task marked ${next === 'done' ? 'done' : 'open'}.`);
+      toast.success(`Task marked ${(STATUS_LABEL[nextStatus] || nextStatus).toLowerCase()}.`);
     } catch (err) {
       const message = err?.message || 'Status update failed.';
       setError(message);
@@ -317,9 +330,7 @@ const Tasks = ({ user }) => {
   };
 
   const canDeleteTask = (task) => {
-    if (canDeleteAny) return true;
-    if (user?.id && String(task.assignedTo || '') === String(user.id)) return true;
-    return false;
+    return canManageTasks;
   };
 
   const handleDelete = async (id) => {
@@ -350,7 +361,7 @@ const Tasks = ({ user }) => {
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => { setTotalLoaded(0); fetchTasks(0, false); }} className="btn btn-ghost btn-icon" aria-label="Refresh"><RotateCcw size={16} /></button>
             <button onClick={exportXl} className="btn btn-secondary btn-sm"><Download size={14} /> Export</button>
-            <button onClick={openCreate} className="btn btn-primary"><Plus size={15} /> Add Task</button>
+            {canManageTasks && <button onClick={openCreate} className="btn btn-primary"><Plus size={15} /> Add Task</button>}
           </div>
         </div>
 
@@ -370,8 +381,10 @@ const Tasks = ({ user }) => {
               <motion.div
                 key={task.id}
                 className={`card ${NOTE_BORDERS[idx % 3]}`}
-                style={{ padding: 16, cursor: 'pointer' }}
-                onClick={() => openEdit(task)}
+                style={{ padding: 16, cursor: canManageTasks ? 'pointer' : 'default' }}
+                onClick={() => {
+                  if (canManageTasks) openEdit(task);
+                }}
                 whileHover={{ scale: 1.01 }}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -393,23 +406,33 @@ const Tasks = ({ user }) => {
                   <span className="badge badge-muted">{task.modifiedLabel}</span>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleStatus(task); }}
-                    className="btn btn-ghost btn-sm"
+                <div style={{ display: 'flex', justifyContent: canManageTasks ? 'space-between' : 'flex-end', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border)', gap: 8 }}>
+                  <select
+                    className="input"
+                    value={task.status}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => {
+                      event.stopPropagation();
+                      updateTaskStatus(task, event.target.value);
+                    }}
+                    style={{ maxWidth: 180, height: 34, padding: '0 10px' }}
+                    aria-label="Change task status"
                   >
-                    <CheckSquare size={13} /> {task.status === 'done' ? 'Mark Open' : 'Mark Done'}
-                  </button>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); openEdit(task); }}
-                      className="btn btn-ghost btn-icon"
-                      style={{ width: 24, height: 24, padding: 2 }}
-                      aria-label="Edit"
-                    >
-                      <SquarePen size={12} />
-                    </button>
-                    {canDeleteTask(task) && (
+                    {statusOptionsFor(task).map((status) => (
+                      <option key={status} value={status}>{STATUS_LABEL[status] || status}</option>
+                    ))}
+                  </select>
+                  {canManageTasks && (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openEdit(task); }}
+                        className="btn btn-ghost btn-icon"
+                        style={{ width: 24, height: 24, padding: 2 }}
+                        aria-label="Edit"
+                      >
+                        <SquarePen size={12} />
+                      </button>
+                      {canDeleteTask(task) && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(task.id); }}
                         className="btn btn-ghost btn-icon"
@@ -418,8 +441,9 @@ const Tasks = ({ user }) => {
                       >
                         <Trash2 size={12} style={{ color: 'var(--color-danger)' }} />
                       </button>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </motion.div>
             ))}
@@ -461,11 +485,11 @@ const Tasks = ({ user }) => {
                   <div><label className="label">Title *</label><input type="text" required className="input" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} /></div>
                   <div><label className="label">Description</label><textarea className="input" style={{ minHeight: 100 }} value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-                    <div><label className="label">Status</label><select className="input" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}><option value="open">Open</option><option value="in_progress">In Progress</option><option value="done">Done</option></select></div>
+                    <div><label className="label">Status</label><select className="input" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>{STATUS_ORDER.map((status) => <option key={status} value={status}>{STATUS_LABEL[status]}</option>)}</select></div>
                     <div><label className="label">Priority</label><select className="input" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: e.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
                     <div><label className="label">Due Date</label><input type="date" className="input" value={formData.dueDate} onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })} /></div>
                   </div>
-                  {isManager && (
+                  {canManageTasks && (
                     <div>
                       <label className="label">Assign To</label>
                       <select className="input" value={formData.assignedTo} onChange={(e) => setFormData({ ...formData, assignedTo: e.target.value })} disabled={loadingAssignees} required>
