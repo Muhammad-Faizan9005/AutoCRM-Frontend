@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, Users, Briefcase, Building2, ClipboardList,
   CheckSquare, ChevronLeft, ChevronRight, Bell, X, LogOut, Shield,
-  UserCircle, PanelLeftClose, PanelLeft
+  UserCircle, Bot
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { apiFetch } from '../api/client';
@@ -108,7 +108,12 @@ const Sidebar = ({ onLogout, user, permissions }) => {
     { name: 'Tasks', icon: CheckSquare, path: '/todo', permission: 'tasks' },
   ];
 
-  const canAccess = (permissionKey) => permissions?.[permissionKey] === true;
+  const canAccess = (permissionKey) => {
+    if (permissionKey === 'ai_control') {
+      return permissions?.admin_panel === true || permissions?.admin_users === true;
+    }
+    return permissions?.[permissionKey] === true;
+  };
   const canOpenConsole =
     permissions?.admin_panel === true ||
     permissions?.admin_users === true ||
@@ -133,6 +138,7 @@ const Sidebar = ({ onLogout, user, permissions }) => {
     ...(adminUser
       ? [{ name: consoleLabel, icon: Shield, path: '/admin', permission: 'admin_panel' }]
       : []),
+    { name: 'AI Control', icon: Bot, path: '/admin/ai', permission: 'ai_control' },
     { name: 'Users', icon: Users, path: '/admin/users', permission: 'admin_users' },
     ...(adminUser
       ? [{ name: 'Teams', icon: Users, path: '/admin/teams', permission: 'admin_users' }]

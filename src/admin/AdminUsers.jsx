@@ -121,7 +121,15 @@ const AdminUsers = ({ currentUser }) => {
     };
   }, [adminActor]);
 
-  const filtered = useMemo(() => adminActor ? users : users.filter(u => u.role === 'agent'), [users, adminActor]);
+  const visibleUsers = useMemo(() => {
+    const scopedUsers = adminActor ? users : users.filter(u => u.role === 'agent');
+    return scopedUsers.filter(u => u.status !== 'invited');
+  }, [users, adminActor]);
+
+  const pendingInvites = useMemo(() => {
+    const scopedUsers = adminActor ? users : users.filter(u => u.role === 'agent');
+    return scopedUsers.filter(u => u.status === 'invited');
+  }, [users, adminActor]);
 
   const addUser = async () => {
     const email = form.email.trim();
@@ -154,7 +162,7 @@ const AdminUsers = ({ currentUser }) => {
       role: form.role,
       status: form.status,
     };
-    if (password) {
+    if (password && form.status !== 'invited') {
       payload.password = password;
     }
     if (isRepRole(form.role) && form.team_id) {
@@ -168,7 +176,7 @@ const AdminUsers = ({ currentUser }) => {
       await load(query);
       setIsAdding(false);
       setForm({ ...INITIAL_FORM, role: defaultRole });
-      toast.success('User added successfully.');
+      toast.success(form.status === 'invited' ? 'Invitation email sent. User will appear after accepting.' : 'User added successfully.');
     } catch (createError) {
       const message = getErrorMessage(createError, 'Failed to create user.');
       setError(message);
@@ -196,7 +204,8 @@ const AdminUsers = ({ currentUser }) => {
     setBusyId(String(id)); setError('');
     try {
       await revokeAdminInvite(id);
-      setUsers(p => p.map(r => String(r.id) === String(id) ? { ...r, status: 'disabled' } : r));
+      setUsers(p => p.filter(r => String(r.id) !== String(id)));
+      await load(query);
     }
     catch (e) { setError(getErrorMessage(e, 'Failed to revoke invite.')); }
     finally { setBusyId(''); }
@@ -293,7 +302,7 @@ const AdminUsers = ({ currentUser }) => {
               </div>
               <div>
                 <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-semibold)' }}>Search directory</div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{filtered.length} users shown of {total}</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{visibleUsers.length} users shown of {Math.max(total - pendingInvites.length, visibleUsers.length)}</div>
               </div>
             </div>
             <div style={{ flex: 1, maxWidth: 300 }}>
@@ -311,7 +320,7 @@ const AdminUsers = ({ currentUser }) => {
 
           {/* User List */}
           <div ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
-            {filtered.map(user => (
+            {visibleUsers.map(user => (
               <div key={user.id} style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12,
                 padding: '14px 18px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)',
@@ -339,7 +348,7 @@ const AdminUsers = ({ currentUser }) => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}>Status</span>
                     <select className="input" style={{ padding: '6px 10px', fontSize: 'var(--text-sm)', minWidth: 100 }} value={user.status} onChange={e => patch(user.id, { status: e.target.value })} disabled={busyId === String(user.id)}>
-                      {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                      {STATUS_OPTIONS.filter(s => s !== 'invited').map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                   <button className="btn btn-secondary" onClick={() => navigate(`/admin/permissions?user=${encodeURIComponent(String(user.id))}`)}>
@@ -368,10 +377,60 @@ const AdminUsers = ({ currentUser }) => {
                 </div>
               </div>
             ))}
-            {!isLoading && filtered.length === 0 && (
+            {!isLoading && visibleUsers.length === 0 && (
               <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>No users found.</div>
             )}
           </div>
+        </div>
+
+        <div className="card card-padding">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--color-text-tertiary)' }}>Pending Invites</div>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 4 }}>
+                These people have been emailed an invitation and are not added as users until they accept the link.
+              </div>
+            </div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+              {pendingInvites.length} waiting
+            </div>
+          </div>
+
+          {pendingInvites.length === 0 ? (
+            <div style={{ marginTop: 16, fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>
+              No pending invitations.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
+              {pendingInvites.map((invite) => (
+                <div key={invite.id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12,
+                  padding: '12px 16px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)',
+                }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)' }}>
+                      {invite.full_name || invite.email}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+                      <Mail size={11} /> {invite.email}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <span className={`badge ${ROLE_BADGE[invite.role] || 'badge-muted'}`}>{invite.role}</span>
+                    <span className="badge badge-warning">Invite sent</span>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ color: 'var(--color-danger)' }}
+                      onClick={() => revokeInvite(invite.id)}
+                      disabled={busyId === String(invite.id)}
+                    >
+                      Revoke invite
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="card card-padding">
@@ -560,12 +619,29 @@ const AdminUsers = ({ currentUser }) => {
                       )}
                     </div>
                   )}
-                  <div style={{ gridColumn: '1 / -1' }}><label className="label">Password</label><input type="password" className="input" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} placeholder="Optional for invited, required for active" /></div>
+                  {form.status === 'active' ? (
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label className="label">Password</label>
+                      <input
+                        type="password"
+                        className="input"
+                        value={form.password}
+                        onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+                        placeholder="Required for active users"
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ gridColumn: '1 / -1', padding: 12, borderRadius: 'var(--radius)', background: 'var(--color-accent-subtle)', color: 'var(--color-text-secondary)', fontSize: 'var(--text-xs)' }}>
+                      No password is needed. The invitation email lets the person create their password and activate the account.
+                    </div>
+                  )}
                 </div>
                 {error && <div style={{ margin: '0 20px 12px', padding: 10, background: 'var(--color-danger-subtle)', borderRadius: 'var(--radius)', fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>{error}</div>}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
                   <button className="btn btn-ghost" onClick={() => { setIsAdding(false); setError(''); }} disabled={isSubmitting}>Cancel</button>
-                  <button className="btn btn-primary" onClick={addUser} disabled={isSubmitting}>{isSubmitting ? 'Adding...' : 'Add User'}</button>
+                  <button className="btn btn-primary" onClick={addUser} disabled={isSubmitting}>
+                    {isSubmitting ? (form.status === 'invited' ? 'Sending...' : 'Adding...') : (form.status === 'invited' ? 'Send Invite' : 'Add User')}
+                  </button>
                 </div>
               </motion.div>
             </motion.div>
