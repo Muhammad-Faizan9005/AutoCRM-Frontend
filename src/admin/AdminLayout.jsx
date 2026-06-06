@@ -6,6 +6,7 @@ import AdminPermissions from './AdminPermissions';
 import AdminImports from './AdminImports';
 import AdminTeams from './AdminTeams';
 import ManagerTeam from './ManagerTeam';
+import AIControlCenter from './AIControlCenter';
 import Sidebar from '../components/Sidebar';
 
 const isAdminUser = (user) => {
@@ -36,6 +37,7 @@ const AdminLayout = ({ user, onLogout, permissions }) => {
   const canManageUsers = permissions?.admin_users === true;
   const canManagePermissions = permissions?.admin_permissions === true;
   const canImport = permissions?.import_data === true;
+  const canControlAI = permissions?.admin_panel === true || permissions?.admin_users === true;
 
   // Managers land on their team page; admins land on users
   const firstAllowedPath = managerUser && canManageUsers
@@ -125,6 +127,17 @@ const AdminLayout = ({ user, onLogout, permissions }) => {
               element={
                 canImport ? (
                   <AdminImports />
+                ) : (
+                  <Navigate to={firstAllowedPath} replace />
+                )
+              }
+            />
+
+            <Route
+              path="ai"
+              element={
+                canControlAI ? (
+                  <AIControlCenter />
                 ) : (
                   <Navigate to={firstAllowedPath} replace />
                 )

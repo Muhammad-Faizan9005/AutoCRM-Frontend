@@ -17,6 +17,7 @@ export const useCallRecording = () => {
   const audioContextRef = useRef(null);
   const destinationRef = useRef(null);
   const remoteSourcesRef = useRef([]);
+  const attachedRemoteIdsRef = useRef(new Set());
   const localSourceRef = useRef(null);
   const monitorGainRef = useRef(null);
 
@@ -75,6 +76,12 @@ export const useCallRecording = () => {
       return;
     }
 
+    const streamKey = remoteStream.id || remoteStream.getAudioTracks().map((track) => track.id).join(':');
+    if (attachedRemoteIdsRef.current.has(streamKey)) {
+      return;
+    }
+    attachedRemoteIdsRef.current.add(streamKey);
+
     const source = audioContextRef.current.createMediaStreamSource(remoteStream);
     source.connect(destinationRef.current);
     if (monitorGainRef.current) {
@@ -97,6 +104,7 @@ export const useCallRecording = () => {
       chunksRef.current = [];
       remoteSourcesRef.current.forEach((source) => source.disconnect());
       remoteSourcesRef.current = [];
+      attachedRemoteIdsRef.current.clear();
       if (localSourceRef.current) {
         localSourceRef.current.disconnect();
         localSourceRef.current = null;
@@ -116,7 +124,16 @@ export const useCallRecording = () => {
       resolve({ blob, mimeType: recorder.mimeType || 'audio/webm' });
     };
 
-    recorder.stop();
+    if (recorder.state === 'recording' || recorder.state === 'paused') {
+      try {
+        recorder.requestData();
+      } catch {
+        // requestData can throw if the recorder has already flushed.
+      }
+      recorder.stop();
+    } else {
+      resolve({ blob: null, mimeType: recorder.mimeType || 'audio/webm' });
+    }
   }), []);
 
   const pause = useCallback(() => {

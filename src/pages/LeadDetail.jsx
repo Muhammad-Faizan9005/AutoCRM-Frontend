@@ -215,6 +215,9 @@ const LeadDetail = ({ user }) => {
 
   const uploadRecordingBlob = async ({ blob, mimeType }) => {
     if (!blob || !callSession?.id) return;
+    if (!blob.size) {
+      throw new Error('Recording is empty. Please try recording the call again.');
+    }
     const extension = mimeType.includes('ogg') ? 'ogg' : 'webm';
     const formData = new FormData();
     formData.append('file', blob, `call-${callSession.id}.${extension}`);
@@ -427,6 +430,22 @@ const LeadDetail = ({ user }) => {
     }
     setCallWorking(true);
     try {
+      // Stop and upload the recorder before tearing down the WebRTC streams.
+      // If we close the call first, the mic/remote tracks are stopped and the
+      // final MediaRecorder blob can become silent or unplayable in some browsers.
+      if (isRecording) {
+        const { blob, mimeType } = await stopRecording();
+        if (!recordingUploadedRef.current.has(callSession.id)) {
+          try {
+            await uploadRecordingBlob({ blob, mimeType });
+          } catch {
+            setCallNotice('Recording upload failed. You can retry later.');
+            toast.error('Recording upload failed.');
+          }
+        }
+      }
+
+      sendSignal({ type: 'recording', active: false });
       endCallSession();
       try {
         await apiFetch(
@@ -434,20 +453,8 @@ const LeadDetail = ({ user }) => {
           { method: 'POST' },
           { timeoutMs: 20000, cache: false }
         );
-      } catch (err) {
+      } catch {
         setCallNotice('Call ended locally. Server sync pending.');
-      }
-
-      if (isRecording) {
-        const { blob, mimeType } = await stopRecording();
-        if (!recordingUploadedRef.current.has(callSession.id)) {
-          try {
-            await uploadRecordingBlob({ blob, mimeType });
-          } catch (err) {
-            setCallNotice('Recording upload failed. You can retry later.');
-            toast.error('Recording upload failed.');
-          }
-        }
       }
 
       try {
@@ -455,7 +462,7 @@ const LeadDetail = ({ user }) => {
         setCalls(Array.isArray(refreshed) ? refreshed : []);
         setCallNotice('Call ended and saved.');
         toast.success('Call ended and saved.');
-      } catch (err) {
+      } catch {
         setCallNotice('Call ended. Sync will update later.');
       }
     } catch (err) {
@@ -512,7 +519,7 @@ const LeadDetail = ({ user }) => {
     try {
       await navigator.clipboard.writeText(inviteUrl);
       setCallNotice('Invite link copied.');
-    } catch (err) {
+    } catch {
       setCallNotice('Unable to copy invite link.');
     }
   };
@@ -575,6 +582,17 @@ const LeadDetail = ({ user }) => {
               )}
             </div>
           </div>
+
+          {error && (
+            <div style={{ padding: 12, borderRadius: 8, background: 'var(--color-danger-subtle)', color: 'var(--color-danger)', fontSize: 'var(--text-sm)' }}>
+              {error}
+            </div>
+          )}
+          {notice && (
+            <div style={{ padding: 12, borderRadius: 8, background: 'var(--color-success-subtle)', color: 'var(--color-success)', fontSize: 'var(--text-sm)' }}>
+              {notice}
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {TABS.map((tab) => {
@@ -657,8 +675,23 @@ const LeadDetail = ({ user }) => {
                       />
                     )}
                     <div style={{ marginTop: 8, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
-                      Transcript: {call.transcript ? 'Available' : 'Processing'}
+                      Transcript: {call.transcript ? 'Available' : (call.processing_status === 'failed' ? 'Failed' : 'Processing')}
                     </div>
+                    {call.transcript && (
+                      <div style={{
+                        marginTop: 8,
+                        padding: 10,
+                        borderRadius: 'var(--radius)',
+                        background: 'var(--color-bg-elevated)',
+                        color: 'var(--color-text-secondary)',
+                        fontSize: 'var(--text-sm)',
+                        whiteSpace: 'pre-wrap',
+                        maxHeight: 180,
+                        overflowY: 'auto',
+                      }}>
+                        {call.transcript}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -848,10 +881,15 @@ const LeadDetail = ({ user }) => {
                 </div>
               )}
               <div style={{ display: 'grid', gap: 6, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
-                <div>Recording: {isRecording ? (isPaused ? 'Paused' : 'On') : 'Off'}</div>
+                <div>Recording: {isRecording ? (isPaused ? 'Paused' : 'On') : recordingActive ? 'Started by other participant' : 'Off'}</div>
                 <div>Invite link: {inviteUrl ? 'Ready' : 'Generating...'}</div>
                 <div>Lead email: {lead?.email || 'Missing'}</div>
               </div>
+              {callNotice && (
+                <div style={{ padding: 10, borderRadius: 8, background: 'var(--color-bg-elevated)', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
+                  {callNotice}
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn btn-secondary" onClick={toggleMute} disabled={callWorking}>
                   {muted ? 'Unmute' : 'Mute'}

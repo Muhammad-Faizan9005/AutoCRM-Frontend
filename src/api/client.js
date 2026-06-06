@@ -36,6 +36,7 @@ export function getRefreshToken() {
 }
 
 export function setTokens({ accessToken, refreshToken }) {
+  memoryCache.clear();
   if (accessToken) {
     localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   }
@@ -45,6 +46,7 @@ export function setTokens({ accessToken, refreshToken }) {
 }
 
 export function clearTokens() {
+  memoryCache.clear();
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
 }
@@ -85,8 +87,9 @@ function getCacheablePrefix(path) {
   return CACHEABLE_PREFIXES.find((prefix) => cleanPath.startsWith(prefix)) || null;
 }
 
-function getCacheKey(method, path) {
-  return `${method}:${path}`;
+function getCacheKey(method, path, authToken = "") {
+  const tokenScope = authToken ? authToken.slice(-16) : "anonymous";
+  return `${tokenScope}:${method}:${path}`;
 }
 
 function getCacheTtlMs(prefix, overrideTtlMs) {
@@ -221,15 +224,13 @@ export async function apiFetch(path, init = {}, options = {}) {
     headers.set("Content-Type", "application/json");
   }
 
-  if (!skipAuth) {
-    const accessToken = getAccessToken();
-    if (accessToken) {
-      headers.set("Authorization", `Bearer ${accessToken}`);
-    }
+  const accessToken = skipAuth ? "" : getAccessToken();
+  if (!skipAuth && accessToken) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
   if (shouldCache) {
-    const cacheKey = getCacheKey(method, path);
+    const cacheKey = getCacheKey(method, path, accessToken);
     const cached = getCachedEntry(cacheKey);
     if (cached.hit) {
       return cached.value;
@@ -298,7 +299,7 @@ export async function apiFetch(path, init = {}, options = {}) {
   }
 
   if (shouldCache) {
-    const cacheKey = getCacheKey(method, path);
+    const cacheKey = getCacheKey(method, path, accessToken);
     setCacheEntry(cacheKey, data, getCacheTtlMs(cachePrefix, cacheTtlMs));
   } else if (method !== "GET" && cachePrefix) {
     invalidateCacheByPrefix(cachePrefix);
