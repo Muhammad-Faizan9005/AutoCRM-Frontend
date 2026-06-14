@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Briefcase,
   CheckCircle2,
@@ -26,6 +26,7 @@ import {
   updateTeam,
 } from './teamsApi';
 import { listAdminUsers } from './adminApi';
+import { PageLoader } from '../components/PageLoader';
 import { toast } from '../utils/toast';
 
 const getErr = (e, fallback) => e?.message || e?.data?.detail || fallback;
@@ -527,9 +528,7 @@ const AdminTeams = () => {
 
       {/* Teams list */}
       {loading ? (
-        <div className="card card-padding" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
-          <Loader2 size={16} className="animate-spin" /> Loading teams...
-        </div>
+        <PageLoader title="Loading team console" message="Fetching teams, managers, reps, and membership stats." minHeight="46vh" />
       ) : teams.length === 0 ? (
         <div className="card" style={{ padding: 40, textAlign: 'center' }}>
           <Users size={40} style={{ margin: '0 auto 16px', opacity: 0.2 }} />

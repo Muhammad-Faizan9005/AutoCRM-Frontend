@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Calendar, CheckSquare, Mail, Phone, PhoneOff, Plus, StickyNote } from 'lucide-react';
+import { CheckSquare, Mail, Phone, PhoneOff, Plus, StickyNote } from 'lucide-react';
 import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { SkeletonCard } from '../components/Skeleton';
+import { EntityCard } from '../components/EntityCard';
+import { PageLoader } from '../components/PageLoader';
 import { useCallSession } from '../hooks/useCallSession';
 import { useCallRecording } from '../hooks/useCallRecording';
 import { toast } from '../utils/toast';
+
+const CARD_ACCENTS = ['note-border-accent', 'note-border-success', 'note-border-warning'];
+
 
 const TABS = [
   { id: 'activity', label: 'Activity' },
@@ -20,6 +24,8 @@ const TABS = [
 
 const LEAD_STATUS_LABELS = { new: 'New', contacted: 'Contacted', nurture: 'Nurture', qualified: 'Qualified', unqualified: 'Unqualified', junk: 'Junk' };
 const TASK_STATUS_LABELS = { backlog: 'Backlog', todo: 'Todo', in_progress: 'In Progress', done: 'Done', canceled: 'Canceled' };
+const TASK_STATUS_BADGE = { backlog: 'badge-muted', todo: 'badge-accent', in_progress: 'badge-warning', done: 'badge-success', canceled: 'badge-danger' };
+const TASK_STATUS_ACCENT = { backlog: 'note-border-muted', todo: 'note-border-accent', in_progress: 'note-border-warning', done: 'note-border-success', canceled: 'note-border-danger' };
 const normalizeStatus = (status) => (status || '').toString().trim().toLowerCase().replace(/[/-]/g, '_').replace(/\s+/g, '_');
 const formatLeadStatus = (status) => LEAD_STATUS_LABELS[normalizeStatus(status)] || status || 'New';
 const formatTaskStatus = (status) => TASK_STATUS_LABELS[normalizeStatus(status) === 'open' ? 'todo' : normalizeStatus(status)] || status || 'Backlog';
@@ -72,6 +78,8 @@ const normalizeTask = (task) => ({
   dueAt: task.due_at || '',
   dueDateLabel: formatDate(task.due_at),
   updatedLabel: formatDateTime(task.updated_at || task.created_at),
+  source: task.source || 'manual',
+  aiReason: task.ai_reason || '',
 });
 
 const normalizeNote = (note) => ({
@@ -79,6 +87,8 @@ const normalizeNote = (note) => ({
   content: note.content || '',
   timestamp: note.updated_at || note.created_at,
   updatedLabel: formatDateTime(note.updated_at || note.created_at),
+  source: note.source || 'manual',
+  aiReason: note.ai_reason || '',
 });
 
 const LeadDetail = ({ user }) => {
@@ -88,6 +98,7 @@ const LeadDetail = ({ user }) => {
   const [calls, setCalls] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [notes, setNotes] = useState([]);
+  const [aiHistory, setAiHistory] = useState([]);
   const [ownerName, setOwnerName] = useState('');
   const [activeTab, setActiveTab] = useState('activity');
   const [loading, setLoading] = useState(true);
@@ -154,9 +165,10 @@ const LeadDetail = ({ user }) => {
           apiFetch(`/api/leads/${leadId}/calls`),
           apiFetch(`/api/tasks/?entity_type=lead&entity_id=${leadId}&skip=0&limit=50`),
           apiFetch(`/api/notes/?entity_type=lead&entity_id=${leadId}&skip=0&limit=50`),
+          apiFetch(`/api/leads/${leadId}/ai-history`),
         ]);
         if (!active) return;
-        const [leadRes, ownerRes, emailRes, callRes, taskRes, noteRes] = results;
+        const [leadRes, ownerRes, emailRes, callRes, taskRes, noteRes, aiHistoryRes] = results;
 
         if (leadRes.status === 'fulfilled') {
           setLead(leadRes.value);
@@ -182,6 +194,9 @@ const LeadDetail = ({ user }) => {
         if (noteRes.status === 'fulfilled') {
           setNotes(Array.isArray(noteRes.value) ? noteRes.value.map(normalizeNote) : []);
         }
+        if (aiHistoryRes.status === 'fulfilled') {
+          setAiHistory(Array.isArray(aiHistoryRes.value) ? aiHistoryRes.value : []);
+        }
       } catch (err) {
         if (active) setError(err?.message || 'Unable to load lead details.');
       } finally {
@@ -191,6 +206,16 @@ const LeadDetail = ({ user }) => {
     fetchAll();
     return () => { active = false; };
   }, [leadId, refreshTick]);
+
+  const refreshLeadScore = async () => {
+    try {
+      const result = await apiFetch(`/api/leads/${leadId}/score/recalculate`, { method: 'POST' }, { cache: false });
+      setLead((prev) => prev ? { ...prev, score: result.score, score_reason: result.score_reason } : prev);
+      toast.success('Lead score updated.');
+    } catch (err) {
+      toast.error(err?.message || 'Unable to update lead score.');
+    }
+  };
 
   const handleRetryLoad = () => {
     setRefreshTick((prev) => prev + 1);
@@ -525,14 +550,7 @@ const LeadDetail = ({ user }) => {
   };
 
   if (loading) {
-    return (
-      <PageTransition>
-        <div style={{ display: 'grid', gap: 16 }}>
-          <SkeletonCard />
-          <SkeletonCard />
-        </div>
-      </PageTransition>
-    );
+    return <PageLoader title="Loading lead details" message="Fetching profile, calls, tasks, notes, and AI context." />;
   }
 
   if (!lead && !loading) {
@@ -594,6 +612,20 @@ const LeadDetail = ({ user }) => {
             </div>
           )}
 
+          {lead && (
+            <div className="card card-padding" style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--color-text-tertiary)' }}>AI Lead Score</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                  <strong style={{ fontSize: 'var(--text-xl)' }}>{lead.score ?? 'Not scored'}</strong>
+                  {lead.score !== null && lead.score !== undefined && <span className={`badge ${Number(lead.score) >= 75 ? 'badge-success' : Number(lead.score) >= 45 ? 'badge-warning' : 'badge-danger'}`}>{Number(lead.score) >= 75 ? 'High' : Number(lead.score) >= 45 ? 'Medium' : 'Low'} Priority</span>}
+                </div>
+                <div style={{ marginTop: 6, color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>{lead.score_reason || 'Run scoring to generate an AI priority explanation.'}</div>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={refreshLeadScore}>Refresh AI Score</button>
+            </div>
+          )}
+
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {TABS.map((tab) => {
               const isActive = activeTab === tab.id;
@@ -634,6 +666,22 @@ const LeadDetail = ({ user }) => {
             ) : (
               <EmptyState type="activity" title="No activity" desc="No recent activity for this lead." />
             )
+          )}
+
+          {activeTab === 'activity' && aiHistory.length > 0 && (
+            <div className="card card-padding" style={{ display: 'grid', gap: 12 }}>
+              <h2 className="section-title">AI History</h2>
+              {aiHistory.map((item) => (
+                <div key={item.id} style={{ padding: 12, border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', display: 'grid', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <strong>{item.trigger_type || item.action_type}</strong>
+                    <span className="badge badge-purple">AI</span>
+                  </div>
+                  <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>{item.reason || 'AI action recorded.'}</div>
+                  <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>{formatDateTime(item.created_at)} • {item.approval_status || item.dispatch_status}</div>
+                </div>
+              ))}
+            </div>
           )}
 
           {activeTab === 'emails' && (
@@ -677,6 +725,11 @@ const LeadDetail = ({ user }) => {
                     <div style={{ marginTop: 8, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
                       Transcript: {call.transcript ? 'Available' : (call.processing_status === 'failed' ? 'Failed' : 'Processing')}
                     </div>
+                    {call.meeting_summary && (
+                      <div style={{ marginTop: 8, padding: 10, borderRadius: 'var(--radius)', background: 'var(--color-accent-subtle)', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)', whiteSpace: 'pre-wrap' }}>
+                        <strong>Meeting Summary:</strong> {call.meeting_summary}
+                      </div>
+                    )}
                     {call.transcript && (
                       <div style={{
                         marginTop: 8,
@@ -702,20 +755,22 @@ const LeadDetail = ({ user }) => {
 
           {activeTab === 'tasks' && (
             tasks.length ? (
-              <div className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
                 {tasks.map((task) => (
-                  <div key={task.id} style={{ padding: 12, border: '1px solid var(--color-border)', borderRadius: 'var(--radius)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <div style={{ fontWeight: 'var(--weight-medium)' }}>{task.title}</div>
-                      <div className="badge badge-muted">{formatTaskStatus(task.status)}</div>
-                    </div>
-                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{task.description || 'No description.'}</div>
-                    <div style={{ display: 'flex', gap: 10, marginTop: 8, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
-                      <span><Calendar size={12} /> {task.dueDateLabel}</span>
-                      <span>Priority: {task.priority}</span>
-                      <span>{task.updatedLabel}</span>
-                    </div>
-                  </div>
+                  <EntityCard
+                    key={task.id}
+                    title={task.title}
+                    description={task.source === 'ai' && task.aiReason ? `${task.description || ''}${task.description ? '\n\n' : ''}AI reason: ${task.aiReason}` : task.description}
+                    descriptionFallback="No description."
+                    accentClass={TASK_STATUS_ACCENT[normalizeStatus(task.status) === 'open' ? 'todo' : normalizeStatus(task.status)] || 'note-border-muted'}
+                    statusSlot={<div className={`badge ${TASK_STATUS_BADGE[normalizeStatus(task.status) === 'open' ? 'todo' : normalizeStatus(task.status)] || 'badge-muted'}`}>{formatTaskStatus(task.status)}</div>}
+                    badges={[
+                      { label: task.dueDateLabel },
+                      { label: `Priority: ${task.priority}` },
+                      { label: task.updatedLabel },
+                      task.source === 'ai' ? { label: 'AI Generated', className: 'badge-purple' } : null,
+                    ]}
+                  />
                 ))}
               </div>
             ) : (
@@ -725,15 +780,18 @@ const LeadDetail = ({ user }) => {
 
           {activeTab === 'notes' && (
             notes.length ? (
-              <div className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
-                {notes.map((note) => (
-                  <div key={note.id} style={{ padding: 12, border: '1px solid var(--color-border)', borderRadius: 'var(--radius)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <div style={{ fontWeight: 'var(--weight-medium)' }}>Note</div>
-                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{note.updatedLabel}</div>
-                    </div>
-                    <div style={{ color: 'var(--color-text-secondary)', marginTop: 6 }}>{note.content}</div>
-                  </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                {notes.map((note, idx) => (
+                  <EntityCard
+                    key={note.id}
+                    title="Note"
+                    description={note.source === 'ai' && note.aiReason ? `${note.content || ''}${note.content ? '\n\n' : ''}AI reason: ${note.aiReason}` : note.content}
+                    descriptionFallback="No note content added."
+                    accentClass={CARD_ACCENTS[idx % CARD_ACCENTS.length]}
+                    iconSlot={<StickyNote size={14} style={{ color: 'var(--color-text-tertiary)' }} />}
+                    badges={[{ label: note.updatedLabel }, note.source === 'ai' ? { label: 'AI Generated', className: 'badge-purple' } : null]}
+                    clampDescription
+                  />
                 ))}
               </div>
             ) : (

@@ -17,6 +17,7 @@ import {
 } from './adminApi';
 import { listTeams } from './teamsApi';
 import { PageTransition } from '../components/PageTransition';
+import { PageLoader } from '../components/PageLoader';
 import { toast } from '../utils/toast';
 
 const ROLE_OPTIONS = ['admin', 'manager', 'agent'];
@@ -276,6 +277,10 @@ const AdminUsers = ({ currentUser }) => {
     if (!permissions || typeof permissions !== 'object') return 0;
     return Object.values(permissions).filter(Boolean).length;
   };
+
+  if (isLoading && users.length === 0) {
+    return <PageLoader title="Loading user console" message="Fetching users, teams, invites, deleted users, and access data." />;
+  }
 
   return (
     <PageTransition>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Plus, Search, LayoutList, Columns2, RotateCcw, Eye, Pencil, Trash2, MoreHorizontal, Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
@@ -7,7 +7,8 @@ import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { SkeletonTable } from '../components/Skeleton';
+import { PageLoader } from '../components/PageLoader';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../utils/toast';
 
 const STATUS_LABELS = { new: 'New', contacted: 'Contacted', nurture: 'Nurture', qualified: 'Qualified', unqualified: 'Unqualified', junk: 'Junk' };
@@ -53,8 +54,13 @@ const Leads = ({ user }) => {
   const [hasMore, setHasMore] = useState(true);
   const latestRequestId = useRef(0);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingLead, setEditingLead] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [actionMenu, setActionMenu] = useState(null);
+  const [selectedLeadIds, setSelectedLeadIds] = useState(() => new Set());
   const [teamReps, setTeamReps] = useState([]);
   const [assigningMap, setAssigningMap] = useState({});
   const leadAssignStateRef = useRef(new Map());
@@ -72,6 +78,35 @@ const Leads = ({ user }) => {
   const canAssignLead = ['admin', 'sales_manager', 'manager'].includes((user?.role || '').toLowerCase());
 
   const resetForm = () => setFormData({ salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'new' });
+
+
+  const openCreateModal = () => {
+    setEditingLead(null);
+    resetForm();
+    setIsCreateModalOpen(true);
+  };
+
+  const closeLeadModal = () => {
+    if (isSaving) return;
+    setIsCreateModalOpen(false);
+    setEditingLead(null);
+    resetForm();
+  };
+
+  const openEditModal = (lead) => {
+    const parts = String(lead.name || '').trim().split(/\s+/).filter(Boolean);
+    setEditingLead(lead);
+    setFormData({
+      salutation: '',
+      firstName: parts[0] || '',
+      lastName: parts.slice(1).join(' '),
+      email: lead.email === '-' ? '' : lead.email || '',
+      mobile: lead.mobile === '-' ? '' : lead.mobile || '',
+      organization: lead.org === '-' ? '' : lead.org || '',
+      status: lead.status || 'new',
+    });
+    setIsCreateModalOpen(true);
+  };
 
   const fetchLeads = useCallback(async (skip = 0, append = false) => {
     const requestId = ++latestRequestId.current;
@@ -143,11 +178,19 @@ const Leads = ({ user }) => {
     };
     setIsSaving(true);
     try {
-      const created = await apiFetch('/api/leads/', { method: 'POST', body: JSON.stringify(payload) });
-      setLeads((prev) => [mapLeadToRow(created), ...prev]);
+      if (editingLead?.id) {
+        const updated = await apiFetch(`/api/leads/${editingLead.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+        const mapped = mapLeadToRow(updated);
+        setLeads((prev) => prev.map((lead) => (lead.id === editingLead.id ? { ...lead, ...mapped } : lead)));
+        toast.success('Lead updated successfully.');
+      } else {
+        const created = await apiFetch('/api/leads/', { method: 'POST', body: JSON.stringify(payload) });
+        setLeads((prev) => [mapLeadToRow(created), ...prev]);
+        toast.success('Lead created successfully.');
+      }
       setIsCreateModalOpen(false);
+      setEditingLead(null);
       resetForm();
-      toast.success('Lead created successfully.');
     } catch (err) {
       const message = err?.message || 'Unable to create lead.';
       setError(message);
@@ -156,12 +199,32 @@ const Leads = ({ user }) => {
     finally { setIsSaving(false); }
   };
 
-  const handleDeleteLead = async (id) => {
+  const requestDeleteLead = (lead) => {
     if (!canDelete) return;
-    if (!window.confirm('Delete this lead?')) return;
+    setDeleteTarget(lead);
+  };
+
+  const handleDeleteLead = async () => {
+    if (!canDelete || !deleteTarget?.id) return;
     setError('');
-    try { await apiFetch(`/api/leads/${id}`, { method: 'DELETE' }); setLeads((prev) => prev.filter((l) => l.id !== id)); }
-    catch (err) { setError(err?.message || 'Unable to delete lead.'); }
+    setIsDeleting(true);
+    try {
+      await apiFetch(`/api/leads/${deleteTarget.id}`, { method: 'DELETE' });
+      setLeads((prev) => prev.filter((l) => l.id !== deleteTarget.id));
+      setSelectedLeadIds((prev) => {
+        const next = new Set(prev);
+        next.delete(String(deleteTarget.id));
+        return next;
+      });
+      toast.success('Lead deleted.');
+      setDeleteTarget(null);
+    } catch (err) {
+      const message = err?.message || 'Unable to delete lead.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const setLeadAssigning = (leadId, isAssigning) => {
@@ -281,6 +344,31 @@ const Leads = ({ user }) => {
     XLSX.writeFile(wb, "CRM_Leads.xlsx");
   };
 
+
+  const visibleLeadIds = useMemo(() => filteredLeads.map((lead) => String(lead.id)), [filteredLeads]);
+  const selectedVisibleCount = visibleLeadIds.filter((id) => selectedLeadIds.has(id)).length;
+  const allVisibleSelected = visibleLeadIds.length > 0 && selectedVisibleCount === visibleLeadIds.length;
+
+  const toggleSelectAllVisible = (checked) => {
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev);
+      visibleLeadIds.forEach((id) => {
+        if (checked) next.add(id);
+        else next.delete(id);
+      });
+      return next;
+    });
+  };
+
+  const toggleLeadSelection = (id, checked) => {
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(String(id));
+      else next.delete(String(id));
+      return next;
+    });
+  };
+
   const groupedLeads = useMemo(() => {
     const groups = STATUS_ORDER.reduce((acc, status) => {
       acc[status] = leads.filter((lead) => lead.status === status);
@@ -322,7 +410,7 @@ const Leads = ({ user }) => {
             <button onClick={exportToExcel} className="btn btn-secondary btn-sm" aria-label="Export leads">
               <Download size={14} /> Export
             </button>
-            <button onClick={() => setIsCreateModalOpen(true)} className="btn btn-primary">
+            <button onClick={openCreateModal} className="btn btn-primary">
               <Plus size={15} /> Add Lead
             </button>
           </div>
@@ -335,7 +423,16 @@ const Leads = ({ user }) => {
         </div>
 
 
-        {loading ? <SkeletonTable rows={8} cols={6} /> : (
+        {error && <div className="alert alert-danger">{error}</div>}
+
+        {selectedLeadIds.size > 0 && (
+          <div className="card" style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{selectedLeadIds.size} lead{selectedLeadIds.size === 1 ? '' : 's'} selected</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setSelectedLeadIds(new Set())}>Clear selection</button>
+          </div>
+        )}
+
+        {loading ? <PageLoader title="Loading leads" message="Fetching lead list, ownership, organizations, and activity context." minHeight="46vh" /> : (
           <>
             {/* TABLE VIEW */}
             {viewMode === 'table' && (
@@ -344,7 +441,7 @@ const Leads = ({ user }) => {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th style={{ width: 36 }}><input type="checkbox" className="checkbox-input" /></th>
+                        <th style={{ width: 36 }}><input type="checkbox" className="checkbox-input" checked={allVisibleSelected} onChange={(e) => toggleSelectAllVisible(e.target.checked)} aria-label="Select all visible leads" /></th>
                         <th>Name</th>
                         <th>Organization</th>
                         <th>Status</th>
@@ -357,8 +454,8 @@ const Leads = ({ user }) => {
                     </thead>
                     <motion.tbody ref={tbodyRef} variants={staggerContainer} initial="initial" animate="animate">
                       {filteredLeads.map((l) => (
-                        <motion.tr key={l.id} variants={staggerItem}>
-                          <td><input type="checkbox" className="checkbox-input" /></td>
+                        <motion.tr key={l.id} variants={staggerItem} className={selectedLeadIds.has(String(l.id)) ? 'row-selected' : undefined}>
+                          <td><input type="checkbox" className="checkbox-input" checked={selectedLeadIds.has(String(l.id))} onChange={(e) => toggleLeadSelection(l.id, e.target.checked)} aria-label={`Select ${l.name}`} /></td>
                           <td style={{ fontWeight: 'var(--weight-medium)' }}>
                             <Link
                               to={`/leads/${l.id}`}
@@ -411,16 +508,16 @@ const Leads = ({ user }) => {
                               </button>
                               {actionMenu === l.id && (
                                 <div className="dropdown-menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)' }}>
-                                  <button className="dropdown-item" onClick={() => setActionMenu(null)}>
+                                  <button className="dropdown-item" onClick={() => { navigate(`/leads/${l.id}`); setActionMenu(null); }}>
                                     <Eye size={14} /> View
                                   </button>
                                   {canEdit && (
-                                    <button className="dropdown-item" onClick={() => setActionMenu(null)}>
+                                    <button className="dropdown-item" onClick={() => { openEditModal(l); setActionMenu(null); }}>
                                       <Pencil size={14} /> Edit
                                     </button>
                                   )}
                                   {canDelete && (
-                                    <button className="dropdown-item dropdown-item-danger" onClick={() => { handleDeleteLead(l.id); setActionMenu(null); }}>
+                                    <button className="dropdown-item dropdown-item-danger" onClick={() => { requestDeleteLead(l); setActionMenu(null); }}>
                                       <Trash2 size={14} /> Delete
                                     </button>
                                   )}
@@ -480,7 +577,7 @@ const Leads = ({ user }) => {
                           <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{l.org}</div>
                           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 6 }}>{l.email}</div>
                           {canDelete && (
-                            <button onClick={() => handleDeleteLead(l.id)} className="btn btn-danger btn-sm" style={{ marginTop: 8 }}>
+                            <button onClick={() => requestDeleteLead(l)} className="btn btn-danger btn-sm" style={{ marginTop: 8 }}>
                               <Trash2 size={12} /> Delete
                             </button>
                           )}
@@ -503,6 +600,17 @@ const Leads = ({ user }) => {
           </>
         )}
 
+
+        <ConfirmDialog
+          open={Boolean(deleteTarget)}
+          title="Delete lead?"
+          message={deleteTarget ? `This will permanently delete "${deleteTarget.name}". This action cannot be undone.` : 'This action cannot be undone.'}
+          confirmLabel="Delete lead"
+          isLoading={isDeleting}
+          onCancel={() => { if (!isDeleting) setDeleteTarget(null); }}
+          onConfirm={handleDeleteLead}
+        />
+
         {/* CREATE MODAL */}
         <AnimatePresence>
           {isCreateModalOpen && (
@@ -511,7 +619,7 @@ const Leads = ({ user }) => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsCreateModalOpen(false)}
+              onClick={closeLeadModal}
             >
               <motion.div
                 className="modal-content dialog-content-enter"
@@ -523,8 +631,8 @@ const Leads = ({ user }) => {
                 transition={{ duration: 0.25 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
-                  <h3 className="section-title">Create Lead</h3>
-                  <button onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost btn-icon" aria-label="Close">
+                  <h3 className="section-title">{editingLead ? 'Edit Lead' : 'Create Lead'}</h3>
+                  <button onClick={closeLeadModal} className="btn btn-ghost btn-icon" aria-label="Close">
                     <X size={18} />
                   </button>
                 </div>
@@ -571,9 +679,9 @@ const Leads = ({ user }) => {
                 </form>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
-                  <button type="button" onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost">Discard</button>
+                  <button type="button" onClick={closeLeadModal} className="btn btn-ghost">Discard</button>
                   <button type="submit" form="create-lead-form" disabled={isSaving} className="btn btn-primary">
-                    {isSaving ? 'Creating...' : 'Create Lead'}
+                    {isSaving ? (editingLead ? 'Saving...' : 'Creating...') : (editingLead ? 'Save Changes' : 'Create Lead')}
                   </button>
                 </div>
               </motion.div>

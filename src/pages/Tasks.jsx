@@ -6,15 +6,19 @@ import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { SkeletonCard } from '../components/Skeleton';
+import { PageLoader } from '../components/PageLoader';
+import { EntityCard } from '../components/EntityCard';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../utils/toast';
+
+const CARD_GRID_STYLE = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 20, alignItems: 'stretch' };
 
 const LEAD_ENTITY_TYPE = 'lead';
 const STATUS_ORDER = ['backlog', 'todo', 'in_progress', 'done', 'canceled'];
 const REP_STATUS_OPTIONS = ['in_progress', 'done'];
-const STATUS_BADGE = { backlog: 'badge-muted', todo: 'badge-accent', in_progress: 'badge-success', done: 'badge-danger', canceled: 'badge-purple' };
+const STATUS_BADGE = { backlog: 'badge-muted', todo: 'badge-accent', in_progress: 'badge-warning', done: 'badge-success', canceled: 'badge-danger' };
 const STATUS_LABEL = { backlog: 'Backlog', todo: 'Todo', in_progress: 'In Progress', done: 'Done', canceled: 'Canceled' };
-const NOTE_BORDERS = ['note-border-accent', 'note-border-success', 'note-border-warning'];
+const STATUS_ACCENT = { backlog: 'note-border-muted', todo: 'note-border-accent', in_progress: 'note-border-warning', done: 'note-border-success', canceled: 'note-border-danger' };
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -41,7 +45,7 @@ const getAssigneeLabel = (assignedTo, currentUser, directory) => {
   if (currentUser?.id && String(assignedTo) === String(currentUser.id)) return 'You';
   const rep = directory[String(assignedTo)];
   if (rep) return rep;
-  return `Rep ${String(assignedTo).slice(0, 8)}`;
+  return 'Assigned rep';
 };
 
 const normalizeTask = (task, currentUser, directory, leadDirectory) => ({
@@ -53,10 +57,12 @@ const normalizeTask = (task, currentUser, directory, leadDirectory) => ({
   dueAt: task.due_at || '',
   dueDateLabel: formatDate(task.due_at),
   assignedTo: task.assigned_to || null,
-  assigneeLabel: getAssigneeLabel(task.assigned_to, currentUser, directory),
+  assigneeLabel: task.assignee_name || getAssigneeLabel(task.assigned_to, currentUser, directory),
   modifiedLabel: formatDateTime(task.updated_at || task.created_at),
   leadId: String(task.entity_id || ''),
-  leadName: leadDirectory[String(task.entity_id)] || `Lead ${String(task.entity_id || '').slice(0, 8)}`,
+  leadName: task.lead_name || leadDirectory[String(task.entity_id)] || 'Loading lead...',
+  source: task.source || 'manual',
+  aiReason: task.ai_reason || '',
 });
 
 const Tasks = ({ user }) => {
@@ -81,6 +87,8 @@ const Tasks = ({ user }) => {
     assignedTo: '',
     leadId: '',
   });
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [assigneeOptions, setAssigneeOptions] = useState([]);
   const [assigneeDirectory, setAssigneeDirectory] = useState({});
   const [loadingAssignees, setLoadingAssignees] = useState(false);
@@ -101,17 +109,18 @@ const Tasks = ({ user }) => {
         const reps = items.filter((u) => ['agent', 'sales_rep'].includes(String(u?.role || '').toLowerCase()));
         const directory = {};
         reps.forEach((rep) => {
-          directory[String(rep.id)] = rep.full_name || rep.email || String(rep.id).slice(0, 8);
+          directory[String(rep.id)] = rep.full_name || rep.email || 'Assigned rep';
         });
         setAssigneeDirectory(directory);
         setAssigneeOptions(reps);
         setFormData((prev) => ({ ...prev, assignedTo: prev.assignedTo || String(reps[0]?.id || '') }));
+        setTasks((prev) => prev.map((task) => ({ ...task, assigneeLabel: getAssigneeLabel(task.assignedTo, user, directory) })));
       } catch {
         setAssigneeOptions([]);
       } finally {
       setLoadingAssignees(false);
     }
-  }, [canManageTasks]);
+  }, [canManageTasks, user]);
 
   const loadLeads = useCallback(async () => {
     setLoadingLeads(true);
@@ -120,12 +129,13 @@ const Tasks = ({ user }) => {
       const leads = Array.isArray(data) ? data : [];
       const directory = {};
       leads.forEach((lead) => {
-        directory[String(lead.id)] = lead.name || `Lead ${String(lead.id).slice(0, 8)}`;
+        directory[String(lead.id)] = lead.name || 'Unnamed lead';
       });
       setLeadOptions(leads);
       setLeadDirectory(directory);
       leadDirectoryRef.current = directory;
       setFormData((prev) => ({ ...prev, leadId: prev.leadId || String(leads[0]?.id || '') }));
+      setTasks((prev) => prev.map((task) => ({ ...task, leadName: directory[String(task.leadId)] || task.leadName || 'Loading lead...' })));
     } catch {
       setLeadOptions([]);
       setLeadDirectory({});
@@ -169,7 +179,7 @@ const Tasks = ({ user }) => {
           );
           leads.forEach((lead) => {
             if (lead?.id) {
-              directory[String(lead.id)] = lead.name || `Lead ${String(lead.id).slice(0, 8)}`;
+              directory[String(lead.id)] = lead.name || 'Unnamed lead';
             }
           });
           leadDirectoryRef.current = directory;
@@ -329,20 +339,28 @@ const Tasks = ({ user }) => {
     }
   };
 
-  const canDeleteTask = (task) => {
+  const canDeleteTask = () => {
     return canManageTasks;
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this task?')) return;
+  const requestDelete = (task) => {
+    setDeleteTarget(task);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget?.id) return;
+    setIsDeleting(true);
     try {
-      await apiFetch(`/api/tasks/${id}`, { method: 'DELETE' });
-      setTasks((prev) => prev.filter((task) => task.id !== id));
+      await apiFetch(`/api/tasks/${deleteTarget.id}`, { method: 'DELETE' });
+      setTasks((prev) => prev.filter((task) => task.id !== deleteTarget.id));
       toast.success('Task deleted.');
+      setDeleteTarget(null);
     } catch (err) {
       const message = err?.message || 'Delete failed.';
       setError(message);
       toast.error(message);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -370,43 +388,35 @@ const Tasks = ({ user }) => {
           <input type="text" placeholder="Search tasks..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
 
+        {error && <div className="alert alert-danger">{error}</div>}
+
 
         {loading ? (
-          <div className="masonry-grid">{[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}</div>
+          <PageLoader title="Loading tasks" message="Fetching tasks, assignees, lead names, and AI labels." minHeight="46vh" />
         ) : filtered.length === 0 ? (
           <EmptyState type="tasks" />
         ) : (
-          <div ref={gridRef} className="masonry-grid">
-            {filtered.map((task, idx) => (
-              <motion.div
+          <div ref={gridRef} style={CARD_GRID_STYLE}>
+            {filtered.map((task) => (
+              <EntityCard
                 key={task.id}
-                className={`card ${NOTE_BORDERS[idx % 3]}`}
-                style={{ padding: 16, cursor: canManageTasks ? 'pointer' : 'default' }}
+                title={task.title}
+                description={task.source === 'ai' && task.aiReason ? `${task.description || ''}${task.description ? '\n\n' : ''}AI reason: ${task.aiReason}` : task.description}
+                accentClass={STATUS_ACCENT[task.status] || 'note-border-muted'}
+                clickable={canManageTasks}
                 onClick={() => {
                   if (canManageTasks) openEdit(task);
                 }}
-                whileHover={{ scale: 1.01 }}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-                  <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 'var(--text-md)' }}>{task.title}</h3>
-                  <span className={`badge ${STATUS_BADGE[task.status] || 'badge-muted'}`}>{STATUS_LABEL[task.status] || task.status}</span>
-                </div>
-
-                <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', minHeight: 44 }}>
-                  {task.description || 'No description added.'}
-                </p>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                  <span className="badge badge-muted">{task.leadName}</span>
-                  <span className="badge badge-muted">{task.dueDateLabel}</span>
-                  <span className="badge badge-muted">{task.priority}</span>
-                  <span className="badge badge-muted">Assigned: {task.assigneeLabel}</span>
-                  <span className="badge badge-muted">{task.modifiedLabel}</span>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: canManageTasks ? 'space-between' : 'flex-end', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border)', gap: 8 }}>
+                statusSlot={<span className={`badge ${STATUS_BADGE[task.status] || 'badge-muted'}`}>{STATUS_LABEL[task.status] || task.status}</span>}
+                badges={[
+                  { label: task.leadName },
+                  { label: task.dueDateLabel },
+                  { label: task.priority },
+                  { label: `Assigned: ${task.assigneeLabel}` },
+                  { label: task.modifiedLabel },
+                  task.source === 'ai' ? { label: 'AI Generated', className: 'badge-purple' } : null,
+                ]}
+                footerLeft={(
                   <select
                     className="input"
                     value={task.status}
@@ -415,37 +425,37 @@ const Tasks = ({ user }) => {
                       event.stopPropagation();
                       updateTaskStatus(task, event.target.value);
                     }}
-                    style={{ maxWidth: 180, height: 34, padding: '0 10px' }}
+                    style={{ width: 180, maxWidth: '100%', height: 34, padding: '0 10px' }}
                     aria-label="Change task status"
                   >
                     {statusOptionsFor(task).map((status) => (
                       <option key={status} value={status}>{STATUS_LABEL[status] || status}</option>
                     ))}
                   </select>
-                  {canManageTasks && (
-                    <div style={{ display: 'flex', gap: 6 }}>
+                )}
+                actions={canManageTasks && (
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openEdit(task); }}
+                      className="btn btn-ghost btn-icon"
+                      style={{ width: 24, height: 24, padding: 2 }}
+                      aria-label="Edit"
+                    >
+                      <SquarePen size={12} />
+                    </button>
+                    {canDeleteTask(task) && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); openEdit(task); }}
-                        className="btn btn-ghost btn-icon"
-                        style={{ width: 24, height: 24, padding: 2 }}
-                        aria-label="Edit"
-                      >
-                        <SquarePen size={12} />
-                      </button>
-                      {canDeleteTask(task) && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(task.id); }}
+                        onClick={(e) => { e.stopPropagation(); requestDelete(task); }}
                         className="btn btn-ghost btn-icon"
                         style={{ width: 24, height: 24, padding: 2 }}
                         aria-label="Delete"
                       >
                         <Trash2 size={12} style={{ color: 'var(--color-danger)' }} />
                       </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </motion.div>
+                    )}
+                  </>
+                )}
+              />
             ))}
           </div>
         )}
@@ -457,6 +467,17 @@ const Tasks = ({ user }) => {
             </button>
           </div>
         )}
+
+
+        <ConfirmDialog
+          open={Boolean(deleteTarget)}
+          title="Delete task?"
+          message={deleteTarget ? `This will permanently delete "${deleteTarget.title}". This action cannot be undone.` : 'This action cannot be undone.'}
+          confirmLabel="Delete task"
+          isLoading={isDeleting}
+          onCancel={() => { if (!isDeleting) setDeleteTarget(null); }}
+          onConfirm={handleDelete}
+        />
 
         <AnimatePresence>
           {modalType && (
@@ -478,7 +499,7 @@ const Tasks = ({ user }) => {
                     >
                       {!formData.leadId && <option value="">Select lead</option>}
                       {leadOptions.map((lead) => (
-                        <option key={lead.id} value={lead.id}>{lead.name || `Lead ${String(lead.id).slice(0, 8)}`}</option>
+                        <option key={lead.id} value={lead.id}>{lead.name || 'Unnamed lead'}</option>
                       ))}
                     </select>
                   </div>

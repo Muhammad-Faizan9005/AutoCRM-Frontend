@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Search, RotateCcw, Building2, Trash2, X, Globe, DollarSign } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
@@ -6,7 +7,7 @@ import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { SkeletonCard } from '../components/Skeleton';
+import { PageLoader } from '../components/PageLoader';
 import { toast } from '../utils/toast';
 
 const formatDate = (value) => {
@@ -49,6 +50,7 @@ const Organizations = ({ user }) => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const latestRequestId = useRef(0);
+  const navigate = useNavigate();
   const [gridRef] = useAutoAnimate();
   const canDelete = user?.role === 'admin';
 
@@ -132,10 +134,10 @@ const Organizations = ({ user }) => {
         </div>
 
 
+        {error && <div className="alert alert-danger">{error}</div>}
+
         {loading ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-            {[1, 2, 3, 4, 5, 6].map(i => <SkeletonCard key={i} />)}
-          </div>
+          <PageLoader title="Loading organizations" message="Fetching account records, revenue data, and workspace context." minHeight="46vh" />
         ) : (
           filteredOrgs.length === 0 ? <EmptyState type="organizations" /> : (
             <div ref={gridRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
@@ -146,7 +148,8 @@ const Organizations = ({ user }) => {
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2 }}
-                  style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 12, cursor: 'pointer' }}
+                  onClick={() => navigate(`/orgs/${o.id}`)}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -177,7 +180,7 @@ const Organizations = ({ user }) => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: 10 }}>
                     <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Updated {o.modified}</span>
                     {canDelete && (
-                      <button onClick={() => handleDeleteOrg(o.id)} className="btn btn-danger btn-sm"><Trash2 size={12} /> Delete</button>
+                      <button onClick={(event) => { event.stopPropagation(); handleDeleteOrg(o.id); }} className="btn btn-danger btn-sm"><Trash2 size={12} /> Delete</button>
                     )}
                   </div>
                 </motion.div>

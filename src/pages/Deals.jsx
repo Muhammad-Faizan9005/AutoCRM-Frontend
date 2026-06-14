@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { SkeletonTable } from '../components/Skeleton';
+import { PageLoader } from '../components/PageLoader';
 import { toast } from '../utils/toast';
 
 const STAGE_LABELS = { prospecting:'Prospecting', qualification:'Qualification', proposal:'Proposal', negotiation:'Negotiation', closed:'Closed', closed_won:'Closed Won', closed_lost:'Closed Lost' };
@@ -18,6 +18,16 @@ const STATUS_FILTERS = [
   { id: 'all', label: 'All' },
   ...STATUS_ORDER.map((status) => ({ id: status, label: STATUS_LABELS[status] })),
 ];
+const DEAL_TYPE_LABELS = { new_business: 'New Business', upsell: 'Upsell', renewal: 'Renewal', cross_sell: 'Cross-sell' };
+const DEAL_TYPE_BADGE = { new_business: 'badge-accent', upsell: 'badge-success', renewal: 'badge-warning', cross_sell: 'badge-purple' };
+const DEAL_TYPE_ORDER = ['new_business', 'upsell', 'renewal', 'cross_sell'];
+const normalizeDealType = (value) => {
+  const normalized = (value || 'new_business').toString().trim().toLowerCase().replace(/[/-]/g, '_').replace(/\s+/g, '_');
+  if (normalized === 'new' || normalized === 'new_sale') return 'new_business';
+  if (normalized === 'crosssell') return 'cross_sell';
+  return DEAL_TYPE_ORDER.includes(normalized) ? normalized : 'new_business';
+};
+
 const normalizeStage = (s) => (s||'').toString().trim().toLowerCase().replace(/\s+/g,'_') || 'prospecting';
 const formatStage = (s) => STAGE_LABELS[normalizeStage(s)] || s || 'Unknown';
 const formatDate = (v) => { if (!v) return '-'; const d=new Date(v); return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); };
@@ -39,10 +49,11 @@ const mapDeal = (deal,orgIdx,leadIdx) => {
   const linkedLead = leadIdx.get(String(deal.lead_id || ''));
   return {
   id: deal.id,
-  org: orgIdx.get(deal.organization_id) || linkedLead?.company || linkedLead?.name || deal.organization_id || '-',
+  org: deal.organization_name || orgIdx.get(deal.organization_id) || linkedLead?.company || linkedLead?.name || 'Organization loading...',
   revenue: formatMoney(deal.value, deal.currency),
   stage: normalizeStage(deal.stage),
   status: mapDealStatus(deal.status),
+  dealType: normalizeDealType(deal.deal_type),
   modified: formatDate(deal.updated_at),
   };
 };
@@ -69,8 +80,8 @@ const Deals = ({ user }) => {
   const [dragOverStatus, setDragOverStatus] = useState(null);
   const canDelete = user?.role === 'admin';
 
-  const [formData, setFormData] = useState({ orgName:'', website:'', revenue:'', industry:'', firstName:'', lastName:'', email:'', mobile:'', status:'qualification' });
-  const resetForm = () => setFormData({ orgName:'', website:'', revenue:'', industry:'', firstName:'', lastName:'', email:'', mobile:'', status:'qualification' });
+  const [formData, setFormData] = useState({ orgName:'', website:'', revenue:'', industry:'', dealType:'new_business', firstName:'', lastName:'', email:'', mobile:'', status:'qualification' });
+  const resetForm = () => setFormData({ orgName:'', website:'', revenue:'', industry:'', dealType:'new_business', firstName:'', lastName:'', email:'', mobile:'', status:'qualification' });
 
   const orgIdx = useMemo(() => new Map(organizations.map(o=>[o.id,o.name||'-'])), [organizations]);
   const leadIdx = useMemo(() => new Map(Object.entries(leadLookup)), [leadLookup]);
@@ -87,7 +98,7 @@ const Deals = ({ user }) => {
       if(append)setDealRecords(p=>[...p,...data]);else setDealRecords(data);
       const missingLeadIds = Array.from(new Set(
         data
-          .filter((deal) => !deal.organization_id && deal.lead_id && !leadLookupRef.current[String(deal.lead_id)])
+          .filter((deal) => deal.lead_id && !leadLookupRef.current[String(deal.lead_id)])
           .map((deal) => String(deal.lead_id))
       ));
       if (missingLeadIds.length) {
@@ -133,14 +144,14 @@ const Deals = ({ user }) => {
     return deals.filter((deal) => {
       if (statusFilter !== 'all' && deal.status !== statusFilter) return false;
       if (!term) return true;
-      return String(deal.org).toLowerCase().includes(term);
+      return [deal.org, DEAL_TYPE_LABELS[deal.dealType]].some((value) => String(value).toLowerCase().includes(term));
     });
   }, [deals, searchTerm, statusFilter]);
 
   const ensureOrgId = async()=>{const n=formData.orgName.trim();if(!n)return null;const ex=organizations.find(o=>o.name?.toLowerCase()===n.toLowerCase());if(ex)return ex.id;const c=await apiFetch('/api/organizations/',{method:'POST',body:JSON.stringify({name:n,website:formData.website.trim()||undefined,industry:formData.industry||undefined,revenue:parseAmount(formData.revenue)})});setOrganizations(p=>[c,...p]);return c.id;};
   const ensureLeadId = async()=>{const nm=[formData.firstName.trim(),formData.lastName.trim()].filter(Boolean).join(' ');const em=formData.email.trim();if(!nm&&!em)return null;const c=await apiFetch('/api/leads/',{method:'POST',body:JSON.stringify({name:nm||'New Lead',email:em||undefined,phone:formData.mobile.trim()||undefined,company:formData.orgName.trim()||undefined,status:'new',source:MANUAL_LEAD_SOURCE})});return c.id;};
 
-  const handleSave = async(e)=>{e.preventDefault();setError('');setIsSaving(true);try{const oid=await ensureOrgId();const lid=await ensureLeadId();const created=await apiFetch('/api/deals/',{method:'POST',body:JSON.stringify({organization_id:oid||undefined,lead_id:lid||undefined,stage:normalizeStage(formData.status),status:formData.status,value:parseAmount(formData.revenue),currency:inferCurrency(formData.revenue)})});setDealRecords(p=>[created,...p]);setIsCreateOpen(false);resetForm();}catch(e){setError(e?.message||'Unable to create deal.');}finally{setIsSaving(false);}};
+  const handleSave = async(e)=>{e.preventDefault();setError('');setIsSaving(true);try{const oid=await ensureOrgId();const lid=await ensureLeadId();const created=await apiFetch('/api/deals/',{method:'POST',body:JSON.stringify({organization_id:oid||undefined,lead_id:lid||undefined,stage:normalizeStage(formData.status),status:formData.status,deal_type:formData.dealType,value:parseAmount(formData.revenue),currency:inferCurrency(formData.revenue)})});setDealRecords(p=>[created,...p]);setIsCreateOpen(false);resetForm();}catch(e){setError(e?.message||'Unable to create deal.');}finally{setIsSaving(false);}};
 
   const handleDelete = async(id)=>{if(!canDelete||!window.confirm('Delete this deal?'))return;try{await apiFetch(`/api/deals/${id}`,{method:'DELETE'});setDealRecords(p=>p.filter(d=>d.id!==id));}catch(e){setError(e?.message||'Delete failed.');}};
 
@@ -228,7 +239,7 @@ const Deals = ({ user }) => {
 
         {error && <div style={{ padding:12, background:'var(--color-danger-subtle)', border:'1px solid var(--color-danger)', borderRadius:'var(--radius)', fontSize:'var(--text-sm)', color:'var(--color-danger)' }}>{error}</div>}
 
-        {loading ? <SkeletonTable rows={8} cols={5}/> : (
+        {loading ? <PageLoader title="Loading deals" message="Fetching pipeline, deal types, owners, and linked leads." minHeight="46vh" /> : (
           <>
             {viewMode==='table' && (
               filtered.length===0 ? <EmptyState type="leads" title="No deals yet" desc="Create your first deal"/> : (
@@ -236,7 +247,7 @@ const Deals = ({ user }) => {
                   <table className="data-table">
                     <thead><tr>
                       <th style={{ width:36 }}><input type="checkbox" className="checkbox-input"/></th>
-                      <th>Organization</th><th>Revenue</th><th>Stage</th><th>Status</th><th>Modified</th><th style={{ width:60, textAlign:'right' }}>Actions</th>
+                      <th>Organization</th><th>Type</th><th>Revenue</th><th>Stage</th><th>Status</th><th>Modified</th><th style={{ width:60, textAlign:'right' }}>Actions</th>
                     </tr></thead>
                     <motion.tbody ref={tbodyRef} variants={staggerContainer} initial="initial" animate="animate">
                       {filtered.map(d=>(
@@ -247,6 +258,7 @@ const Deals = ({ user }) => {
                         >
                           <td><input type="checkbox" className="checkbox-input"/></td>
                           <td style={{ fontWeight:'var(--weight-medium)' }}>{d.org}</td>
+                          <td><span className={`badge ${DEAL_TYPE_BADGE[d.dealType] || 'badge-muted'}`}>{DEAL_TYPE_LABELS[d.dealType] || d.dealType}</span></td>
                           <td style={{ color:'var(--color-text-secondary)' }}>{d.revenue}</td>
                           <td><span className={`badge ${STAGE_BADGE[d.stage]||'badge-muted'}`}>{formatStage(d.stage)}</span></td>
                           <td><span className={`badge ${STATUS_BADGE[d.status]||'badge-muted'}`}>{STATUS_LABELS[d.status] || d.status || 'Unknown'}</span></td>
@@ -309,6 +321,7 @@ const Deals = ({ user }) => {
                         >
                           <div style={{ fontWeight:'var(--weight-medium)', marginBottom:4 }}>{d.org}</div>
                           <div style={{ fontSize:'var(--text-sm)', color:'var(--color-text-secondary)' }}>{d.revenue}</div>
+                          <span className={`badge ${DEAL_TYPE_BADGE[d.dealType] || 'badge-muted'}`} style={{ marginTop: 6 }}>{DEAL_TYPE_LABELS[d.dealType] || d.dealType}</span>
                           {canDelete && <button onClick={()=>handleDelete(d.id)} className="btn btn-danger btn-sm" style={{ marginTop:8 }}><Trash2 size={12}/> Delete</button>}
                         </div>
                       ))}
@@ -340,6 +353,7 @@ const Deals = ({ user }) => {
                     <div><label className="label">Revenue</label><input type="text" className="input" value={formData.revenue} onChange={e=>setFormData({...formData,revenue:e.target.value})}/></div>
                     <div><label className="label">Status</label><select className="input" value={formData.status} onChange={e=>setFormData({...formData,status:e.target.value})}>{STATUS_ORDER.map((status)=><option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></div>
                   </div>
+                  <div><label className="label">Deal Type</label><select className="input" value={formData.dealType} onChange={e=>setFormData({...formData,dealType:e.target.value})}>{DEAL_TYPE_ORDER.map((type)=><option key={type} value={type}>{DEAL_TYPE_LABELS[type]}</option>)}</select></div>
                   <div style={{ padding:14, background:'var(--color-bg-hover)', borderRadius:'var(--radius)', border:'1px solid var(--color-border)' }}>
                     <div style={{ fontSize:'var(--text-sm)', fontWeight:'var(--weight-semibold)', marginBottom:10, color:'var(--color-text-secondary)' }}>Primary Contact (Optional)</div>
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>

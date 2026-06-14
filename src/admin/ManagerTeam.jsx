@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   BarChart2,
   Briefcase,
@@ -23,6 +23,7 @@ import {
   removeTeamMember,
   updateTeam,
 } from './teamsApi';
+import { PageLoader } from '../components/PageLoader';
 import { toast } from '../utils/toast';
 
 const getErr = (e, fallback) => e?.message || e?.data?.detail || fallback;
@@ -401,11 +402,7 @@ const ManagerTeam = () => {
   };
 
   if (loading) {
-    return (
-      <div className="card card-padding" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
-        <Loader2 size={16} className="animate-spin" /> Loading your team...
-      </div>
-    );
+    return <PageLoader title="Loading manager console" message="Fetching your team, reps, performance stats, and assignments." minHeight="52vh" />;
   }
 
   /* No team yet */

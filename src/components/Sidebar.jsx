@@ -457,6 +457,7 @@ const Sidebar = ({ onLogout, user, permissions }) => {
 
           {/* Logout */}
           <button
+            type="button"
             onClick={onLogout}
             className="btn-ghost"
             style={{
