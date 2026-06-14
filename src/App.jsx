@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import Login from './pages/Login';
@@ -13,16 +13,19 @@ import LeadDetail from './pages/LeadDetail';
 import Deals from './pages/Deals';
 import Contacts from './pages/Contacts';
 import Organizations from './pages/Organizations';
+import OrganizationDetail from './pages/OrganizationDetail';
 import Notes from './pages/Notes';
 import Tasks from './pages/Tasks';
 import ImportData from './pages/ImportData';
 import AdminLayout from './admin/AdminLayout';
-import { apiFetch, clearTokens, getAccessToken, getRefreshToken } from './api/client';
+import { API_BASE, apiFetch, clearTokens, getAccessToken, getRefreshToken } from './api/client';
 import { getPermissionsForUser } from './admin/permissionsStore';
 import { logger } from './utils/logger';
-import { SkeletonDashboard } from './components/Skeleton';
+import { LoadingScreen } from './components/LoadingScreen';
 
 const USER_PROFILE_KEY = 'user_profile';
+const LOGOUT_ANIMATION_MS = 1200;
+const LOGOUT_ROUTE_SETTLE_MS = 300;
 
 function App() {
   const [user, setUser] = useState(null);
@@ -30,6 +33,9 @@ function App() {
   const [permissions, setPermissions] = useState(() => getPermissionsForUser(null));
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [inactiveNotice, setInactiveNotice] = useState(null);
+  const [showLoginLoader, setShowLoginLoader] = useState(false);
+  const loginLoaderTimerRef = useRef(null);
+  const isSigningOutRef = useRef(false);
 
   const clearSession = () => {
     clearTokens();
@@ -162,6 +168,7 @@ function App() {
     let isMounted = true;
 
     const checkActive = async () => {
+      if (isSigningOutRef.current) return;
       try {
         await apiFetch('/api/auth/me', {}, { timeoutMs: 3000 });
       } catch (error) {
@@ -185,32 +192,74 @@ function App() {
     };
   }, [user]);
 
+
+  useEffect(() => {
+    return () => {
+      if (loginLoaderTimerRef.current) {
+        clearTimeout(loginLoaderTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleLogin = (userData) => {
     setUser(userData);
     setPermissions(getPermissionsForUser(userData));
     localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(userData));
+    setShowLoginLoader(true);
+    if (loginLoaderTimerRef.current) {
+      clearTimeout(loginLoaderTimerRef.current);
+    }
+    loginLoaderTimerRef.current = setTimeout(() => {
+      setShowLoginLoader(false);
+      loginLoaderTimerRef.current = null;
+    }, 10000);
   };
 
-  const handleLogout = async () => {
-    setIsLoggingOut(true);
-    try {
-      const refreshToken = getRefreshToken();
-      await apiFetch(
-        '/api/auth/logout',
-        {
-          method: 'POST',
-          body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : undefined,
-        },
-        { timeoutMs: 3000 }
-      );
-    } catch (error) {
-      logger.warn('auth.logout.request_failed', { message: error?.message });
-      // Ignore logout errors and clear local session.
+  const handleLogout = () => {
+    if (isSigningOutRef.current) return;
+    isSigningOutRef.current = true;
+
+    if (loginLoaderTimerRef.current) {
+      clearTimeout(loginLoaderTimerRef.current);
+      loginLoaderTimerRef.current = null;
     }
 
-    clearSession();
-    setIsLoggingOut(false);
+    // Correct sequencing:
+    // 1. Show the sign-out overlay first and let the animation cover the current page.
+    // 2. Revoke tokens in the background while the overlay is visible.
+    // 3. Only after the animation is basically done, clear auth state and route to login.
+    // 4. Keep the overlay up briefly during the route swap so login never flashes behind it.
+    window.__AUTOCRM_SIGNING_OUT__ = true;
+    setShowLoginLoader(false);
+    setIsLoggingOut(true);
+
+    const accessToken = getAccessToken();
+    const refreshToken = getRefreshToken();
     logger.info('auth.logout', { reason: 'user' });
+
+    if (refreshToken && accessToken) {
+      fetch(`${API_BASE}/api/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+        keepalive: true,
+      }).catch((error) => {
+        logger.warn('auth.logout.request_failed', { message: error?.message });
+      });
+    }
+
+    window.setTimeout(() => {
+      clearSession();
+
+      window.setTimeout(() => {
+        setIsLoggingOut(false);
+        window.__AUTOCRM_SIGNING_OUT__ = false;
+        isSigningOutRef.current = false;
+      }, LOGOUT_ROUTE_SETTLE_MS);
+    }, LOGOUT_ANIMATION_MS);
   };
 
   const canAccess = (permissionKey) => permissions?.[permissionKey] === true;
@@ -274,6 +323,10 @@ function App() {
                     path="/orgs"
                     element={guardRoute('organizations', <Organizations user={user} />)}
                   />
+                  <Route
+                    path="/orgs/:organizationId"
+                    element={guardRoute('organizations', <OrganizationDetail user={user} />)}
+                  />
                   <Route path="/tasks" element={guardRoute('notes', <Notes user={user} />)} />
                   <Route path="/todo" element={guardRoute('tasks', <Tasks user={user} />)} />
                   <Route path="/import" element={guardRoute('import_data', <ImportData />)} />
@@ -287,31 +340,24 @@ function App() {
     );
   };
 
-  // Show loading state
+  // During silent session restore, avoid showing the full branded loader.
+  // The branded loader is reserved for the intentional post-login dashboard transition.
   if (loading) {
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        background: 'var(--color-bg-base)',
-      }}>
-        <div style={{ width: '100%', maxWidth: 800, padding: 32 }}>
-          <SkeletonDashboard />
-        </div>
-      </div>
-    );
+    return null;
+  }
+
+  if (showLoginLoader) {
+    return <LoadingScreen message="Preparing your workspace..." hint="Loading your permissions, modules, and latest CRM context." />;
   }
 
   return (
     <Router>
       {isLoggingOut && (
-        <div className="logout-overlay" role="status" aria-live="polite">
-          <div className="logout-card">
-            <div className="logout-spinner" />
-            <div className="logout-text">Signing out...</div>
-          </div>
+        <div className="app-loading-overlay">
+          <LoadingScreen
+            message="Signing you out from the workspace..."
+            hint="Closing your session and securing your CRM workspace."
+          />
         </div>
       )}
       {inactiveNotice && (

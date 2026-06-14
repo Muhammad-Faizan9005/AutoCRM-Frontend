@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { apiFetch } from '../api/client';
 import { CountUp } from '../components/CountUp';
 import { PageTransition } from '../components/PageTransition';
-import { SkeletonDashboard } from '../components/Skeleton';
+import { PageLoader } from '../components/PageLoader';
 import { useChartColors } from '../hooks/useChartColors';
 
 const DASHBOARD_TIMEOUT_MS = 20000;
@@ -122,6 +122,7 @@ const Dashboard = () => {
   const [activeDropdown, setActiveDropdown] = useState(null);
   const [summary, setSummary] = useState(null);
   const [activity, setActivity] = useState(null);
+  const [aiSummary, setAiSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const chartColors = useChartColors();
@@ -141,9 +142,10 @@ const Dashboard = () => {
     setError('');
 
     try {
-      const [summaryResult, activityResult] = await Promise.allSettled([
+      const [summaryResult, activityResult, aiSummaryResult] = await Promise.allSettled([
         apiFetch('/api/dashboard/summary', {}, { timeoutMs: DASHBOARD_TIMEOUT_MS }),
         apiFetch(`/api/dashboard/activity?days=${selectedDays}`, {}, { timeoutMs: DASHBOARD_TIMEOUT_MS }),
+        apiFetch('/api/dashboard/ai-summary/latest', {}, { timeoutMs: DASHBOARD_TIMEOUT_MS, cache: false }),
       ]);
 
       let nextError = '';
@@ -159,6 +161,10 @@ const Dashboard = () => {
       } else {
         const activityError = activityResult.reason?.message || 'Unable to load activity metrics.';
         nextError = nextError ? `${nextError} ${activityError}` : activityError;
+      }
+
+      if (aiSummaryResult?.status === 'fulfilled') {
+        setAiSummary(aiSummaryResult.value);
       }
 
       if (nextError) {
@@ -254,6 +260,10 @@ const Dashboard = () => {
     );
   };
 
+  if (loading) {
+    return <PageLoader title="Loading dashboard" message="Preparing metrics, charts, activity, and AI summary." />;
+  }
+
   return (
     <PageTransition>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -317,10 +327,7 @@ const Dashboard = () => {
           </div>
         )}
 
-        {loading ? (
-          <SkeletonDashboard />
-        ) : (
-          <>
+        <>
             {/* KPI CARDS */}
             <motion.div
               variants={staggerContainer}
@@ -332,6 +339,18 @@ const Dashboard = () => {
                 <KpiCard key={stat.label} {...stat} />
               ))}
             </motion.div>
+
+            {aiSummary && (
+              <div className="card card-padding note-border-purple" style={{ display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                  <h2 className="section-title">Daily AI Summary</h2>
+                  <span className="badge badge-purple">AI Generated</span>
+                </div>
+                <div style={{ color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                  {aiSummary.content}
+                </div>
+              </div>
+            )}
 
             {/* CHARTS ROW */}
             <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
@@ -496,8 +515,7 @@ const Dashboard = () => {
                 </div>
               </motion.div>
             )}
-          </>
-        )}
+        </>
       </div>
 
       <style>{`

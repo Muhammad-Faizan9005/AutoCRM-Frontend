@@ -1,10 +1,11 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowUpRight, Clock, FileSpreadsheet, Loader2, ShieldCheck, Users } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Activity, ArrowUpRight, Clock, FileSpreadsheet, ShieldCheck, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { getAdminOverview } from './adminApi';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { CountUp } from '../components/CountUp';
+import { PageLoader } from '../components/PageLoader';
 
 const ICON_BY_LABEL = {
   'Active Operators': Users,
@@ -69,9 +70,7 @@ const AdminDashboard = () => {
         {error && <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>}
 
         {loading ? (
-          <div className="card card-padding" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
-            <Loader2 size={16} className="animate-spin" /> Loading overview...
-          </div>
+          <PageLoader title="Loading admin console" message="Fetching governance metrics, access coverage, queues, and activity." minHeight="46vh" />
         ) : (
           <>
             {/* KPI Cards */}

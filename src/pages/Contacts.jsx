@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, RotateCcw, Eye, Pencil, Trash2, MoreHorizontal, Download, X } from 'lucide-react';
+import { Plus, Search, RotateCcw, Pencil, Trash2, MoreHorizontal, Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { SkeletonTable } from '../components/Skeleton';
+import { PageLoader } from '../components/PageLoader';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { toast } from '../utils/toast';
 
 const STATUS_BADGE = { active: 'badge-success', inactive: 'badge-muted', lead: 'badge-accent', churned: 'badge-danger' };
 const STATUS_LABEL = { active: 'Active', inactive: 'Inactive', lead: 'Lead', churned: 'Churned' };
@@ -42,8 +44,12 @@ const Contacts = ({ user }) => {
   const [totalLoaded, setTotalLoaded] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingContact, setEditingContact] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionMenu, setActionMenu] = useState(null);
+  const [selectedContactIds, setSelectedContactIds] = useState(() => new Set());
   const latestRequestId = useRef(0);
   const [tbodyRef] = useAutoAnimate();
   const canDelete = user?.role === 'admin';
@@ -51,6 +57,33 @@ const Contacts = ({ user }) => {
 
   const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', mobile: '', company: '' });
   const resetForm = () => setFormData({ firstName: '', lastName: '', email: '', mobile: '', company: '' });
+
+
+  const openCreateModal = () => {
+    setEditingContact(null);
+    resetForm();
+    setIsCreateModalOpen(true);
+  };
+
+  const closeContactModal = () => {
+    if (isSaving) return;
+    setIsCreateModalOpen(false);
+    setEditingContact(null);
+    resetForm();
+  };
+
+  const openEditModal = (contact) => {
+    const parts = String(contact.fullName || '').trim().split(/\s+/).filter(Boolean);
+    setEditingContact(contact);
+    setFormData({
+      firstName: parts[0] || '',
+      lastName: parts.slice(1).join(' '),
+      email: contact.email || '',
+      mobile: contact.phone === '-' ? '' : contact.phone || '',
+      company: contact.org === '-' ? '' : contact.org || '',
+    });
+    setIsCreateModalOpen(true);
+  };
 
   const fetchContacts = useCallback(async (skip = 0, append = false) => {
     const requestId = ++latestRequestId.current;
@@ -80,6 +113,31 @@ const Contacts = ({ user }) => {
     return contacts.filter((c) => [c.email, c.org, c.phone, c.fullName].some((v) => String(v).toLowerCase().includes(term)));
   }, [contacts, searchTerm]);
 
+
+  const visibleContactIds = useMemo(() => filteredContacts.map((contact) => String(contact.id)), [filteredContacts]);
+  const selectedVisibleCount = visibleContactIds.filter((id) => selectedContactIds.has(id)).length;
+  const allVisibleSelected = visibleContactIds.length > 0 && selectedVisibleCount === visibleContactIds.length;
+
+  const toggleSelectAllVisible = (checked) => {
+    setSelectedContactIds((prev) => {
+      const next = new Set(prev);
+      visibleContactIds.forEach((id) => {
+        if (checked) next.add(id);
+        else next.delete(id);
+      });
+      return next;
+    });
+  };
+
+  const toggleContactSelection = (id, checked) => {
+    setSelectedContactIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(String(id));
+      else next.delete(String(id));
+      return next;
+    });
+  };
+
   const handleSaveContact = async (e) => {
     e.preventDefault();
     setError('');
@@ -90,19 +148,53 @@ const Contacts = ({ user }) => {
     const payload = { email, full_name: fullName, phone: formData.mobile.trim() || undefined, company: formData.company.trim() || undefined, status: 'active' };
     setIsSaving(true);
     try {
-      const created = await apiFetch('/api/customers/', { method: 'POST', body: JSON.stringify(payload) });
-      setContacts((prev) => [mapCustomerToContact(created), ...prev]);
+      if (editingContact?.id) {
+        const updated = await apiFetch(`/api/customers/${editingContact.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+        const mapped = mapCustomerToContact(updated);
+        setContacts((prev) => prev.map((contact) => (contact.id === editingContact.id ? { ...contact, ...mapped } : contact)));
+        toast.success('Contact updated successfully.');
+      } else {
+        const created = await apiFetch('/api/customers/', { method: 'POST', body: JSON.stringify(payload) });
+        setContacts((prev) => [mapCustomerToContact(created), ...prev]);
+        toast.success('Contact created successfully.');
+      }
       setIsCreateModalOpen(false);
+      setEditingContact(null);
       resetForm();
-    } catch (err) { setError(err?.message || 'Unable to create contact.'); }
+    } catch (err) {
+      const message = err?.message || 'Unable to save contact.';
+      setError(message);
+      toast.error(message);
+    }
     finally { setIsSaving(false); }
   };
 
-  const handleDeleteContact = async (id) => {
-    if (!canDelete || !window.confirm('Delete this contact?')) return;
+  const requestDeleteContact = (contact) => {
+    if (!canDelete) return;
+    setDeleteTarget(contact);
+  };
+
+  const handleDeleteContact = async () => {
+    if (!canDelete || !deleteTarget?.id) return;
     setError('');
-    try { await apiFetch(`/api/customers/${id}`, { method: 'DELETE' }); setContacts((prev) => prev.filter((c) => c.id !== id)); }
-    catch (err) { setError(err?.message || 'Unable to delete contact.'); }
+    setIsDeleting(true);
+    try {
+      await apiFetch(`/api/customers/${deleteTarget.id}`, { method: 'DELETE' });
+      setContacts((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+      setSelectedContactIds((prev) => {
+        const next = new Set(prev);
+        next.delete(String(deleteTarget.id));
+        return next;
+      });
+      toast.success('Contact deleted.');
+      setDeleteTarget(null);
+    } catch (err) {
+      const message = err?.message || 'Unable to delete contact.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const exportToExcel = () => {
@@ -120,7 +212,7 @@ const Contacts = ({ user }) => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button onClick={() => { setTotalLoaded(0); fetchContacts(0, false); }} className="btn btn-ghost btn-icon" aria-label="Refresh"><RotateCcw size={16} /></button>
             <button onClick={exportToExcel} className="btn btn-secondary btn-sm"><Download size={14} /> Export</button>
-            <button onClick={() => setIsCreateModalOpen(true)} className="btn btn-primary"><Plus size={15} /> Add Contact</button>
+            <button onClick={openCreateModal} className="btn btn-primary"><Plus size={15} /> Add Contact</button>
           </div>
         </div>
 
@@ -133,12 +225,19 @@ const Contacts = ({ user }) => {
           <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>
         )}
 
-        {loading ? <SkeletonTable rows={8} cols={6} /> : (
+        {selectedContactIds.size > 0 && (
+          <div className="card" style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{selectedContactIds.size} contact{selectedContactIds.size === 1 ? '' : 's'} selected</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setSelectedContactIds(new Set())}>Clear selection</button>
+          </div>
+        )}
+
+        {loading ? <PageLoader title="Loading customers" message="Fetching customer profiles and organization context." minHeight="46vh" /> : (
           filteredContacts.length === 0 ? <EmptyState type="contacts" /> : (
             <div className="card">
               <table className="data-table">
                 <thead><tr>
-                  <th style={{ width: 36 }}><input type="checkbox" className="checkbox-input" /></th>
+                  <th style={{ width: 36 }}><input type="checkbox" className="checkbox-input" checked={allVisibleSelected} onChange={(e) => toggleSelectAllVisible(e.target.checked)} aria-label="Select all visible contacts" /></th>
                   <th>Contact</th>
                   <th>Organization</th>
                   <th>Status</th>
@@ -149,8 +248,8 @@ const Contacts = ({ user }) => {
                 </tr></thead>
                 <motion.tbody ref={tbodyRef} variants={staggerContainer} initial="initial" animate="animate">
                   {filteredContacts.map((c) => (
-                    <motion.tr key={c.id} variants={staggerItem}>
-                      <td><input type="checkbox" className="checkbox-input" /></td>
+                    <motion.tr key={c.id} variants={staggerItem} className={selectedContactIds.has(String(c.id)) ? 'row-selected' : undefined}>
+                      <td><input type="checkbox" className="checkbox-input" checked={selectedContactIds.has(String(c.id))} onChange={(e) => toggleContactSelection(c.id, e.target.checked)} aria-label={`Select ${c.fullName}`} /></td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div className="avatar avatar-sm avatar-accent">{getInitials(c.fullName)}</div>
@@ -167,9 +266,8 @@ const Contacts = ({ user }) => {
                           <button className="btn btn-ghost btn-icon" onClick={() => setActionMenu(actionMenu === c.id ? null : c.id)} aria-label="Row actions"><MoreHorizontal size={14} /></button>
                           {actionMenu === c.id && (
                             <div className="dropdown-menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)' }}>
-                              <button className="dropdown-item" onClick={() => setActionMenu(null)}><Eye size={14} /> View</button>
-                              {canEdit && <button className="dropdown-item" onClick={() => setActionMenu(null)}><Pencil size={14} /> Edit</button>}
-                              {canDelete && <button className="dropdown-item dropdown-item-danger" onClick={() => { handleDeleteContact(c.id); setActionMenu(null); }}><Trash2 size={14} /> Delete</button>}
+                              {canEdit && <button className="dropdown-item" onClick={() => { openEditModal(c); setActionMenu(null); }}><Pencil size={14} /> Edit</button>}
+                              {canDelete && <button className="dropdown-item dropdown-item-danger" onClick={() => { requestDeleteContact(c); setActionMenu(null); }}><Trash2 size={14} /> Delete</button>}
                             </div>
                           )}
                         </div>
@@ -188,13 +286,24 @@ const Contacts = ({ user }) => {
           </div>
         )}
 
+
+        <ConfirmDialog
+          open={Boolean(deleteTarget)}
+          title="Delete contact?"
+          message={deleteTarget ? `This will permanently delete "${deleteTarget.fullName}". This action cannot be undone.` : 'This action cannot be undone.'}
+          confirmLabel="Delete contact"
+          isLoading={isDeleting}
+          onCancel={() => { if (!isDeleting) setDeleteTarget(null); }}
+          onConfirm={handleDeleteContact}
+        />
+
         <AnimatePresence>
           {isCreateModalOpen && (
-            <motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsCreateModalOpen(false)}>
+            <motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeContactModal}>
               <motion.div className="modal-content" style={{ maxWidth: 500 }} onClick={(e) => e.stopPropagation()} initial={{ opacity: 0, scale: 0.97, y: 4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }} transition={{ duration: 0.25 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
-                  <h3 className="section-title">Create Contact</h3>
-                  <button onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18} /></button>
+                  <h3 className="section-title">{editingContact ? 'Edit Contact' : 'Create Contact'}</h3>
+                  <button onClick={closeContactModal} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18} /></button>
                 </div>
                 <form id="contact-form" onSubmit={handleSaveContact} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -208,8 +317,8 @@ const Contacts = ({ user }) => {
                   </div>
                 </form>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
-                  <button type="button" onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost">Discard</button>
-                  <button type="submit" form="contact-form" disabled={isSaving} className="btn btn-primary">{isSaving ? 'Creating...' : 'Create Contact'}</button>
+                  <button type="button" onClick={closeContactModal} className="btn btn-ghost">Discard</button>
+                  <button type="submit" form="contact-form" disabled={isSaving} className="btn btn-primary">{isSaving ? (editingContact ? 'Saving...' : 'Creating...') : (editingContact ? 'Save Changes' : 'Create Contact')}</button>
                 </div>
               </motion.div>
             </motion.div>

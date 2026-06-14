@@ -1,6 +1,6 @@
 import { logger } from "../utils/logger";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
@@ -214,6 +214,12 @@ export async function apiFetch(path, init = {}, options = {}) {
     cache = true,
     cacheTtlMs,
   } = options;
+  if (typeof window !== "undefined" && window.__AUTOCRM_SIGNING_OUT__ && path !== "/api/auth/logout") {
+    const error = new Error("Sign out in progress");
+    error.code = "signing_out";
+    throw error;
+  }
+
   const headers = new Headers(init.headers || {});
   const isFormData = init.body instanceof FormData;
   const method = (init.method || "GET").toUpperCase();

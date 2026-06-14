@@ -5,10 +5,14 @@ import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { SkeletonCard } from '../components/Skeleton';
+import { PageLoader } from '../components/PageLoader';
+import { EntityCard } from '../components/EntityCard';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../utils/toast';
 
-const NOTE_BORDERS = ['note-border-accent', 'note-border-success', 'note-border-warning'];
+const CARD_ACCENTS = ['note-border-accent', 'note-border-success', 'note-border-warning'];
+
+const CARD_GRID_STYLE = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 20, alignItems: 'stretch' };
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -39,9 +43,11 @@ const mapNote = (note, uid, leadDirectory) => ({
   title: buildTitle(note.content),
   content: note.content,
   leadId: String(note.entity_id),
-  leadName: leadDirectory[String(note.entity_id)] || `Lead ${String(note.entity_id).slice(0, 8)}`,
-  author: !note.author_id ? 'Unknown' : (uid && String(note.author_id) === String(uid)) ? 'You' : String(note.author_id).slice(0, 8),
+  leadName: leadDirectory[String(note.entity_id)] || 'Loading lead...',
+  author: !note.author_id ? 'Unknown' : (uid && String(note.author_id) === String(uid)) ? 'You' : 'Team member',
   time: formatDate(note.updated_at || note.created_at),
+  source: note.source || 'manual',
+  aiReason: note.ai_reason || '',
 });
 
 const Notes = ({ user }) => {
@@ -56,6 +62,8 @@ const Notes = ({ user }) => {
   const [selectedNote, setSelectedNote] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({ title: '', content: '' });
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [leadOptions, setLeadOptions] = useState([]);
   const [selectedLeadId, setSelectedLeadId] = useState('');
   const latestRequestId = useRef(0);
@@ -102,6 +110,7 @@ const Notes = ({ user }) => {
         if (!mounted) return;
         setLeadOptions(options);
         leadDirectoryRef.current = directory;
+        setNotes((prev) => prev.map((note) => ({ ...note, leadName: directory[String(note.leadId)] || note.leadName || 'Loading lead...' })));
         if (options.length) setSelectedLeadId(options[0].id);
         await fetchNotes(0, false, directory);
       } catch (err) {
@@ -135,16 +144,24 @@ const Notes = ({ user }) => {
     setSelectedNote(null);
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this note?')) return;
+  const requestDelete = (note) => {
+    setDeleteTarget(note);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget?.id) return;
+    setIsDeleting(true);
     try {
-      await apiFetch(`/api/notes/${id}`, { method: 'DELETE' });
-      setNotes((prev) => prev.filter((n) => n.id !== id));
+      await apiFetch(`/api/notes/${deleteTarget.id}`, { method: 'DELETE' });
+      setNotes((prev) => prev.filter((n) => n.id !== deleteTarget.id));
       toast.success('Note deleted.');
+      setDeleteTarget(null);
     } catch (err) {
       const message = err?.message || 'Delete failed.';
       setError(message);
       toast.error(message);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -213,25 +230,42 @@ const Notes = ({ user }) => {
           <input type="text" placeholder="Search notes..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
 
+        {error && <div className="alert alert-danger">{error}</div>}
+
 
         {loading ? (
-          <div className="masonry-grid">{[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}</div>
+          <PageLoader title="Loading notes" message="Fetching notes, authors, linked leads, and AI labels." minHeight="46vh" />
         ) : filtered.length === 0 ? (
           <EmptyState type="notes" />
         ) : (
-          <div ref={gridRef} className="masonry-grid">
+          <div ref={gridRef} style={CARD_GRID_STYLE}>
             {filtered.map((note, idx) => (
-              <motion.div key={note.id} className={`card ${NOTE_BORDERS[idx % 3]}`} style={{ padding: 16, cursor: 'pointer' }} onClick={() => openEdit(note)} whileHover={{ scale: 1.01 }} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 'var(--text-md)' }}>{note.title}</h3>
-                  <StickyNote size={14} style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }} />
-                </div>
-                <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{note.content}</p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border)' }}>
-                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{note.leadName} - {note.author} - {note.time}</span>
-                  <button onClick={(e) => { e.stopPropagation(); handleDelete(note.id); }} className="btn btn-ghost btn-icon" style={{ width: 24, height: 24, padding: 2 }} aria-label="Delete"><Trash2 size={12} style={{ color: 'var(--color-danger)' }} /></button>
-                </div>
-              </motion.div>
+              <EntityCard
+                key={note.id}
+                title={note.title}
+                description={note.source === 'ai' && note.aiReason ? `${note.content || ''}${note.content ? '\n\n' : ''}AI reason: ${note.aiReason}` : note.content}
+                descriptionFallback="No note content added."
+                accentClass={CARD_ACCENTS[idx % CARD_ACCENTS.length]}
+                onClick={() => openEdit(note)}
+                clampDescription
+                iconSlot={<StickyNote size={14} style={{ color: 'var(--color-text-tertiary)' }} />}
+                badges={[
+                  { label: note.leadName },
+                  { label: note.author },
+                  { label: note.time },
+                  note.source === 'ai' ? { label: 'AI Generated', className: 'badge-purple' } : null,
+                ]}
+                actions={(
+                  <button
+                    onClick={(e) => { e.stopPropagation(); requestDelete(note); }}
+                    className="btn btn-ghost btn-icon"
+                    style={{ width: 24, height: 24, padding: 2 }}
+                    aria-label="Delete"
+                  >
+                    <Trash2 size={12} style={{ color: 'var(--color-danger)' }} />
+                  </button>
+                )}
+              />
             ))}
           </div>
         )}
@@ -241,6 +275,17 @@ const Notes = ({ user }) => {
             <button onClick={() => fetchNotes(totalLoaded, true)} disabled={isLoadingMore} className="btn btn-secondary">{isLoadingMore ? 'Loading...' : 'Load More'}</button>
           </div>
         )}
+
+
+        <ConfirmDialog
+          open={Boolean(deleteTarget)}
+          title="Delete note?"
+          message={deleteTarget ? `This will permanently delete the note "${deleteTarget.title}". This action cannot be undone.` : 'This action cannot be undone.'}
+          confirmLabel="Delete note"
+          isLoading={isDeleting}
+          onCancel={() => { if (!isDeleting) setDeleteTarget(null); }}
+          onConfirm={handleDelete}
+        />
 
         <AnimatePresence>
           {modalType && (
