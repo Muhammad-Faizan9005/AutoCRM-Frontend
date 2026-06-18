@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { getAdminOverview } from './adminApi';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { CountUp } from '../components/CountUp';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonDashboard } from '../components/Skeleton';
 
 const ICON_BY_LABEL = {
   'Active Operators': Users,
@@ -70,7 +70,7 @@ const AdminDashboard = () => {
         {error && <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>}
 
         {loading ? (
-          <PageLoader title="Loading admin console" message="Fetching governance metrics, access coverage, queues, and activity." minHeight="46vh" />
+          <SkeletonDashboard />
         ) : (
           <>
             {/* KPI Cards */}

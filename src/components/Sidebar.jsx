@@ -6,7 +6,7 @@ import {
   CheckSquare, ChevronLeft, ChevronRight, Bell, X, LogOut, Shield,
   UserCircle, Bot
 } from 'lucide-react';
-import { ThemeToggle } from './ThemeToggle';
+import ProfileSettingsModal from './ProfileSettingsModal';
 import { apiFetch } from '../api/client';
 
 const isAdminUser = (user) => {
@@ -35,9 +35,10 @@ const navItemVariant = {
   animate: { opacity: 1, x: 0, transition: { duration: 0.2 } },
 };
 
-const Sidebar = ({ onLogout, user, permissions }) => {
+const Sidebar = ({ onLogout, user, permissions, onUserUpdate }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notifLoading, setNotifLoading] = useState(false);
   const location = useLocation();
@@ -343,11 +344,6 @@ const Sidebar = ({ onLogout, user, permissions }) => {
           flexDirection: 'column',
           gap: '4px',
         }}>
-          {/* Theme Toggle */}
-          <div style={{ display: 'flex', justifyContent: isCollapsed ? 'center' : 'flex-start', padding: '2px 0' }}>
-            <ThemeToggle />
-          </div>
-
           {/* Admin / CRM Home Link */}
           {showAdminCenter && !isAdminRoute && (
             <Link
@@ -418,16 +414,33 @@ const Sidebar = ({ onLogout, user, permissions }) => {
 
 
           {/* User + Role Badge */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '6px 10px',
-            borderLeft: '3px solid transparent',
-            justifyContent: isCollapsed ? 'center' : 'flex-start',
-          }}>
-            <div className="avatar avatar-md avatar-accent">
-              {getInitials(displayName)}
+          <button
+            type="button"
+            onClick={() => setIsProfileOpen(true)}
+            title="Profile settings"
+            style={{
+              width: '100%',
+              background: 'transparent',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '6px 10px',
+              borderLeft: '3px solid transparent',
+              borderRadius: 'var(--radius)',
+              justifyContent: isCollapsed ? 'center' : 'flex-start',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-bg-hover)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+          >
+            <div className="avatar avatar-md avatar-accent" style={{ overflow: 'hidden', flexShrink: 0 }}>
+              {user?.avatar_url ? (
+                <img src={user.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                getInitials(displayName)
+              )}
             </div>
             <AnimatePresence>
               {!isCollapsed && (
@@ -453,7 +466,7 @@ const Sidebar = ({ onLogout, user, permissions }) => {
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </button>
 
           {/* Logout */}
           <button
@@ -492,6 +505,13 @@ const Sidebar = ({ onLogout, user, permissions }) => {
 
       {/* Notifications Panel */}
       <AnimatePresence>
+        {isProfileOpen && (
+          <ProfileSettingsModal
+            user={user}
+            onClose={() => setIsProfileOpen(false)}
+            onUserUpdate={onUserUpdate}
+          />
+        )}
         {isNotifOpen && (
           <>
             <motion.div

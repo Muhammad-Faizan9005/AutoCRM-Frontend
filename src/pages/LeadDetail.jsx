@@ -5,7 +5,7 @@ import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
 import { EntityCard } from '../components/EntityCard';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonLeadDetail } from '../components/Skeleton';
 import { useCallSession } from '../hooks/useCallSession';
 import { useCallRecording } from '../hooks/useCallRecording';
 import { toast } from '../utils/toast';
@@ -550,7 +550,11 @@ const LeadDetail = ({ user }) => {
   };
 
   if (loading) {
-    return <PageLoader title="Loading lead details" message="Fetching profile, calls, tasks, notes, and AI context." />;
+    return (
+      <PageTransition>
+        <SkeletonLeadDetail />
+      </PageTransition>
+    );
   }
 
   if (!lead && !loading) {
@@ -570,7 +574,7 @@ const LeadDetail = ({ user }) => {
   return (
     <PageTransition>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="reveal-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>
             <Link to="/leads" style={{ color: 'inherit', textDecoration: 'none' }}>Leads</Link>
             <span>/</span>
@@ -678,7 +682,7 @@ const LeadDetail = ({ user }) => {
                     <span className="badge badge-purple">AI</span>
                   </div>
                   <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>{item.reason || 'AI action recorded.'}</div>
-                  <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>{formatDateTime(item.created_at)} • {item.approval_status || item.dispatch_status}</div>
+                  <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>{formatDateTime(item.created_at)} ï¿½ {item.approval_status || item.dispatch_status}</div>
                 </div>
               ))}
             </div>
@@ -804,7 +808,7 @@ const LeadDetail = ({ user }) => {
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="reveal-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card" style={{ padding: 16 }}>
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Lead</div>
             <div style={{ fontWeight: 'var(--weight-medium)', marginBottom: 12 }}>{lead.name || 'Lead'}</div>

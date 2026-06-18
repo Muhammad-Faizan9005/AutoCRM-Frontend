@@ -3,10 +3,10 @@ import { Plus, Search, RotateCcw, LayoutList, Columns2, Download, MoreHorizontal
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
-import { apiFetch } from '../api/client';
+import { apiFetch, peekCache } from '../api/client';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonTable } from '../components/Skeleton';
 import { toast } from '../utils/toast';
 
 const STAGE_LABELS = { prospecting:'Prospecting', qualification:'Qualification', proposal:'Proposal', negotiation:'Negotiation', closed:'Closed', closed_won:'Closed Won', closed_lost:'Closed Lost' };
@@ -58,23 +58,29 @@ const mapDeal = (deal,orgIdx,leadIdx) => {
   };
 };
 
+const DEALS_INITIAL_PATH = '/api/deals/?skip=0&limit=20';
+const DEALS_ORGS_PATH = '/api/organizations/';
+
 const Deals = ({ user }) => {
+  const cachedDeals = peekCache(DEALS_INITIAL_PATH);
+  const cachedOrgs = peekCache(DEALS_ORGS_PATH);
   const [viewMode, setViewMode] = useState('table');
-  const [dealRecords, setDealRecords] = useState([]);
-  const [organizations, setOrganizations] = useState([]);
+  const [dealRecords, setDealRecords] = useState(cachedDeals.hit ? cachedDeals.value : []);
+  const [organizations, setOrganizations] = useState(cachedOrgs.hit ? cachedOrgs.value : []);
   const [leadLookup, setLeadLookup] = useState({});
   const leadLookupRef = useRef({});
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [actionMenu, setActionMenu] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedDeals.hit);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalLoaded, setTotalLoaded] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const latestReq = useRef(0);
+  const hasDataRef = useRef(cachedDeals.hit);
   const [tbodyRef] = useAutoAnimate();
   const [draggingDealId, setDraggingDealId] = useState(null);
   const [dragOverStatus, setDragOverStatus] = useState(null);
@@ -89,13 +95,14 @@ const Deals = ({ user }) => {
 
   const fetchDeals = useCallback(async (skip=0,append=false) => {
     const rid = ++latestReq.current;
-    if(!append)setLoading(true);else setIsLoadingMore(true);
+    if(append)setIsLoadingMore(true);
+    else if(!hasDataRef.current)setLoading(true);
     setError('');
     try {
       const lim = append?10:20;
       const data = await apiFetch(`/api/deals/?skip=${skip}&limit=${lim}`);
       if(rid!==latestReq.current)return;
-      if(append)setDealRecords(p=>[...p,...data]);else setDealRecords(data);
+      if(append)setDealRecords(p=>[...p,...data]);else{setDealRecords(data);hasDataRef.current=true;}
       const missingLeadIds = Array.from(new Set(
         data
           .filter((deal) => deal.lead_id && !leadLookupRef.current[String(deal.lead_id)])
@@ -239,7 +246,7 @@ const Deals = ({ user }) => {
 
         {error && <div style={{ padding:12, background:'var(--color-danger-subtle)', border:'1px solid var(--color-danger)', borderRadius:'var(--radius)', fontSize:'var(--text-sm)', color:'var(--color-danger)' }}>{error}</div>}
 
-        {loading ? <PageLoader title="Loading deals" message="Fetching pipeline, deal types, owners, and linked leads." minHeight="46vh" /> : (
+        {loading ? <SkeletonTable rows={8} cols={6} /> : (
           <>
             {viewMode==='table' && (
               filtered.length===0 ? <EmptyState type="leads" title="No deals yet" desc="Create your first deal"/> : (

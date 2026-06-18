@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { DEFAULT_PERMISSIONS, PERMISSION_GROUPS } from './permissionsStore';
 import { getAdminUserPermissions, listAdminUsers, updateAdminUserPermissions } from './adminApi';
 import { PageTransition } from '../components/PageTransition';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonTable } from '../components/Skeleton';
 
 const getErr = (e, f) => e?.message || e?.data?.detail || f;
 
@@ -166,7 +166,11 @@ const AdminPermissions = ({ currentUser }) => {
   };
 
   if (usersLoading && users.length === 0) {
-    return <PageLoader title="Loading permissions console" message="Fetching users, permission matrix, and module access rules." />;
+    return (
+      <PageTransition>
+        <SkeletonTable rows={8} cols={5} />
+      </PageTransition>
+    );
   }
 
   return (

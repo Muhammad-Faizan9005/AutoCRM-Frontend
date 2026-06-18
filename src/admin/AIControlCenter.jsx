@@ -13,7 +13,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { PageTransition } from '../components/PageTransition';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonAIControlCenter } from '../components/Skeleton';
 import {
   approveAgentAction,
   getAgentMemory,
@@ -212,12 +212,16 @@ const AIControlCenter = () => {
   };
 
   if (loading && aiAgents.length === 0 && runs.length === 0) {
-    return <PageLoader title="Loading AI control center" message="Fetching agents, run history, approvals, traces, and memory context." />;
+    return (
+      <PageTransition>
+        <SkeletonAIControlCenter />
+      </PageTransition>
+    );
   }
 
   return (
     <PageTransition>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div className="reveal-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div className="card" style={{ padding: '24px 28px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
             <div>

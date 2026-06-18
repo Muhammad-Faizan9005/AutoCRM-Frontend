@@ -23,7 +23,7 @@ import {
   removeTeamMember,
   updateTeam,
 } from './teamsApi';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonCard } from '../components/Skeleton';
 import { toast } from '../utils/toast';
 
 const getErr = (e, fallback) => e?.message || e?.data?.detail || fallback;
@@ -402,7 +402,11 @@ const ManagerTeam = () => {
   };
 
   if (loading) {
-    return <PageLoader title="Loading manager console" message="Fetching your team, reps, performance stats, and assignments." minHeight="52vh" />;
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+        {[1, 2, 3, 4].map((item) => <SkeletonCard key={item} />)}
+      </div>
+    );
   }
 
   /* No team yet */

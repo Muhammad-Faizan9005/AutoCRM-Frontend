@@ -17,7 +17,7 @@ import {
 } from './adminApi';
 import { listTeams } from './teamsApi';
 import { PageTransition } from '../components/PageTransition';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonAdminUsers } from '../components/Skeleton';
 import { toast } from '../utils/toast';
 
 const ROLE_OPTIONS = ['admin', 'manager', 'agent'];
@@ -279,12 +279,16 @@ const AdminUsers = ({ currentUser }) => {
   };
 
   if (isLoading && users.length === 0) {
-    return <PageLoader title="Loading user console" message="Fetching users, teams, invites, deleted users, and access data." />;
+    return (
+      <PageTransition>
+        <SkeletonAdminUsers />
+      </PageTransition>
+    );
   }
 
   return (
     <PageTransition>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="reveal-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Header */}
         <div className="card" style={{ padding: '24px 28px' }}>

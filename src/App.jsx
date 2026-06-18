@@ -27,6 +27,83 @@ const USER_PROFILE_KEY = 'user_profile';
 const LOGOUT_ANIMATION_MS = 1200;
 const LOGOUT_ROUTE_SETTLE_MS = 300;
 
+const CRM_ROUTES = [
+  { permission: 'dashboard', path: '/' },
+  { permission: 'leads', path: '/leads' },
+  { permission: 'deals', path: '/deals' },
+  { permission: 'contacts', path: '/contacts' },
+  { permission: 'organizations', path: '/orgs' },
+  { permission: 'notes', path: '/tasks' },
+  { permission: 'tasks', path: '/todo' },
+  { permission: 'import_data', path: '/import' },
+];
+
+const NoAccess = () => (
+  <div style={{
+    display: 'flex',
+    minHeight: '70vh',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textAlign: 'center',
+    fontSize: 'var(--text-sm)',
+    color: 'var(--color-text-tertiary)',
+  }}>
+    No modules are enabled for this account yet.
+  </div>
+);
+
+const CrmShell = ({ user, permissions, onLogout, onUserUpdate }) => {
+  const location = useLocation();
+  const canAccess = (permissionKey) => permissions?.[permissionKey] === true;
+  const fallbackRoute =
+    CRM_ROUTES.find((route) => canAccess(route.permission))?.path || null;
+
+  const guardRoute = (permissionKey, element) => {
+    if (canAccess(permissionKey)) return element;
+    if (!fallbackRoute || location.pathname === fallbackRoute) {
+      return <NoAccess />;
+    }
+    return <Navigate to={fallbackRoute} replace />;
+  };
+
+  return (
+    <div className="crm-shell">
+      <Sidebar onLogout={onLogout} user={user} permissions={permissions} onUserUpdate={onUserUpdate} />
+
+      <div className="crm-content">
+        <main className="crm-main">
+          <div className="crm-container">
+            <AnimatePresence mode="wait">
+              <Routes location={location} key={location.pathname}>
+                <Route path="/" element={guardRoute('dashboard', <Dashboard />)} />
+                <Route path="/leads" element={guardRoute('leads', <Leads user={user} />)} />
+                <Route path="/leads/:leadId" element={guardRoute('leads', <LeadDetail user={user} />)} />
+                <Route path="/deals" element={guardRoute('deals', <Deals user={user} />)} />
+                <Route
+                  path="/contacts"
+                  element={guardRoute('contacts', <Contacts user={user} />)}
+                />
+                <Route
+                  path="/orgs"
+                  element={guardRoute('organizations', <Organizations user={user} />)}
+                />
+                <Route
+                  path="/orgs/:organizationId"
+                  element={guardRoute('organizations', <OrganizationDetail user={user} />)}
+                />
+                <Route path="/tasks" element={guardRoute('notes', <Notes user={user} />)} />
+                <Route path="/todo" element={guardRoute('tasks', <Tasks user={user} />)} />
+                <Route path="/import" element={guardRoute('import_data', <ImportData />)} />
+                <Route path="*" element={<Navigate to={fallbackRoute || '/'} replace />} />
+              </Routes>
+            </AnimatePresence>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+};
+
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -215,6 +292,18 @@ function App() {
     }, 10000);
   };
 
+  const handleUserUpdate = (updatedUser) => {
+    setUser((currentUser) => {
+      const nextUser = {
+        ...(currentUser || {}),
+        ...(updatedUser || {}),
+      };
+      setPermissions(getPermissionsForUser(nextUser));
+      localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(nextUser));
+      return nextUser;
+    });
+  };
+
   const handleLogout = () => {
     if (isSigningOutRef.current) return;
     isSigningOutRef.current = true;
@@ -260,84 +349,6 @@ function App() {
         isSigningOutRef.current = false;
       }, LOGOUT_ROUTE_SETTLE_MS);
     }, LOGOUT_ANIMATION_MS);
-  };
-
-  const canAccess = (permissionKey) => permissions?.[permissionKey] === true;
-
-  const crmRoutes = [
-    { permission: 'dashboard', path: '/' },
-    { permission: 'leads', path: '/leads' },
-    { permission: 'deals', path: '/deals' },
-    { permission: 'contacts', path: '/contacts' },
-    { permission: 'organizations', path: '/orgs' },
-    { permission: 'notes', path: '/tasks' },
-    { permission: 'tasks', path: '/todo' },
-    { permission: 'import_data', path: '/import' },
-  ];
-
-  const NoAccess = () => (
-    <div style={{
-      display: 'flex',
-      minHeight: '70vh',
-      alignItems: 'center',
-      justifyContent: 'center',
-      textAlign: 'center',
-      fontSize: 'var(--text-sm)',
-      color: 'var(--color-text-tertiary)',
-    }}>
-      No modules are enabled for this account yet.
-    </div>
-  );
-
-  const CrmShell = () => {
-    const location = useLocation();
-    const fallbackRoute =
-      crmRoutes.find((route) => canAccess(route.permission))?.path || null;
-
-    const guardRoute = (permissionKey, element) => {
-      if (canAccess(permissionKey)) return element;
-      if (!fallbackRoute || location.pathname === fallbackRoute) {
-        return <NoAccess />;
-      }
-      return <Navigate to={fallbackRoute} replace />;
-    };
-
-    return (
-      <div className="crm-shell">
-        <Sidebar onLogout={handleLogout} user={user} permissions={permissions} />
-
-        <div className="crm-content">
-          <main className="crm-main">
-            <div className="crm-container">
-              <AnimatePresence mode="wait">
-                <Routes location={location} key={location.pathname}>
-                  <Route path="/" element={guardRoute('dashboard', <Dashboard />)} />
-                  <Route path="/leads" element={guardRoute('leads', <Leads user={user} />)} />
-                  <Route path="/leads/:leadId" element={guardRoute('leads', <LeadDetail user={user} />)} />
-                  <Route path="/deals" element={guardRoute('deals', <Deals user={user} />)} />
-                  <Route
-                    path="/contacts"
-                    element={guardRoute('contacts', <Contacts user={user} />)}
-                  />
-                  <Route
-                    path="/orgs"
-                    element={guardRoute('organizations', <Organizations user={user} />)}
-                  />
-                  <Route
-                    path="/orgs/:organizationId"
-                    element={guardRoute('organizations', <OrganizationDetail user={user} />)}
-                  />
-                  <Route path="/tasks" element={guardRoute('notes', <Notes user={user} />)} />
-                  <Route path="/todo" element={guardRoute('tasks', <Tasks user={user} />)} />
-                  <Route path="/import" element={guardRoute('import_data', <ImportData />)} />
-                  <Route path="*" element={<Navigate to={fallbackRoute || '/'} replace />} />
-                </Routes>
-              </AnimatePresence>
-            </div>
-          </main>
-        </div>
-      </div>
-    );
   };
 
   // During silent session restore, avoid showing the full branded loader.
@@ -393,6 +404,7 @@ function App() {
                 user={user}
                 onLogout={handleLogout}
                 permissions={permissions}
+                onUserUpdate={handleUserUpdate}
               />
             ) : (
               <Navigate to="/login" replace />
@@ -401,7 +413,18 @@ function App() {
         />
         <Route
           path="/*"
-          element={user ? <CrmShell /> : <Navigate to="/login" replace />}
+          element={
+            user ? (
+              <CrmShell
+                user={user}
+                permissions={permissions}
+                onLogout={handleLogout}
+                onUserUpdate={handleUserUpdate}
+              />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
         />
       </Routes>
     </Router>

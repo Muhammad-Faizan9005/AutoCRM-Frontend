@@ -3,10 +3,10 @@ import { Plus, Search, RotateCcw, Trash2, X, Download, SquarePen } from 'lucide-
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
-import { apiFetch } from '../api/client';
+import { apiFetch, peekCache } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonCard } from '../components/Skeleton';
 import { EntityCard } from '../components/EntityCard';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../utils/toast';
@@ -65,11 +65,35 @@ const normalizeTask = (task, currentUser, directory, leadDirectory) => ({
   aiReason: task.ai_reason || '',
 });
 
+const TASKS_INITIAL_PATH = `/api/tasks/?entity_type=${LEAD_ENTITY_TYPE}&skip=0&limit=20`;
+const TASKS_LEADS_PATH = '/api/leads/?skip=0&limit=500';
+const TASKS_ASSIGNEES_PATH = '/api/admin/users/?page=1&page_size=200';
+
+const buildLeadDir = (leads) => {
+  const list = Array.isArray(leads) ? leads : [];
+  const directory = {};
+  list.forEach((lead) => { directory[String(lead.id)] = lead.name || 'Unnamed lead'; });
+  return { list, directory };
+};
+
 const Tasks = ({ user }) => {
   const canManageTasks = ['admin', 'sales_manager', 'manager'].includes(String(user?.role || '').toLowerCase());
 
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cachedLeads = peekCache(TASKS_LEADS_PATH);
+  const initialLeadDir = cachedLeads.hit ? buildLeadDir(cachedLeads.value) : { list: [], directory: {} };
+  const cachedAssignees = peekCache(TASKS_ASSIGNEES_PATH);
+  const initialReps = cachedAssignees.hit && Array.isArray(cachedAssignees.value?.items)
+    ? cachedAssignees.value.items.filter((u) => ['agent', 'sales_rep'].includes(String(u?.role || '').toLowerCase()))
+    : [];
+  const initialAssigneeDir = {};
+  initialReps.forEach((rep) => { initialAssigneeDir[String(rep.id)] = rep.full_name || rep.email || 'Assigned rep'; });
+  const cachedTasks = peekCache(TASKS_INITIAL_PATH);
+  const initialTasks = cachedTasks.hit
+    ? cachedTasks.value.map((task) => normalizeTask(task, user, initialAssigneeDir, initialLeadDir.directory))
+    : [];
+
+  const [tasks, setTasks] = useState(initialTasks);
+  const [loading, setLoading] = useState(!cachedTasks.hit);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -89,13 +113,14 @@ const Tasks = ({ user }) => {
   });
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [assigneeOptions, setAssigneeOptions] = useState([]);
-  const [assigneeDirectory, setAssigneeDirectory] = useState({});
+  const [assigneeOptions, setAssigneeOptions] = useState(initialReps);
+  const [assigneeDirectory, setAssigneeDirectory] = useState(initialAssigneeDir);
   const [loadingAssignees, setLoadingAssignees] = useState(false);
-  const [leadOptions, setLeadOptions] = useState([]);
-  const [leadDirectory, setLeadDirectory] = useState({});
+  const [leadOptions, setLeadOptions] = useState(initialLeadDir.list);
+  const [leadDirectory, setLeadDirectory] = useState(initialLeadDir.directory);
   const [loadingLeads, setLoadingLeads] = useState(false);
-  const leadDirectoryRef = useRef({});
+  const leadDirectoryRef = useRef(initialLeadDir.directory);
+  const hasDataRef = useRef(cachedTasks.hit);
 
   const latestReq = useRef(0);
   const [gridRef] = useAutoAnimate();
@@ -104,7 +129,7 @@ const Tasks = ({ user }) => {
     if (!canManageTasks) return;
     setLoadingAssignees(true);
       try {
-        const data = await apiFetch('/api/admin/users/?page=1&page_size=200');
+        const data = await apiFetch(TASKS_ASSIGNEES_PATH);
         const items = Array.isArray(data?.items) ? data.items : [];
         const reps = items.filter((u) => ['agent', 'sales_rep'].includes(String(u?.role || '').toLowerCase()));
         const directory = {};
@@ -125,12 +150,8 @@ const Tasks = ({ user }) => {
   const loadLeads = useCallback(async () => {
     setLoadingLeads(true);
     try {
-      const data = await apiFetch('/api/leads/?skip=0&limit=500');
-      const leads = Array.isArray(data) ? data : [];
-      const directory = {};
-      leads.forEach((lead) => {
-        directory[String(lead.id)] = lead.name || 'Unnamed lead';
-      });
+      const data = await apiFetch(TASKS_LEADS_PATH);
+      const { list: leads, directory } = buildLeadDir(data);
       setLeadOptions(leads);
       setLeadDirectory(directory);
       leadDirectoryRef.current = directory;
@@ -156,8 +177,8 @@ const Tasks = ({ user }) => {
 
   const fetchTasks = useCallback(async (skip = 0, append = false) => {
     const rid = ++latestReq.current;
-    if (!append) setLoading(true);
-    else setIsLoadingMore(true);
+    if (append) setIsLoadingMore(true);
+    else if (!hasDataRef.current) setLoading(true);
     setError('');
     try {
       const limit = append ? 10 : 20;
@@ -191,7 +212,7 @@ const Tasks = ({ user }) => {
 
       const mapped = data.map((task) => normalizeTask(task, user, assigneeDirectory, directory));
       if (append) setTasks((prev) => [...prev, ...mapped]);
-      else setTasks(mapped);
+      else { setTasks(mapped); hasDataRef.current = true; }
       setTotalLoaded((prev) => prev + mapped.length);
       setHasMore(mapped.length === limit);
     } catch (err) {
@@ -392,7 +413,7 @@ const Tasks = ({ user }) => {
 
 
         {loading ? (
-          <PageLoader title="Loading tasks" message="Fetching tasks, assignees, lead names, and AI labels." minHeight="46vh" />
+          <div style={CARD_GRID_STYLE}>{[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}</div>
         ) : filtered.length === 0 ? (
           <EmptyState type="tasks" />
         ) : (
