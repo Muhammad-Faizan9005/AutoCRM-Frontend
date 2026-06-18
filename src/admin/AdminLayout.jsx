@@ -21,7 +21,7 @@ const isManagerUser = (user) => {
   return role === 'sales_manager' || role === 'manager';
 };
 
-const AdminLayout = ({ user, onLogout, permissions }) => {
+const AdminLayout = ({ user, onLogout, permissions, onUserUpdate }) => {
   const canOpenConsole =
     permissions?.admin_panel === true ||
     permissions?.admin_users === true ||
@@ -56,7 +56,7 @@ const AdminLayout = ({ user, onLogout, permissions }) => {
 
   return (
     <div className="admin-shell">
-      <Sidebar onLogout={onLogout} user={user} permissions={permissions} />
+      <Sidebar onLogout={onLogout} user={user} permissions={permissions} onUserUpdate={onUserUpdate} />
       <div className="admin-content">
         <main className="admin-main">
           <div className="admin-container">

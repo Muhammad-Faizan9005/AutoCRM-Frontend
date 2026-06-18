@@ -4,10 +4,10 @@ import { Plus, Search, RotateCcw, Building2, Trash2, X, Globe, DollarSign } from
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
-import { apiFetch } from '../api/client';
+import { apiFetch, peekCache } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonCard } from '../components/Skeleton';
 import { toast } from '../utils/toast';
 
 const formatDate = (value) => {
@@ -39,9 +39,13 @@ const mapOrg = (org) => ({
   modified: formatDate(org.updated_at),
 });
 
+const ORGS_INITIAL_PATH = '/api/organizations/?skip=0&limit=20';
+
 const Organizations = ({ user }) => {
-  const [orgs, setOrgs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cachedOrgs = peekCache(ORGS_INITIAL_PATH);
+  const initialOrgs = cachedOrgs.hit ? cachedOrgs.value.map(mapOrg) : [];
+  const [orgs, setOrgs] = useState(initialOrgs);
+  const [loading, setLoading] = useState(!cachedOrgs.hit);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -57,16 +61,18 @@ const Organizations = ({ user }) => {
   const [formData, setFormData] = useState({ name: '', website: '', industry: '', revenue: '' });
   const resetForm = () => setFormData({ name: '', website: '', industry: '', revenue: '' });
 
+  const hasDataRef = useRef(initialOrgs.length > 0);
   const fetchOrganizations = useCallback(async (skip = 0, append = false) => {
     const requestId = ++latestRequestId.current;
-    if (!append) setLoading(true); else setIsLoadingMore(true);
+    if (append) setIsLoadingMore(true);
+    else if (!hasDataRef.current) setLoading(true);
     setError('');
     try {
       const limit = append ? 10 : 20;
       const data = await apiFetch(`/api/organizations/?skip=${skip}&limit=${limit}`);
       if (requestId !== latestRequestId.current) return;
       const mapped = data.map(mapOrg);
-      if (append) setOrgs((prev) => [...prev, ...mapped]); else setOrgs(mapped);
+      if (append) setOrgs((prev) => [...prev, ...mapped]); else { setOrgs(mapped); hasDataRef.current = true; }
       setTotalLoaded((prev) => prev + mapped.length);
       setHasMore(mapped.length === limit);
     } catch (err) {
@@ -137,7 +143,9 @@ const Organizations = ({ user }) => {
         {error && <div className="alert alert-danger">{error}</div>}
 
         {loading ? (
-          <PageLoader title="Loading organizations" message="Fetching account records, revenue data, and workspace context." minHeight="46vh" />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+            {[1, 2, 3, 4, 5, 6].map(i => <SkeletonCard key={i} />)}
+          </div>
         ) : (
           filteredOrgs.length === 0 ? <EmptyState type="organizations" /> : (
             <div ref={gridRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>

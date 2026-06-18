@@ -2,10 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Search, RotateCcw, Trash2, X, StickyNote } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { apiFetch } from '../api/client';
+import { apiFetch, peekCache } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonCard } from '../components/Skeleton';
 import { EntityCard } from '../components/EntityCard';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../utils/toast';
@@ -50,9 +50,26 @@ const mapNote = (note, uid, leadDirectory) => ({
   aiReason: note.ai_reason || '',
 });
 
+const NOTES_LEADS_PATH = '/api/leads/?skip=0&limit=500';
+const NOTES_INITIAL_PATH = '/api/notes/?entity_type=lead&skip=0&limit=20';
+
+const buildLeadDirectory = (leads) => {
+  const options = (Array.isArray(leads) ? leads : []).map((lead) => ({
+    id: String(lead.id),
+    name: lead.name || 'Untitled lead',
+  }));
+  const directory = {};
+  options.forEach((lead) => { directory[lead.id] = lead.name; });
+  return { options, directory };
+};
+
 const Notes = ({ user }) => {
-  const [notes, setNotes] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cachedLeads = peekCache(NOTES_LEADS_PATH);
+  const cachedNotes = peekCache(NOTES_INITIAL_PATH);
+  const initialDir = cachedLeads.hit ? buildLeadDirectory(cachedLeads.value) : { options: [], directory: {} };
+  const initialNotes = (cachedNotes.hit ? cachedNotes.value : []).map((note) => mapNote(note, user?.id, initialDir.directory));
+  const [notes, setNotes] = useState(initialNotes);
+  const [loading, setLoading] = useState(!(cachedLeads.hit && cachedNotes.hit));
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -64,17 +81,18 @@ const Notes = ({ user }) => {
   const [formData, setFormData] = useState({ title: '', content: '' });
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [leadOptions, setLeadOptions] = useState([]);
-  const [selectedLeadId, setSelectedLeadId] = useState('');
+  const [leadOptions, setLeadOptions] = useState(initialDir.options);
+  const [selectedLeadId, setSelectedLeadId] = useState(initialDir.options[0]?.id || '');
   const latestRequestId = useRef(0);
-  const leadDirectoryRef = useRef({});
+  const leadDirectoryRef = useRef(initialDir.directory);
+  const hasDataRef = useRef(initialNotes.length > 0 || (cachedLeads.hit && cachedNotes.hit));
   const [gridRef] = useAutoAnimate();
   const uid = user?.id;
 
   const fetchNotes = useCallback(async (skip = 0, append = false, directory) => {
     const rid = ++latestRequestId.current;
-    if (!append) setLoading(true);
-    else setIsLoadingMore(true);
+    if (append) setIsLoadingMore(true);
+    else if (!hasDataRef.current) setLoading(true);
     setError('');
     try {
       const activeDirectory = directory || leadDirectoryRef.current;
@@ -83,7 +101,7 @@ const Notes = ({ user }) => {
       if (rid !== latestRequestId.current) return;
       const mapped = data.map((note) => mapNote(note, uid, activeDirectory));
       if (append) setNotes((prev) => [...prev, ...mapped]);
-      else setNotes(mapped);
+      else { setNotes(mapped); hasDataRef.current = true; }
       setTotalLoaded((prev) => prev + mapped.length);
       setHasMore(mapped.length === limit);
     } catch (err) {
@@ -100,18 +118,13 @@ const Notes = ({ user }) => {
     let mounted = true;
     (async () => {
       try {
-        const leads = await apiFetch('/api/leads/?skip=0&limit=500');
-        const options = (Array.isArray(leads) ? leads : []).map((lead) => ({
-          id: String(lead.id),
-          name: lead.name || 'Untitled lead',
-        }));
-        const directory = {};
-        options.forEach((lead) => { directory[lead.id] = lead.name; });
+        const leads = await apiFetch(NOTES_LEADS_PATH);
+        const { options, directory } = buildLeadDirectory(leads);
         if (!mounted) return;
         setLeadOptions(options);
         leadDirectoryRef.current = directory;
         setNotes((prev) => prev.map((note) => ({ ...note, leadName: directory[String(note.leadId)] || note.leadName || 'Loading lead...' })));
-        if (options.length) setSelectedLeadId(options[0].id);
+        if (options.length) setSelectedLeadId((prev) => prev || options[0].id);
         await fetchNotes(0, false, directory);
       } catch (err) {
         if (mounted) setError(err?.message || 'Unable to load lead notes.');
@@ -234,7 +247,7 @@ const Notes = ({ user }) => {
 
 
         {loading ? (
-          <PageLoader title="Loading notes" message="Fetching notes, authors, linked leads, and AI labels." minHeight="46vh" />
+          <div style={CARD_GRID_STYLE}>{[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}</div>
         ) : filtered.length === 0 ? (
           <EmptyState type="notes" />
         ) : (

@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonTable } from '../components/Skeleton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../utils/toast';
 
@@ -232,7 +232,7 @@ const Contacts = ({ user }) => {
           </div>
         )}
 
-        {loading ? <PageLoader title="Loading customers" message="Fetching customer profiles and organization context." minHeight="46vh" /> : (
+        {loading ? <SkeletonTable rows={8} cols={6} /> : (
           filteredContacts.length === 0 ? <EmptyState type="contacts" /> : (
             <div className="card">
               <table className="data-table">

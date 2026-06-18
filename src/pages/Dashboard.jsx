@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { apiFetch } from '../api/client';
 import { CountUp } from '../components/CountUp';
 import { PageTransition } from '../components/PageTransition';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonDashboard } from '../components/Skeleton';
 import { useChartColors } from '../hooks/useChartColors';
 
 const DASHBOARD_TIMEOUT_MS = 20000;
@@ -32,6 +32,24 @@ const formatDateLabel = (value) => {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
+const pickChartTicks = (items, selectedDays) => {
+  if (!items.length) return [];
+  const maxTicks = selectedDays <= 7 ? items.length : selectedDays <= 30 ? 6 : 7;
+  if (items.length <= maxTicks) return items.map((item) => item.date);
+
+  const lastIndex = items.length - 1;
+  const step = lastIndex / (maxTicks - 1);
+  const indexes = new Set();
+  for (let i = 0; i < maxTicks; i += 1) {
+    indexes.add(Math.round(i * step));
+  }
+
+  return [...indexes]
+    .sort((a, b) => a - b)
+    .map((index) => items[index]?.date)
+    .filter(Boolean);
+};
+
 const staggerContainer = {
   animate: { transition: { staggerChildren: 0.06 } },
 };
@@ -53,6 +71,15 @@ const KPI_COLOR_MAP = {
   '--color-success': { bg: 'var(--color-success-subtle)', fg: 'var(--color-success)' },
   '--color-warning': { bg: 'var(--color-warning-subtle)', fg: 'var(--color-warning)' },
   '--color-danger':  { bg: 'var(--color-danger-subtle)',  fg: 'var(--color-danger)' },
+};
+
+const getTrend = (summary, key) => {
+  const trend = summary?.trends?.[key];
+  if (!trend || trend.value === null || trend.value === undefined) return null;
+  return {
+    direction: trend.direction === 'down' ? 'down' : 'up',
+    value: trend.value,
+  };
 };
 
 function KpiCard({ label, value, icon: Icon, color, trend }) {
@@ -109,7 +136,7 @@ function KpiCard({ label, value, icon: Icon, color, trend }) {
         }}>
           {trend.direction === 'up' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
           {trend.value}%
-          <span style={{ color: 'var(--color-text-tertiary)', marginLeft: 2 }}>vs last period</span>
+          <span style={{ color: 'var(--color-text-tertiary)', marginLeft: 2 }}>vs previous period</span>
         </div>
       )}
     </motion.div>
@@ -143,7 +170,7 @@ const Dashboard = () => {
 
     try {
       const [summaryResult, activityResult, aiSummaryResult] = await Promise.allSettled([
-        apiFetch('/api/dashboard/summary', {}, { timeoutMs: DASHBOARD_TIMEOUT_MS }),
+        apiFetch(`/api/dashboard/summary?days=${selectedDays}`, {}, { timeoutMs: DASHBOARD_TIMEOUT_MS }),
         apiFetch(`/api/dashboard/activity?days=${selectedDays}`, {}, { timeoutMs: DASHBOARD_TIMEOUT_MS }),
         apiFetch('/api/dashboard/ai-summary/latest', {}, { timeoutMs: DASHBOARD_TIMEOUT_MS, cache: false }),
       ]);
@@ -194,16 +221,18 @@ const Dashboard = () => {
       return [
         { label: 'Leads', value: 0, icon: Users, color: '--color-accent', trend: null },
         { label: 'Deals', value: 0, icon: Briefcase, color: '--color-success', trend: null },
+        { label: 'Revenue', value: 0, icon: DollarSign, color: '--color-success', trend: null },
         { label: 'Organizations', value: 0, icon: Building2, color: '--color-warning', trend: null },
         { label: 'Tasks', value: 0, icon: CheckSquare, color: '--color-accent', trend: null },
       ];
     }
 
     return [
-      { label: 'Leads', value: summary.leads_total || 0, icon: Users, color: '--color-accent', trend: { direction: 'up', value: 12 } },
-      { label: 'Deals', value: summary.deals_total || 0, icon: Briefcase, color: '--color-success', trend: { direction: 'up', value: 8 } },
-      { label: 'Organizations', value: summary.organizations_total || 0, icon: Building2, color: '--color-warning', trend: { direction: 'up', value: 5 } },
-      { label: 'Tasks', value: summary.tasks_total || 0, icon: CheckSquare, color: '--color-accent', trend: null },
+      { label: 'Leads', value: summary.leads_total || 0, icon: Users, color: '--color-accent', trend: getTrend(summary, 'leads') },
+      { label: 'Deals', value: summary.deals_total || 0, icon: Briefcase, color: '--color-success', trend: getTrend(summary, 'deals') },
+      { label: 'Revenue', value: summary.revenue_total || 0, icon: DollarSign, color: '--color-success', trend: getTrend(summary, 'revenue') },
+      { label: 'Organizations', value: summary.organizations_total || 0, icon: Building2, color: '--color-warning', trend: getTrend(summary, 'organizations') },
+      { label: 'Tasks', value: summary.tasks_total || 0, icon: CheckSquare, color: '--color-accent', trend: getTrend(summary, 'tasks') },
     ];
   }, [summary]);
 
@@ -213,8 +242,15 @@ const Dashboard = () => {
       date: formatDateLabel(point.day),
       leads: point.leads || 0,
       deals: point.deals || 0,
+      tasks: point.tasks || 0,
+      notes: point.notes || 0,
     }));
   }, [activity?.series]);
+
+  const activityXAxisTicks = useMemo(
+    () => pickChartTicks(activityChartData, selectedDays),
+    [activityChartData, selectedDays]
+  );
 
   const pipelineData = useMemo(() => {
     const stages = summary?.pipeline || [];
@@ -261,7 +297,11 @@ const Dashboard = () => {
   };
 
   if (loading) {
-    return <PageLoader title="Loading dashboard" message="Preparing metrics, charts, activity, and AI summary." />;
+    return (
+      <PageTransition>
+        <SkeletonDashboard />
+      </PageTransition>
+    );
   }
 
   return (
@@ -333,7 +373,7 @@ const Dashboard = () => {
               variants={staggerContainer}
               initial="initial"
               animate="animate"
-              style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 20 }}
             >
               {topStats.map((stat) => (
                 <KpiCard key={stat.label} {...stat} />
@@ -389,11 +429,23 @@ const Dashboard = () => {
                         </linearGradient>
                       </defs>
                       <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="date" stroke={chartColors.text} fontSize={12} tickLine={false} axisLine={false} />
+                      <XAxis
+                        dataKey="date"
+                        ticks={activityXAxisTicks}
+                        interval={0}
+                        minTickGap={18}
+                        tickMargin={8}
+                        stroke={chartColors.text}
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                      />
                       <YAxis stroke={chartColors.text} fontSize={12} tickLine={false} axisLine={false} />
                       <Tooltip content={<CustomTooltip />} />
                       <Area type="monotone" dataKey="leads" name="Leads" stroke={chartColors.accent} fill="url(#areaFill)" strokeWidth={2} />
                       <Area type="monotone" dataKey="deals" name="Deals" stroke={chartColors.success} fill="url(#areaFill2)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="tasks" name="Tasks" stroke={chartColors.warning} fill="none" strokeWidth={2} />
+                      <Area type="monotone" dataKey="notes" name="Notes" stroke={chartColors.muted} fill="none" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}

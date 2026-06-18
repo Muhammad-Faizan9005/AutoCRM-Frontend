@@ -14,6 +14,7 @@ const CACHEABLE_PREFIXES = [
   "/api/notes/",
   "/api/tasks/",
   "/api/dashboard/",
+  "/api/admin/",
 ];
 
 const CACHE_TTL_BY_PREFIX = {
@@ -23,6 +24,7 @@ const CACHE_TTL_BY_PREFIX = {
   "/api/organizations/": 120000,
   "/api/notes/": 120000,
   "/api/tasks/": 120000,
+  "/api/admin/": 120000,
 };
 
 const memoryCache = new Map();
@@ -204,6 +206,17 @@ async function refreshAccessToken() {
     clearTokens();
     return false;
   }
+}
+
+export function peekCache(path, options = {}) {
+  const { skipAuth = false } = options;
+  const cachePrefix = getCacheablePrefix(path);
+  if (!cachePrefix) {
+    return { hit: false, value: null };
+  }
+  const accessToken = skipAuth ? "" : getAccessToken();
+  const cacheKey = getCacheKey("GET", path, accessToken);
+  return getCachedEntry(cacheKey);
 }
 
 export async function apiFetch(path, init = {}, options = {}) {

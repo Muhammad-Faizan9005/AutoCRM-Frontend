@@ -26,7 +26,7 @@ import {
   updateTeam,
 } from './teamsApi';
 import { listAdminUsers } from './adminApi';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonBlock } from '../components/Skeleton';
 import { toast } from '../utils/toast';
 
 const getErr = (e, fallback) => e?.message || e?.data?.detail || fallback;
@@ -469,7 +469,7 @@ const AdminTeams = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 reveal-stagger">
       {/* Header */}
       <div className="card" style={{ padding: '28px 32px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
@@ -528,7 +528,20 @@ const AdminTeams = () => {
 
       {/* Teams list */}
       {loading ? (
-        <PageLoader title="Loading team console" message="Fetching teams, managers, reps, and membership stats." minHeight="46vh" />
+        <div className="space-y-4">
+          {[1, 2, 3].map((item) => (
+            <div key={item} className="card card-padding" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <SkeletonBlock width="44px" height="44px" className="skeleton-round" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <SkeletonBlock width="180px" height="15px" />
+                  <SkeletonBlock width="120px" height="11px" />
+                </div>
+              </div>
+              <SkeletonBlock width="90px" height="32px" />
+            </div>
+          ))}
+        </div>
       ) : teams.length === 0 ? (
         <div className="card" style={{ padding: 40, textAlign: 'center' }}>
           <Users size={40} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
@@ -537,7 +550,7 @@ const AdminTeams = () => {
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 reveal-stagger">
           {teams.map((team) => (
             <TeamCard
               key={team.id}

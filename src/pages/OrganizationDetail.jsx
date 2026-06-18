@@ -4,7 +4,7 @@ import { ArrowLeft, Building2, Calendar, CheckSquare, DollarSign, Globe, Phone, 
 import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonCard } from '../components/Skeleton';
 import { EntityCard } from '../components/EntityCard';
 
 const formatDate = (value) => {
@@ -131,7 +131,13 @@ const OrganizationDetail = () => {
   }, [leads, deals, tasks, notes, calls]);
 
   if (loading) {
-    return <PageLoader title="Loading organization workspace" message="Fetching account profile, people, deals, tasks, notes, calls, and activity." />;
+    return (
+      <PageTransition>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+          {[1, 2, 3, 4, 5, 6].map((item) => <SkeletonCard key={item} />)}
+        </div>
+      </PageTransition>
+    );
   }
 
   return (

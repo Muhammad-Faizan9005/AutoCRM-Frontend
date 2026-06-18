@@ -4,10 +4,10 @@ import { Plus, Search, LayoutList, Columns2, RotateCcw, Eye, Pencil, Trash2, Mor
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
-import { apiFetch } from '../api/client';
+import { apiFetch, peekCache } from '../api/client';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { PageLoader } from '../components/PageLoader';
+import { SkeletonTable } from '../components/Skeleton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../utils/toast';
 
@@ -43,10 +43,14 @@ const mapLeadToRow = (lead) => ({
   ownerId: lead.owner_id || null,
 });
 
+const LEADS_INITIAL_PATH = '/api/leads/?skip=0&limit=20';
+
 const Leads = ({ user }) => {
+  const cachedLeads = peekCache(LEADS_INITIAL_PATH);
+  const initialLeads = cachedLeads.hit ? cachedLeads.value.map(mapLeadToRow) : [];
   const [viewMode, setViewMode] = useState('table');
-  const [leads, setLeads] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [leads, setLeads] = useState(initialLeads);
+  const [loading, setLoading] = useState(!cachedLeads.hit);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -108,16 +112,18 @@ const Leads = ({ user }) => {
     setIsCreateModalOpen(true);
   };
 
+  const hasDataRef = useRef(initialLeads.length > 0);
   const fetchLeads = useCallback(async (skip = 0, append = false) => {
     const requestId = ++latestRequestId.current;
-    if (!append) setLoading(true); else setIsLoadingMore(true);
+    if (append) setIsLoadingMore(true);
+    else if (!hasDataRef.current) setLoading(true);
     setError('');
     try {
       const limit = append ? 10 : 20;
       const data = await apiFetch(`/api/leads/?skip=${skip}&limit=${limit}`);
       if (requestId !== latestRequestId.current) return;
       const mappedData = data.map(mapLeadToRow);
-      if (append) setLeads((prev) => [...prev, ...mappedData]); else setLeads(mappedData);
+      if (append) setLeads((prev) => [...prev, ...mappedData]); else { setLeads(mappedData); hasDataRef.current = true; }
       mappedData.forEach((lead) => {
         lastConfirmedOwnerRef.current.set(String(lead.id), lead.ownerId || null);
       });
@@ -432,7 +438,7 @@ const Leads = ({ user }) => {
           </div>
         )}
 
-        {loading ? <PageLoader title="Loading leads" message="Fetching lead list, ownership, organizations, and activity context." minHeight="46vh" /> : (
+        {loading ? <SkeletonTable rows={8} cols={7} /> : (
           <>
             {/* TABLE VIEW */}
             {viewMode === 'table' && (
