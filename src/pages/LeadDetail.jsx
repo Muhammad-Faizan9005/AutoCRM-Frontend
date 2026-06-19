@@ -65,9 +65,20 @@ const buildRecordingUrl = (recordingPath) => {
   if (!recordingPath) return '';
   const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
   const normalized = recordingPath.replace(/\\/g, '/');
-  const urlPath = normalized.replace(/^storage\//, '/static/');
+  const fileName = normalized.split('/').pop();
+  const urlPath = normalized.startsWith('/static/')
+    ? normalized
+    : normalized.startsWith('storage/recordings/')
+      ? `/static/recordings/${fileName}`
+      : normalized.startsWith('recordings/')
+        ? `/static/recordings/${fileName}`
+        : normalized.includes('/')
+          ? `/static/recordings/${fileName}`
+          : `/static/recordings/${normalized}`;
   return `${apiBase}${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
 };
+
+const recordingExtensionForMime = (mimeType = '') => (mimeType.includes('ogg') ? 'ogg' : 'webm');
 
 const normalizeTask = (task) => ({
   id: task.id,
@@ -116,6 +127,8 @@ const LeadDetail = ({ user }) => {
   const localAudioRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const recordingUploadedRef = useRef(new Set());
+  const recordingMimeTypeRef = useRef('audio/webm');
+  const recordingExtensionRef = useRef('webm');
   const [noteContent, setNoteContent] = useState('');
   const [isConverting, setIsConverting] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
@@ -238,29 +251,63 @@ const LeadDetail = ({ user }) => {
     }
   }, [remoteStream, attachRemoteStream]);
 
-  const uploadRecordingBlob = async ({ blob, mimeType }) => {
-    if (!blob || !callSession?.id) return;
-    if (!blob.size) {
-      throw new Error('Recording is empty. Please try recording the call again.');
-    }
-    const extension = mimeType.includes('ogg') ? 'ogg' : 'webm';
+  const startRecordingUpload = async (mimeType) => {
+    if (!callSession?.id) return;
+    const extension = recordingExtensionForMime(mimeType);
+    recordingMimeTypeRef.current = mimeType || 'audio/webm';
+    recordingExtensionRef.current = extension;
+    await apiFetch(
+      `/api/calls/${callSession.id}/recording/start?extension=${encodeURIComponent(extension)}`,
+      { method: 'POST' },
+      { timeoutMs: 10000, cache: false }
+    );
+  };
+
+  const uploadRecordingChunk = async ({ blob, chunkIndex, mimeType }) => {
+    if (!blob || !blob.size || !callSession?.id) return;
+    recordingMimeTypeRef.current = mimeType || recordingMimeTypeRef.current;
+    recordingExtensionRef.current = recordingExtensionForMime(recordingMimeTypeRef.current);
     const formData = new FormData();
-    formData.append('file', blob, `call-${callSession.id}.${extension}`);
+    formData.append('chunk_index', String(chunkIndex));
+    formData.append('file', blob, `chunk-${chunkIndex}.${recordingExtensionRef.current}`);
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await apiFetch(
+          `/api/calls/${callSession.id}/recording/chunks`,
+          {
+            method: 'POST',
+            body: formData,
+          },
+          { timeoutMs: 20000, cache: false }
+        );
+        return;
+      } catch (error) {
+        lastError = error;
+        await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+      }
+    }
+    throw lastError || new Error('Recording chunk upload failed.');
+  };
+
+  const completeRecordingUpload = async () => {
+    if (!callSession?.id || recordingUploadedRef.current.has(callSession.id)) return null;
+    const search = new URLSearchParams({
+      extension: recordingExtensionRef.current,
+      mime_type: recordingMimeTypeRef.current,
+    });
     const uploadResponse = await apiFetch(
-      `/api/calls/${callSession.id}/recording`,
-      {
-        method: 'POST',
-        body: formData,
-      },
-      { timeoutMs: 30000, cache: false }
+      `/api/calls/${callSession.id}/recording/complete?${search.toString()}`,
+      { method: 'POST' },
+      { timeoutMs: 10000, cache: false }
     );
     setCalls((prev) => prev.map((call) => (
       call.id === callSession.id
-        ? { ...call, recording_path: uploadResponse.recording_path }
+        ? { ...call, recording_path: uploadResponse.recording_path, processing_status: 'processing' }
         : call
     )));
     recordingUploadedRef.current.add(callSession.id);
-    toast.success('Recording saved successfully.');
+    return uploadResponse;
   };
 
   useEffect(() => {
@@ -455,41 +502,52 @@ const LeadDetail = ({ user }) => {
     }
     setCallWorking(true);
     try {
-      // Stop and upload the recorder before tearing down the WebRTC streams.
-      // If we close the call first, the mic/remote tracks are stopped and the
-      // final MediaRecorder blob can become silent or unplayable in some browsers.
-      if (isRecording) {
-        const { blob, mimeType } = await stopRecording();
-        if (!recordingUploadedRef.current.has(callSession.id)) {
-          try {
-            await uploadRecordingBlob({ blob, mimeType });
-          } catch {
-            setCallNotice('Recording upload failed. You can retry later.');
-            toast.error('Recording upload failed.');
-          }
-        }
-      }
+      const recordingStop = isRecording ? stopRecording() : Promise.resolve({ failedUploads: [] });
 
       sendSignal({ type: 'recording', active: false });
       endCallSession();
-      try {
-        await apiFetch(
-          `/api/calls/${callSession.id}/end`,
-          { method: 'POST' },
-          { timeoutMs: 20000, cache: false }
-        );
-      } catch {
-        setCallNotice('Call ended locally. Server sync pending.');
-      }
+      setCallModalOpen(false);
+      setCallWorking(false);
+      setCallNotice('Call ended. Recording and transcription will continue in the background.');
+      toast.success('Call ended. Recording is processing in the background.');
 
-      try {
-        const refreshed = await apiFetch(`/api/leads/${leadId}/calls`, {}, { cache: false });
-        setCalls(Array.isArray(refreshed) ? refreshed : []);
-        setCallNotice('Call ended and saved.');
-        toast.success('Call ended and saved.');
-      } catch {
-        setCallNotice('Call ended. Sync will update later.');
-      }
+      (async () => {
+        let failedUploads = [];
+        try {
+          ({ failedUploads = [] } = await recordingStop);
+        } catch {
+          toast.error('Recording could not finish flushing.');
+        }
+        if (failedUploads?.length) {
+          toast.error('Some recording chunks failed to upload.');
+        } else if (isRecording && !recordingUploadedRef.current.has(callSession.id)) {
+          try {
+            await completeRecordingUpload();
+            toast.success('Recording is being finalized in the background.');
+          } catch {
+            toast.error('Recording finalization failed to queue.');
+          }
+        }
+
+        try {
+          await apiFetch(
+            `/api/calls/${callSession.id}/end`,
+            { method: 'POST' },
+            { timeoutMs: 20000, cache: false }
+          );
+        } catch {
+          toast.error('Call ended locally. Server sync is pending.');
+        }
+
+        try {
+          const refreshed = await apiFetch(`/api/leads/${leadId}/calls`, {}, { cache: false });
+          setCalls(Array.isArray(refreshed) ? refreshed : []);
+        } catch {
+          // The next page refresh will pick up server-side call state.
+        }
+      })().catch(() => {
+        toast.error('Background call cleanup failed.');
+      });
     } catch (err) {
       const message = err?.message || 'Unable to end call.';
       setError(message);
@@ -497,7 +555,6 @@ const LeadDetail = ({ user }) => {
     } finally {
       sendSignal({ type: 'recording', active: false });
       setCallWorking(false);
-      setCallModalOpen(false);
     }
   };
 
@@ -512,7 +569,11 @@ const LeadDetail = ({ user }) => {
     }
     if (!isRecording) {
       try {
-        await startRecording(localStream);
+        const mimeType = await startRecording(localStream, {
+          onChunk: uploadRecordingChunk,
+          timesliceMs: 8000,
+        });
+        await startRecordingUpload(mimeType || 'audio/webm');
         if (remoteStream) {
           attachRemoteStream(remoteStream);
         }
@@ -520,6 +581,11 @@ const LeadDetail = ({ user }) => {
         setCallNotice('Recording started.');
         toast.success('Recording started.');
       } catch (err) {
+        try {
+          await stopRecording();
+        } catch {
+          // Recorder may not have started yet.
+        }
         const message = err?.message || 'Unable to start recording.';
         setCallNotice(message);
         toast.error(message);
