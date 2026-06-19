@@ -185,30 +185,6 @@ const Tasks = ({ user }) => {
       const data = await apiFetch(`/api/tasks/?entity_type=${LEAD_ENTITY_TYPE}&skip=${skip}&limit=${limit}`);
       if (rid !== latestReq.current) return;
       const directory = { ...leadDirectoryRef.current };
-      const missingLeadIds = Array.from(
-        new Set(
-          data
-            .map((task) => String(task.entity_id || ''))
-            .filter((id) => id && !directory[id])
-        )
-      );
-
-      if (missingLeadIds.length) {
-        try {
-          const leads = await Promise.all(
-            missingLeadIds.map((id) => apiFetch(`/api/leads/${id}`))
-          );
-          leads.forEach((lead) => {
-            if (lead?.id) {
-              directory[String(lead.id)] = lead.name || 'Unnamed lead';
-            }
-          });
-          leadDirectoryRef.current = directory;
-          setLeadDirectory(directory);
-        } catch {
-          // Ignore lead lookup failures and fall back to IDs.
-        }
-      }
 
       const mapped = data.map((task) => normalizeTask(task, user, assigneeDirectory, directory));
       if (append) setTasks((prev) => [...prev, ...mapped]);

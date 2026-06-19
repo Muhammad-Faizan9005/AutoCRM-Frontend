@@ -4,7 +4,8 @@ export const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8
 
 const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
-const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_TIMEOUT_MS = 0;
+const AUTH_REFRESH_TIMEOUT_MS = 15000;
 const DEFAULT_CACHE_TTL_MS = 120000;
 
 const CACHEABLE_PREFIXES = [
@@ -101,18 +102,21 @@ function getCacheTtlMs(prefix, overrideTtlMs) {
   return CACHE_TTL_BY_PREFIX[prefix] || DEFAULT_CACHE_TTL_MS;
 }
 
-function getCachedEntry(cacheKey) {
+function getCachedEntry(cacheKey, options = {}) {
+  const { allowStale = false } = options;
   const entry = memoryCache.get(cacheKey);
   if (!entry) {
-    return { hit: false, value: null };
+    return { hit: false, stale: false, value: null };
   }
 
   if (entry.expiresAt <= Date.now()) {
-    memoryCache.delete(cacheKey);
-    return { hit: false, value: null };
+    if (allowStale) {
+      return { hit: true, stale: true, value: entry.data };
+    }
+    return { hit: false, stale: true, value: entry.data };
   }
 
-  return { hit: true, value: entry.data };
+  return { hit: true, stale: false, value: entry.data };
 }
 
 function setCacheEntry(cacheKey, data, ttlMs) {
@@ -153,6 +157,21 @@ async function fetchWithTimeout(url, init, timeoutMs) {
   }
 }
 
+async function fetchWithRetry(url, init, timeoutMs, retries = 0) {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fetchWithTimeout(url, init, timeoutMs);
+    } catch (error) {
+      if (attempt >= retries || error?.code === "timeout") {
+        throw error;
+      }
+      attempt += 1;
+      await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+    }
+  }
+}
+
 async function parseResponseBody(response) {
   if (response.status === 204) {
     return null;
@@ -179,7 +198,7 @@ async function refreshAccessToken() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: refreshToken }),
       },
-      DEFAULT_TIMEOUT_MS
+      AUTH_REFRESH_TIMEOUT_MS
     );
 
     if (!response.ok) {
@@ -226,6 +245,7 @@ export async function apiFetch(path, init = {}, options = {}) {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     cache = true,
     cacheTtlMs,
+    retries,
   } = options;
   if (typeof window !== "undefined" && window.__AUTOCRM_SIGNING_OUT__ && path !== "/api/auth/logout") {
     const error = new Error("Sign out in progress");
@@ -256,14 +276,33 @@ export async function apiFetch(path, init = {}, options = {}) {
     }
   }
 
-  const response = await fetchWithTimeout(
-    `${API_BASE}${path}`,
-    {
-      ...init,
-      headers,
-    },
-    timeoutMs
-  );
+  const requestUrl = `${API_BASE}${path}`;
+  const requestInit = {
+    ...init,
+    headers,
+  };
+  const cacheKey = shouldCache ? getCacheKey(method, path, accessToken) : null;
+  let response;
+  try {
+    response = await fetchWithRetry(
+      requestUrl,
+      requestInit,
+      timeoutMs,
+      typeof retries === "number" ? retries : method === "GET" ? 1 : 0
+    );
+  } catch (error) {
+    if (shouldCache && cacheKey) {
+      const stale = getCachedEntry(cacheKey, { allowStale: true });
+      if (stale.hit) {
+        logger.warn("api.stale_cache_fallback", {
+          path,
+          reason: error?.code || error?.message || "network_error",
+        });
+        return stale.value;
+      }
+    }
+    throw error;
+  }
 
   if (response.status === 401 && retryOn401 && !skipAuth) {
     const refreshed = await refreshAccessToken();
@@ -274,6 +313,7 @@ export async function apiFetch(path, init = {}, options = {}) {
         timeoutMs,
         cache,
         cacheTtlMs,
+        retries,
       });
     }
   }
@@ -318,7 +358,6 @@ export async function apiFetch(path, init = {}, options = {}) {
   }
 
   if (shouldCache) {
-    const cacheKey = getCacheKey(method, path, accessToken);
     setCacheEntry(cacheKey, data, getCacheTtlMs(cachePrefix, cacheTtlMs));
   } else if (method !== "GET" && cachePrefix) {
     invalidateCacheByPrefix(cachePrefix);

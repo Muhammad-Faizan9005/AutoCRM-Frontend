@@ -12,8 +12,11 @@ const pickMimeType = () => {
 export const useCallRecording = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const chunksRef = useRef([]);
   const recorderRef = useRef(null);
+  const chunkIndexRef = useRef(0);
+  const pendingUploadsRef = useRef([]);
+  const failedUploadsRef = useRef([]);
+  const onChunkRef = useRef(null);
   const audioContextRef = useRef(null);
   const destinationRef = useRef(null);
   const remoteSourcesRef = useRef([]);
@@ -21,7 +24,7 @@ export const useCallRecording = () => {
   const localSourceRef = useRef(null);
   const monitorGainRef = useRef(null);
 
-  const start = useCallback(async (localStream) => {
+  const start = useCallback(async (localStream, options = {}) => {
     if (!localStream) return null;
     if (typeof MediaRecorder === 'undefined') {
       throw new Error('Recording is not supported in this browser.');
@@ -45,10 +48,28 @@ export const useCallRecording = () => {
     const mimeType = pickMimeType();
     const recorder = new MediaRecorder(destination.stream, mimeType ? { mimeType } : undefined);
 
-    chunksRef.current = [];
+    chunkIndexRef.current = 0;
+    pendingUploadsRef.current = [];
+    failedUploadsRef.current = [];
+    onChunkRef.current = typeof options.onChunk === 'function' ? options.onChunk : null;
+
     recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
-        chunksRef.current.push(event.data);
+        const chunkIndex = chunkIndexRef.current;
+        chunkIndexRef.current += 1;
+        const uploadPromise = Promise.resolve(
+          onChunkRef.current?.({
+            blob: event.data,
+            chunkIndex,
+            mimeType: recorder.mimeType || mimeType || 'audio/webm',
+          })
+        ).catch((error) => {
+          failedUploadsRef.current.push({ chunkIndex, error });
+        });
+        pendingUploadsRef.current.push(uploadPromise);
+        uploadPromise.finally(() => {
+          pendingUploadsRef.current = pendingUploadsRef.current.filter((pending) => pending !== uploadPromise);
+        });
       }
     };
 
@@ -64,7 +85,7 @@ export const useCallRecording = () => {
     audioContextRef.current = audioContext;
     destinationRef.current = destination;
 
-    recorder.start(10000);
+    recorder.start(options.timesliceMs || 8000);
     setIsRecording(true);
     setIsPaused(false);
 
@@ -93,15 +114,18 @@ export const useCallRecording = () => {
   const stop = useCallback(() => new Promise((resolve) => {
     const recorder = recorderRef.current;
     if (!recorder) {
-      resolve({ blob: null, mimeType: 'audio/webm' });
+      resolve({ mimeType: 'audio/webm', failedUploads: [] });
       return;
     }
 
-    recorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+    recorder.onstop = async () => {
+      await Promise.allSettled(pendingUploadsRef.current);
+      const failedUploads = [...failedUploadsRef.current];
       setIsRecording(false);
       setIsPaused(false);
-      chunksRef.current = [];
+      pendingUploadsRef.current = [];
+      failedUploadsRef.current = [];
+      onChunkRef.current = null;
       remoteSourcesRef.current.forEach((source) => source.disconnect());
       remoteSourcesRef.current = [];
       attachedRemoteIdsRef.current.clear();
@@ -121,7 +145,7 @@ export const useCallRecording = () => {
       destinationRef.current = null;
       recorderRef.current = null;
 
-      resolve({ blob, mimeType: recorder.mimeType || 'audio/webm' });
+      resolve({ mimeType: recorder.mimeType || 'audio/webm', failedUploads });
     };
 
     if (recorder.state === 'recording' || recorder.state === 'paused') {
@@ -132,7 +156,7 @@ export const useCallRecording = () => {
       }
       recorder.stop();
     } else {
-      resolve({ blob: null, mimeType: recorder.mimeType || 'audio/webm' });
+      resolve({ mimeType: recorder.mimeType || 'audio/webm', failedUploads: [...failedUploadsRef.current] });
     }
   }), []);
 
