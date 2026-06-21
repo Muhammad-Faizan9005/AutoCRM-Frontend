@@ -29,6 +29,7 @@ const CACHE_TTL_BY_PREFIX = {
 };
 
 const memoryCache = new Map();
+const inFlightRequests = new Map();
 
 export function getAccessToken() {
   return localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -40,6 +41,7 @@ export function getRefreshToken() {
 
 export function setTokens({ accessToken, refreshToken }) {
   memoryCache.clear();
+  inFlightRequests.clear();
   if (accessToken) {
     localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   }
@@ -50,6 +52,7 @@ export function setTokens({ accessToken, refreshToken }) {
 
 export function clearTokens() {
   memoryCache.clear();
+  inFlightRequests.clear();
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
 }
@@ -132,6 +135,41 @@ function invalidateCacheByPrefix(prefix) {
       memoryCache.delete(key);
     }
   }
+  for (const key of inFlightRequests.keys()) {
+    if (key.includes(`:${prefix}`)) {
+      inFlightRequests.delete(key);
+    }
+  }
+}
+
+function invalidateRelatedCache(path) {
+  const cleanPath = path.split("?")[0];
+  const prefixes = new Set();
+  const directPrefix = getCacheablePrefix(path);
+  if (directPrefix) {
+    prefixes.add(directPrefix);
+  }
+
+  if (cleanPath.startsWith("/api/leads/")) {
+    prefixes.add("/api/deals/");
+    prefixes.add("/api/tasks/");
+    prefixes.add("/api/notes/");
+    prefixes.add("/api/dashboard/");
+  }
+  if (cleanPath.startsWith("/api/deals/")) {
+    prefixes.add("/api/leads/");
+    prefixes.add("/api/dashboard/");
+  }
+  if (cleanPath.startsWith("/api/tasks/") || cleanPath.startsWith("/api/notes/")) {
+    prefixes.add("/api/leads/");
+    prefixes.add("/api/dashboard/");
+  }
+  if (cleanPath.startsWith("/api/organizations/")) {
+    prefixes.add("/api/deals/");
+    prefixes.add("/api/leads/");
+  }
+
+  prefixes.forEach(invalidateCacheByPrefix);
 }
 
 async function fetchWithTimeout(url, init, timeoutMs) {
@@ -244,6 +282,7 @@ export async function apiFetch(path, init = {}, options = {}) {
     skipAuth = false,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     cache = true,
+    forceRefresh = false,
     cacheTtlMs,
     retries,
   } = options;
@@ -271,7 +310,11 @@ export async function apiFetch(path, init = {}, options = {}) {
   if (shouldCache) {
     const cacheKey = getCacheKey(method, path, accessToken);
     const cached = getCachedEntry(cacheKey);
-    if (cached.hit) {
+    const inFlight = inFlightRequests.get(cacheKey);
+    if (inFlight && !forceRefresh) {
+      return inFlight;
+    }
+    if (cached.hit && !forceRefresh) {
       return cached.value;
     }
   }
@@ -282,86 +325,101 @@ export async function apiFetch(path, init = {}, options = {}) {
     headers,
   };
   const cacheKey = shouldCache ? getCacheKey(method, path, accessToken) : null;
-  let response;
-  try {
-    response = await fetchWithRetry(
-      requestUrl,
-      requestInit,
-      timeoutMs,
-      typeof retries === "number" ? retries : method === "GET" ? 1 : 0
-    );
-  } catch (error) {
-    if (shouldCache && cacheKey) {
-      const stale = getCachedEntry(cacheKey, { allowStale: true });
-      if (stale.hit) {
-        logger.warn("api.stale_cache_fallback", {
-          path,
-          reason: error?.code || error?.message || "network_error",
-        });
-        return stale.value;
-      }
-    }
-    throw error;
-  }
-
-  if (response.status === 401 && retryOn401 && !skipAuth) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) {
-      return apiFetch(path, init, {
-        retryOn401: false,
-        skipAuth,
+  const executeRequest = async () => {
+    let response;
+    try {
+      response = await fetchWithRetry(
+        requestUrl,
+        requestInit,
         timeoutMs,
-        cache,
-        cacheTtlMs,
-        retries,
-      });
-    }
-  }
-
-  const data = await parseResponseBody(response);
-  if (!response.ok) {
-    if (!skipAuth && response.status === 401) {
-      clearTokens();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("autocrm-logout"));
+        typeof retries === "number" ? retries : method === "GET" ? 1 : 0
+      );
+    } catch (error) {
+      if (shouldCache && cacheKey) {
+        const stale = getCachedEntry(cacheKey, { allowStale: true });
+        if (stale.hit) {
+          logger.warn("api.stale_cache_fallback", {
+            path,
+            reason: error?.code || error?.message || "network_error",
+          });
+          return stale.value;
+        }
       }
-      logger.warn("auth.auto_logout", { status: response.status, path });
+      throw error;
     }
 
-    if (response.status >= 500) {
-      logger.error("api.server_error", { status: response.status, path });
-    }
-
-    const message =
-      (typeof data === "object" && data
-        ? data.error?.message || data.detail || data.message
-        : null) ||
-      (typeof data === "string" ? data : null) ||
-      "Request failed";
-
-    if (!skipAuth && response.status === 403 && /inactive/i.test(message || "")) {
-      clearTokens();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("autocrm-inactive", {
-            detail: { message },
-          })
-        );
+    if (response.status === 401 && retryOn401 && !skipAuth) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        return apiFetch(path, init, {
+          retryOn401: false,
+          skipAuth,
+          timeoutMs,
+          cache,
+          forceRefresh,
+          cacheTtlMs,
+          retries,
+        });
       }
-      logger.warn("auth.inactive_user", { status: response.status, path });
     }
 
-    const error = new Error(message);
-    error.status = response.status;
-    error.data = data;
-    throw error;
+    const data = await parseResponseBody(response);
+    if (!response.ok) {
+      if (!skipAuth && response.status === 401) {
+        clearTokens();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("autocrm-logout"));
+        }
+        logger.warn("auth.auto_logout", { status: response.status, path });
+      }
+
+      if (response.status >= 500) {
+        logger.error("api.server_error", { status: response.status, path });
+      }
+
+      const message =
+        (typeof data === "object" && data
+          ? data.error?.message || data.detail || data.message
+          : null) ||
+        (typeof data === "string" ? data : null) ||
+        "Request failed";
+
+      if (!skipAuth && response.status === 403 && /inactive/i.test(message || "")) {
+        clearTokens();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("autocrm-inactive", {
+              detail: { message },
+            })
+          );
+        }
+        logger.warn("auth.inactive_user", { status: response.status, path });
+      }
+
+      const error = new Error(message);
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
+    if (shouldCache) {
+      setCacheEntry(cacheKey, data, getCacheTtlMs(cachePrefix, cacheTtlMs));
+    } else if (method !== "GET" && cachePrefix) {
+      invalidateRelatedCache(path);
+    }
+
+    return data;
+  };
+
+  if (shouldCache && cacheKey) {
+    const requestPromise = executeRequest().finally(() => {
+      if (inFlightRequests.get(cacheKey) === requestPromise) {
+        inFlightRequests.delete(cacheKey);
+      }
+    });
+    inFlightRequests.set(cacheKey, requestPromise);
+    return requestPromise;
   }
 
-  if (shouldCache) {
-    setCacheEntry(cacheKey, data, getCacheTtlMs(cachePrefix, cacheTtlMs));
-  } else if (method !== "GET" && cachePrefix) {
-    invalidateCacheByPrefix(cachePrefix);
-  }
-
-  return data;
+  return executeRequest();
 }

@@ -171,47 +171,27 @@ const LeadDetail = ({ user }) => {
       setLoading(true);
       setError('');
       try {
-        const results = await Promise.allSettled([
-          apiFetch(`/api/leads/${leadId}`),
-          apiFetch(`/api/leads/${leadId}/owner`),
-          apiFetch(`/api/leads/${leadId}/emails`),
-          apiFetch(`/api/leads/${leadId}/calls`),
-          apiFetch(`/api/tasks/?entity_type=lead&entity_id=${leadId}&skip=0&limit=50`),
-          apiFetch(`/api/notes/?entity_type=lead&entity_id=${leadId}&skip=0&limit=50`),
-          apiFetch(`/api/leads/${leadId}/ai-history`),
-        ]);
+        const workspace = await apiFetch(
+          `/api/leads/${leadId}/workspace`,
+          {},
+          { forceRefresh: refreshTick > 0 }
+        );
         if (!active) return;
-        const [leadRes, ownerRes, emailRes, callRes, taskRes, noteRes, aiHistoryRes] = results;
-
-        if (leadRes.status === 'fulfilled') {
-          setLead(leadRes.value);
-        } else if (leadRes.reason?.status === 404) {
+        setLead(workspace.lead || null);
+        setOwnerName(workspace.owner?.name || workspace.owner?.email || 'Unassigned');
+        setEmails(Array.isArray(workspace.emails) ? workspace.emails : []);
+        setCalls(Array.isArray(workspace.calls) ? workspace.calls : []);
+        setTasks(Array.isArray(workspace.tasks) ? workspace.tasks.map(normalizeTask) : []);
+        setNotes(Array.isArray(workspace.notes) ? workspace.notes.map(normalizeNote) : []);
+        setAiHistory(Array.isArray(workspace.ai_history) ? workspace.ai_history : []);
+      } catch (err) {
+        if (!active) return;
+        if (err?.status === 404) {
           setLead(null);
           setError('Lead not found.');
         } else {
-          setError(leadRes.reason?.message || 'Unable to load lead details.');
+          setError(err?.message || 'Unable to load lead details.');
         }
-
-        if (ownerRes.status === 'fulfilled') {
-          setOwnerName(ownerRes.value?.name || ownerRes.value?.email || 'Unassigned');
-        }
-        if (emailRes.status === 'fulfilled') {
-          setEmails(Array.isArray(emailRes.value) ? emailRes.value : []);
-        }
-        if (callRes.status === 'fulfilled') {
-          setCalls(Array.isArray(callRes.value) ? callRes.value : []);
-        }
-        if (taskRes.status === 'fulfilled') {
-          setTasks(Array.isArray(taskRes.value) ? taskRes.value.map(normalizeTask) : []);
-        }
-        if (noteRes.status === 'fulfilled') {
-          setNotes(Array.isArray(noteRes.value) ? noteRes.value.map(normalizeNote) : []);
-        }
-        if (aiHistoryRes.status === 'fulfilled') {
-          setAiHistory(Array.isArray(aiHistoryRes.value) ? aiHistoryRes.value : []);
-        }
-      } catch (err) {
-        if (active) setError(err?.message || 'Unable to load lead details.');
       } finally {
         if (active) setLoading(false);
       }

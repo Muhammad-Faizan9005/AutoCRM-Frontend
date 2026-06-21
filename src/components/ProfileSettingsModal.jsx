@@ -59,6 +59,7 @@ const PasswordField = ({
 
 const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
   const [fullName, setFullName] = useState(user?.full_name || '');
+  const [email, setEmail] = useState(user?.email || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -76,12 +77,13 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
     if (initializedUserId.current === user?.id) return;
     initializedUserId.current = user?.id || null;
     setFullName(user?.full_name || '');
+    setEmail(user?.email || '');
     setAvatarUrl(user?.avatar_url || '');
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
     setVisiblePasswords({ current: false, next: false, confirm: false });
-  }, [user?.avatar_url, user?.full_name, user?.id]);
+  }, [user?.avatar_url, user?.email, user?.full_name, user?.id]);
 
   const displayName = fullName || user?.email || 'User';
 
@@ -140,16 +142,22 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     const trimmedName = fullName.trim();
+    const trimmedEmail = email.trim().toLowerCase();
     if (trimmedName.length < 2) {
       toast.error('Name must be at least 2 characters.');
       return;
     }
-    if (newPassword || currentPassword || confirmPassword) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast.error('Enter a valid email address.');
+      return;
+    }
+    const emailChanged = trimmedEmail !== String(user?.email || '').trim().toLowerCase();
+    if (newPassword || currentPassword || confirmPassword || emailChanged) {
       if (!currentPassword) {
-        toast.error('Enter your current password to change it.');
+        toast.error(emailChanged ? 'Enter your current password to change your email.' : 'Enter your current password to change it.');
         return;
       }
-      if (newPassword.length < 6) {
+      if (newPassword && newPassword.length < 6) {
         toast.error('New password must be at least 6 characters.');
         return;
       }
@@ -161,9 +169,12 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
 
     const payload = {
       full_name: trimmedName,
+      email: trimmedEmail,
     };
-    if (newPassword) {
+    if (newPassword || emailChanged) {
       payload.current_password = currentPassword;
+    }
+    if (newPassword) {
       payload.new_password = newPassword;
     }
 
@@ -263,7 +274,18 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
 
             <div>
               <label className="label">Email</label>
-              <input className="input" value={user?.email || ''} disabled />
+              <input
+                className="input"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@company.com"
+                autoComplete="email"
+              />
+              {email.trim().toLowerCase() !== String(user?.email || '').trim().toLowerCase() && (
+                <div style={{ marginTop: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
+                  Current password is required to change your email.
+                </div>
+              )}
             </div>
 
             <div style={{

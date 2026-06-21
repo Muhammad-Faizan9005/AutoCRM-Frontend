@@ -45,11 +45,10 @@ const mapDealStatus = (status) => {
 
 const MANUAL_LEAD_SOURCE = 'manual';
 
-const mapDeal = (deal,orgIdx,leadIdx) => {
-  const linkedLead = leadIdx.get(String(deal.lead_id || ''));
+const mapDeal = (deal,orgIdx) => {
   return {
   id: deal.id,
-  org: deal.organization_name || orgIdx.get(deal.organization_id) || linkedLead?.company || linkedLead?.name || 'Organization loading...',
+  org: deal.organization_name || orgIdx.get(deal.organization_id) || deal.lead_company || deal.lead_name || 'Organization loading...',
   revenue: formatMoney(deal.value, deal.currency),
   stage: normalizeStage(deal.stage),
   status: mapDealStatus(deal.status),
@@ -58,7 +57,7 @@ const mapDeal = (deal,orgIdx,leadIdx) => {
   };
 };
 
-const DEALS_INITIAL_PATH = '/api/deals/?skip=0&limit=20';
+const DEALS_INITIAL_PATH = '/api/deals/workspace?skip=0&limit=20';
 const DEALS_ORGS_PATH = '/api/organizations/';
 
 const Deals = ({ user }) => {
@@ -67,8 +66,6 @@ const Deals = ({ user }) => {
   const [viewMode, setViewMode] = useState('table');
   const [dealRecords, setDealRecords] = useState(cachedDeals.hit ? cachedDeals.value : []);
   const [organizations, setOrganizations] = useState(cachedOrgs.hit ? cachedOrgs.value : []);
-  const [leadLookup, setLeadLookup] = useState({});
-  const leadLookupRef = useRef({});
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -77,8 +74,8 @@ const Deals = ({ user }) => {
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [totalLoaded, setTotalLoaded] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const [totalLoaded, setTotalLoaded] = useState(cachedDeals.hit ? cachedDeals.value.length : 0);
+  const [hasMore, setHasMore] = useState(cachedDeals.hit ? cachedDeals.value.length === 20 : true);
   const latestReq = useRef(0);
   const hasDataRef = useRef(cachedDeals.hit);
   const [tbodyRef] = useAutoAnimate();
@@ -90,39 +87,18 @@ const Deals = ({ user }) => {
   const resetForm = () => setFormData({ orgName:'', website:'', revenue:'', industry:'', dealType:'new_business', firstName:'', lastName:'', email:'', mobile:'', status:'qualification' });
 
   const orgIdx = useMemo(() => new Map(organizations.map(o=>[o.id,o.name||'-'])), [organizations]);
-  const leadIdx = useMemo(() => new Map(Object.entries(leadLookup)), [leadLookup]);
-  const deals = useMemo(() => dealRecords.map(d=>mapDeal(d,orgIdx,leadIdx)), [dealRecords,orgIdx,leadIdx]);
+  const deals = useMemo(() => dealRecords.map(d=>mapDeal(d,orgIdx)), [dealRecords,orgIdx]);
 
-  const fetchDeals = useCallback(async (skip=0,append=false) => {
+  const fetchDeals = useCallback(async (skip=0,append=false,forceRefresh=false) => {
     const rid = ++latestReq.current;
     if(append)setIsLoadingMore(true);
     else if(!hasDataRef.current)setLoading(true);
     setError('');
     try {
       const lim = append?10:20;
-      const data = await apiFetch(`/api/deals/?skip=${skip}&limit=${lim}`);
+      const data = await apiFetch(`/api/deals/workspace?skip=${skip}&limit=${lim}`, {}, { forceRefresh });
       if(rid!==latestReq.current)return;
       if(append)setDealRecords(p=>[...p,...data]);else{setDealRecords(data);hasDataRef.current=true;}
-      const missingLeadIds = Array.from(new Set(
-        data
-          .filter((deal) => deal.lead_id && !leadLookupRef.current[String(deal.lead_id)])
-          .map((deal) => String(deal.lead_id))
-      ));
-      if (missingLeadIds.length) {
-        try {
-          const leads = await Promise.all(missingLeadIds.map((id) => apiFetch(`/api/leads/${id}`)));
-          setLeadLookup((prev) => {
-            const next = { ...prev };
-            leads.forEach((lead) => {
-              if (lead?.id) next[String(lead.id)] = { company: lead.company || '', name: lead.name || '' };
-            });
-            leadLookupRef.current = next;
-            return next;
-          });
-        } catch {
-          // If lead lookup fails, fall back to the deal organization id / dash.
-        }
-      }
       setTotalLoaded(p=>p+data.length); setHasMore(data.length===lim);
     } catch(e){if(rid===latestReq.current)setError(e?.message||'Unable to load deals.');}
     finally{if(rid===latestReq.current){if(!append)setLoading(false);else setIsLoadingMore(false);}}
@@ -211,7 +187,7 @@ const Deals = ({ user }) => {
             </div>
           </div>
           <div style={{ display:'flex', gap:8 }}>
-            <button onClick={()=>{setTotalLoaded(0);fetchDeals(0,false);}} className="btn btn-ghost btn-icon" aria-label="Refresh"><RotateCcw size={16}/></button>
+            <button onClick={()=>{setTotalLoaded(0);fetchDeals(0,false,true);}} className="btn btn-ghost btn-icon" aria-label="Refresh"><RotateCcw size={16}/></button>
             <button onClick={exportXl} className="btn btn-secondary btn-sm"><Download size={14}/> Export</button>
             <button onClick={()=>setIsCreateOpen(true)} className="btn btn-primary"><Plus size={15}/> Add Deal</button>
           </div>
