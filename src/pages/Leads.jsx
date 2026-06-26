@@ -156,7 +156,9 @@ const Leads = ({ user }) => {
       try {
         const data = await apiFetch('/api/leads/assignment-reps');
         const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
-        const reps = items.filter((u) => ['agent', 'sales_rep'].includes((u.role || '').toLowerCase()));
+        const role = String(user?.role || '').toLowerCase();
+        const assignableRoles = role === 'admin' ? ['manager', 'sales_manager'] : ['agent', 'sales_rep'];
+        const reps = items.filter((u) => assignableRoles.includes((u.role || '').toLowerCase()));
         if (active) setTeamReps(reps);
       } catch {
         if (active) setTeamReps([]);
@@ -453,7 +455,7 @@ const Leads = ({ user }) => {
                         <th>Status</th>
                         <th>Email</th>
                         <th>Phone</th>
-                        <th>Assigned Rep</th>
+                        <th>Assigned To</th>
                         <th>Modified</th>
                         <th style={{ width: 60, textAlign: 'right' }}>Actions</th>
                       </tr>
