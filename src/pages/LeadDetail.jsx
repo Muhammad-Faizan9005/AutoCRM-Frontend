@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { CheckSquare, Mail, Phone, PhoneOff, Plus, StickyNote } from 'lucide-react';
+import { CheckSquare, ChevronDown, ChevronRight, Mail, Phone, PhoneOff, Plus, StickyNote } from 'lucide-react';
 import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
@@ -23,6 +23,7 @@ const TABS = [
 ];
 
 const LEAD_STATUS_LABELS = { new: 'New', contacted: 'Contacted', nurture: 'Nurture', qualified: 'Qualified', unqualified: 'Unqualified', junk: 'Junk' };
+const LEAD_STATUS_OPTIONS = ['new', 'contacted', 'nurture', 'qualified', 'unqualified', 'junk'];
 const TASK_STATUS_LABELS = { backlog: 'Backlog', todo: 'Todo', in_progress: 'In Progress', done: 'Done', canceled: 'Canceled' };
 const TASK_STATUS_BADGE = { backlog: 'badge-muted', todo: 'badge-accent', in_progress: 'badge-warning', done: 'badge-success', canceled: 'badge-danger' };
 const TASK_STATUS_ACCENT = { backlog: 'note-border-muted', todo: 'note-border-accent', in_progress: 'note-border-warning', done: 'note-border-success', canceled: 'note-border-danger' };
@@ -115,7 +116,6 @@ const LeadDetail = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
-  const [notice, setNotice] = useState('');
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [callModalOpen, setCallModalOpen] = useState(false);
@@ -124,6 +124,14 @@ const LeadDetail = ({ user }) => {
   const [callTimer, setCallTimer] = useState(0);
   const [callWorking, setCallWorking] = useState(false);
   const [callNotice, setCallNotice] = useState('');
+  const [expandedCallSections, setExpandedCallSections] = useState({});
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [statusModalOpen, setStatusModalOpen] = useState(false);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const [teamReps, setTeamReps] = useState([]);
+  const [selectedOwnerId, setSelectedOwnerId] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('new');
+  const [quickActionSaving, setQuickActionSaving] = useState(false);
   const localAudioRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const recordingUploadedRef = useRef(new Set());
@@ -140,6 +148,7 @@ const LeadDetail = ({ user }) => {
     priority: 'medium',
   });
   const isManager = ['sales_manager', 'manager', 'admin'].includes(String(user?.role || '').toLowerCase());
+  const canUnassignLead = String(user?.role || '').toLowerCase() === 'admin';
 
   const {
     status: callStatus,
@@ -179,6 +188,8 @@ const LeadDetail = ({ user }) => {
         if (!active) return;
         setLead(workspace.lead || null);
         setOwnerName(workspace.owner?.name || workspace.owner?.email || 'Unassigned');
+        setSelectedOwnerId(workspace.lead?.owner_id || '');
+        setSelectedStatus(workspace.lead?.status || 'new');
         setEmails(Array.isArray(workspace.emails) ? workspace.emails : []);
         setCalls(Array.isArray(workspace.calls) ? workspace.calls : []);
         setTasks(Array.isArray(workspace.tasks) ? workspace.tasks.map(normalizeTask) : []);
@@ -200,6 +211,25 @@ const LeadDetail = ({ user }) => {
     return () => { active = false; };
   }, [leadId, refreshTick]);
 
+  useEffect(() => {
+    let active = true;
+    const fetchReps = async () => {
+      if (!isManager) return;
+      try {
+        const data = await apiFetch('/api/leads/assignment-reps');
+        const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+        const role = String(user?.role || '').toLowerCase();
+        const assignableRoles = role === 'admin' ? ['manager', 'sales_manager'] : ['agent', 'sales_rep'];
+        const reps = items.filter((rep) => assignableRoles.includes(String(rep.role || '').toLowerCase()));
+        if (active) setTeamReps(reps);
+      } catch {
+        if (active) setTeamReps([]);
+      }
+    };
+    fetchReps();
+    return () => { active = false; };
+  }, [isManager]);
+
   const refreshLeadScore = async () => {
     try {
       const result = await apiFetch(`/api/leads/${leadId}/score/recalculate`, { method: 'POST' }, { cache: false });
@@ -212,6 +242,81 @@ const LeadDetail = ({ user }) => {
 
   const handleRetryLoad = () => {
     setRefreshTick((prev) => prev + 1);
+  };
+
+  const isCallSectionExpanded = (callId, section) => (
+    expandedCallSections[`${callId}-${section}`] !== false
+  );
+
+  const toggleCallSection = (callId, section) => {
+    const key = `${callId}-${section}`;
+    setExpandedCallSections((current) => ({
+      ...current,
+      [key]: current[key] === false,
+    }));
+  };
+
+  const getRepLabel = (ownerId) => {
+    if (!ownerId) return 'Unassigned';
+    const rep = teamReps.find((item) => String(item.id) === String(ownerId));
+    if (rep) return rep.full_name || rep.email || 'Assigned';
+    if (String(user?.id || '') === String(ownerId)) {
+      return user?.full_name || user?.email || 'Assigned';
+    }
+    return ownerName || 'Assigned';
+  };
+
+  const handleOpenAssignModal = () => {
+    setSelectedOwnerId(lead?.owner_id || (canUnassignLead ? '' : teamReps[0]?.id || ''));
+    setAssignModalOpen(true);
+  };
+
+  const handleOpenStatusModal = () => {
+    setSelectedStatus(lead?.status || 'new');
+    setStatusModalOpen(true);
+  };
+
+  const handleAssignLead = async (event) => {
+    event.preventDefault();
+    if (!leadId) return;
+    setQuickActionSaving(true);
+    try {
+      const updated = await apiFetch(`/api/leads/${leadId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ owner_id: selectedOwnerId || null }),
+      });
+      setLead((prev) => (prev ? { ...prev, ...updated } : updated));
+      setOwnerName(getRepLabel(selectedOwnerId));
+      setAssignModalOpen(false);
+      toast.success('Lead assignment updated.');
+    } catch (err) {
+      const message = err?.message || 'Unable to assign lead.';
+      toast.error(message);
+    } finally {
+      setQuickActionSaving(false);
+    }
+  };
+
+  const handleUpdateLeadStatus = async (event) => {
+    event.preventDefault();
+    if (!leadId) return;
+    const nextStatus = normalizeStatus(selectedStatus) || 'new';
+    setQuickActionSaving(true);
+    try {
+      const updated = await apiFetch(`/api/leads/${leadId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      setLead((prev) => (prev ? { ...prev, ...updated } : updated));
+      setSelectedStatus(updated?.status || nextStatus);
+      setStatusModalOpen(false);
+      toast.success('Lead status updated.');
+    } catch (err) {
+      const message = err?.message || 'Unable to update lead status.';
+      toast.error(message);
+    } finally {
+      setQuickActionSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -366,7 +471,6 @@ const LeadDetail = ({ user }) => {
       toast.success('Note added successfully.');
     } catch (err) {
       const message = err?.message || 'Unable to create note.';
-      setError(message);
       toast.error(message);
     }
   };
@@ -396,15 +500,12 @@ const LeadDetail = ({ user }) => {
       toast.success(`Task added for ${assigneeLabel}.`);
     } catch (err) {
       const message = err?.message || 'Unable to create task.';
-      setError(message);
       toast.error(message);
     }
   };
 
   const handleConvertToDeal = async () => {
     if (!leadId) return;
-    setError('');
-    setNotice('');
     setIsConverting(true);
     try {
       await apiFetch(`/api/leads/${leadId}/convert-to-deal`, {
@@ -413,11 +514,9 @@ const LeadDetail = ({ user }) => {
       });
       setLead((prev) => (prev ? { ...prev, converted: true, status: 'qualified' } : prev));
       setDealDiscarded(false);
-      setNotice('Lead converted to deal.');
       toast.success('Deal converted successfully.');
     } catch (err) {
       const message = err?.message || 'Unable to convert lead.';
-      setError(message);
       toast.error(message);
     } finally {
       setIsConverting(false);
@@ -426,18 +525,20 @@ const LeadDetail = ({ user }) => {
 
   const handleDiscardDeal = async () => {
     if (!leadId) return;
-    setError('');
-    setNotice('');
     setIsDiscarding(true);
     try {
       await apiFetch(`/api/leads/${leadId}/discard-deal`, {
         method: 'POST',
         body: JSON.stringify({}),
       });
+      setLead((prev) => (prev ? { ...prev, converted: false, status: 'qualified' } : prev));
+      setSelectedStatus('qualified');
       setDealDiscarded(true);
-      setNotice('Deal moved back to Qualification.');
+      setDiscardConfirmOpen(false);
+      toast.success('Deal discarded.');
     } catch (err) {
-      setError(err?.message || 'Unable to discard deal.');
+      const message = err?.message || 'Unable to discard deal.';
+      toast.error(message);
     } finally {
       setIsDiscarding(false);
     }
@@ -467,7 +568,6 @@ const LeadDetail = ({ user }) => {
       toast.success('Call started successfully.');
     } catch (err) {
       const message = err?.message || 'Unable to start call.';
-      setError(message);
       toast.error(message);
     } finally {
       setCallWorking(false);
@@ -530,7 +630,6 @@ const LeadDetail = ({ user }) => {
       });
     } catch (err) {
       const message = err?.message || 'Unable to end call.';
-      setError(message);
       toast.error(message);
     } finally {
       sendSignal({ type: 'recording', active: false });
@@ -651,17 +750,6 @@ const LeadDetail = ({ user }) => {
             </div>
           </div>
 
-          {error && (
-            <div style={{ padding: 12, borderRadius: 8, background: 'var(--color-danger-subtle)', color: 'var(--color-danger)', fontSize: 'var(--text-sm)' }}>
-              {error}
-            </div>
-          )}
-          {notice && (
-            <div style={{ padding: 12, borderRadius: 8, background: 'var(--color-success-subtle)', color: 'var(--color-success)', fontSize: 'var(--text-sm)' }}>
-              {notice}
-            </div>
-          )}
-
           {lead && (
             <div className="card card-padding" style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
               <div>
@@ -776,23 +864,77 @@ const LeadDetail = ({ user }) => {
                       Transcript: {call.transcript ? 'Available' : (call.processing_status === 'failed' ? 'Failed' : 'Processing')}
                     </div>
                     {call.meeting_summary && (
-                      <div style={{ marginTop: 8, padding: 10, borderRadius: 'var(--radius)', background: 'var(--color-accent-subtle)', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)', whiteSpace: 'pre-wrap' }}>
-                        <strong>Meeting Summary:</strong> {call.meeting_summary}
+                      <div style={{ marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => toggleCallSection(call.id, 'summary')}
+                          aria-expanded={isCallSectionExpanded(call.id, 'summary')}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '8px 10px',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius)',
+                            background: 'var(--color-accent-subtle)',
+                            color: 'var(--color-text-secondary)',
+                            cursor: 'pointer',
+                            fontSize: 'var(--text-sm)',
+                            fontWeight: 'var(--weight-semibold)',
+                          }}
+                        >
+                          <span>Meeting Summary</span>
+                          {isCallSectionExpanded(call.id, 'summary') ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </button>
+                        {isCallSectionExpanded(call.id, 'summary') && (
+                          <div style={{ marginTop: 6, padding: 10, borderRadius: 'var(--radius)', background: 'var(--color-accent-subtle)', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)', whiteSpace: 'pre-wrap' }}>
+                            {call.meeting_summary}
+                          </div>
+                        )}
                       </div>
                     )}
                     {call.transcript && (
-                      <div style={{
-                        marginTop: 8,
-                        padding: 10,
-                        borderRadius: 'var(--radius)',
-                        background: 'var(--color-bg-elevated)',
-                        color: 'var(--color-text-secondary)',
-                        fontSize: 'var(--text-sm)',
-                        whiteSpace: 'pre-wrap',
-                        maxHeight: 180,
-                        overflowY: 'auto',
-                      }}>
-                        {call.transcript}
+                      <div style={{ marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => toggleCallSection(call.id, 'transcript')}
+                          aria-expanded={isCallSectionExpanded(call.id, 'transcript')}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '8px 10px',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius)',
+                            background: 'var(--color-bg-elevated)',
+                            color: 'var(--color-text-secondary)',
+                            cursor: 'pointer',
+                            fontSize: 'var(--text-sm)',
+                            fontWeight: 'var(--weight-semibold)',
+                          }}
+                        >
+                          <span>Transcript</span>
+                          {isCallSectionExpanded(call.id, 'transcript') ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </button>
+                        {isCallSectionExpanded(call.id, 'transcript') && (
+                          <div style={{
+                            marginTop: 6,
+                            padding: 10,
+                            borderRadius: 'var(--radius)',
+                            background: 'var(--color-bg-elevated)',
+                            color: 'var(--color-text-secondary)',
+                            fontSize: 'var(--text-sm)',
+                            whiteSpace: 'pre-wrap',
+                            maxHeight: 180,
+                            overflowY: 'auto',
+                          }}>
+                            {call.transcript}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -868,9 +1010,14 @@ const LeadDetail = ({ user }) => {
 
           <div className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
             <div style={{ fontWeight: 'var(--weight-medium)' }}>Quick actions</div>
-            {isManager && <button className="btn btn-secondary btn-sm">Assign Lead</button>}
+            {isManager && (
+              <button className="btn btn-secondary btn-sm" type="button" onClick={handleOpenAssignModal}>
+                Assign Lead
+              </button>
+            )}
             <button
               className="btn btn-secondary btn-sm"
+              type="button"
               onClick={handleConvertToDeal}
               disabled={isConverting || lead?.converted}
             >
@@ -879,16 +1026,127 @@ const LeadDetail = ({ user }) => {
             {isManager && lead?.converted && (
               <button
                 className="btn btn-secondary btn-sm"
-                onClick={handleDiscardDeal}
+                type="button"
+                onClick={() => setDiscardConfirmOpen(true)}
                 disabled={isDiscarding || dealDiscarded}
               >
                 {dealDiscarded ? 'Deal Discarded' : isDiscarding ? 'Discarding...' : 'Discard Deal'}
               </button>
             )}
-            {isManager && <button className="btn btn-secondary btn-sm">Update Status</button>}
+            {isManager && (
+              <button className="btn btn-secondary btn-sm" type="button" onClick={handleOpenStatusModal}>
+                Update Status
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {isManager && assignModalOpen && (
+        <div className="modal-overlay" onClick={() => setAssignModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 420 }} onClick={(event) => event.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+              <h3 className="section-title">Assign Lead</h3>
+              <button onClick={() => setAssignModalOpen(false)} className="btn btn-ghost btn-icon" aria-label="Close">X</button>
+            </div>
+            <form onSubmit={handleAssignLead} style={{ padding: 20, display: 'grid', gap: 12 }}>
+              <div>
+                <label className="label">Owner</label>
+                <select
+                  className="input"
+                  value={selectedOwnerId}
+                  onChange={(event) => setSelectedOwnerId(event.target.value)}
+                >
+                  {canUnassignLead && <option value="">Unassigned</option>}
+                  {teamReps.map((rep) => (
+                    <option key={rep.id} value={rep.id}>
+                      {rep.full_name || rep.email || 'Assignable user'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button type="button" className="btn btn-ghost" onClick={() => setAssignModalOpen(false)} disabled={quickActionSaving}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={quickActionSaving}>
+                  {quickActionSaving ? 'Saving...' : 'Save Assignment'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isManager && statusModalOpen && (
+        <div className="modal-overlay" onClick={() => setStatusModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 420 }} onClick={(event) => event.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+              <h3 className="section-title">Update Status</h3>
+              <button onClick={() => setStatusModalOpen(false)} className="btn btn-ghost btn-icon" aria-label="Close">X</button>
+            </div>
+            <form onSubmit={handleUpdateLeadStatus} style={{ padding: 20, display: 'grid', gap: 12 }}>
+              <div>
+                <label className="label">Status</label>
+                <select
+                  className="input"
+                  value={selectedStatus}
+                  onChange={(event) => setSelectedStatus(event.target.value)}
+                >
+                  {LEAD_STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>{LEAD_STATUS_LABELS[status]}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button type="button" className="btn btn-ghost" onClick={() => setStatusModalOpen(false)} disabled={quickActionSaving}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={quickActionSaving}>
+                  {quickActionSaving ? 'Saving...' : 'Update Status'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isManager && discardConfirmOpen && (
+        <div className="modal-overlay" onClick={() => !isDiscarding && setDiscardConfirmOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 420 }} onClick={(event) => event.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+              <h3 className="section-title">Discard Deal</h3>
+              <button
+                onClick={() => setDiscardConfirmOpen(false)}
+                className="btn btn-ghost btn-icon"
+                aria-label="Close"
+                disabled={isDiscarding}
+              >
+                X
+              </button>
+            </div>
+            <div style={{ padding: 20, display: 'grid', gap: 14 }}>
+              <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)', lineHeight: 1.5 }}>
+                This will move the deal back to Qualification for this lead.
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setDiscardConfirmOpen(false)}
+                  disabled={isDiscarding}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={handleDiscardDeal}
+                  disabled={isDiscarding}
+                >
+                  {isDiscarding ? 'Discarding...' : 'Discard Deal'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {noteModalOpen && (
         <div className="modal-overlay" onClick={() => setNoteModalOpen(false)}>

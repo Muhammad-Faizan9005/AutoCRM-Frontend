@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { apiFetch, setTokens } from '../api/client';
 import { logger } from '../utils/logger';
 
@@ -162,13 +163,13 @@ export default function Login({ onLogin }) {
             </div>
 
             <div style={{ textAlign: 'right', marginBottom: 16 }}>
-              <a href="#" style={{
+              <Link to="/forgot-password" style={{
                 fontSize: 'var(--text-xs)',
                 color: 'var(--color-text-tertiary)',
                 textDecoration: 'none',
               }}>
                 Forgot Password?
-              </a>
+              </Link>
             </div>
 
             <button

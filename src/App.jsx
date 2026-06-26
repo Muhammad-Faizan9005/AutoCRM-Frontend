@@ -26,6 +26,7 @@ import { LoadingScreen } from './components/LoadingScreen';
 const USER_PROFILE_KEY = 'user_profile';
 const LOGOUT_ANIMATION_MS = 1200;
 const LOGOUT_ROUTE_SETTLE_MS = 300;
+const LOGIN_LOADER_MS = 5000;
 
 const CRM_ROUTES = [
   { permission: 'dashboard', path: '/' },
@@ -289,7 +290,7 @@ function App() {
     loginLoaderTimerRef.current = setTimeout(() => {
       setShowLoginLoader(false);
       loginLoaderTimerRef.current = null;
-    }, 10000);
+    }, LOGIN_LOADER_MS);
   };
 
   const handleUserUpdate = (updatedUser) => {
