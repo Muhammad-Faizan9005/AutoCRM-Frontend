@@ -8,6 +8,8 @@ A modern Customer Relationship Management (CRM) interface built with React and V
 - **Failed Invites**: view, re-invite, or delete failed invites
 - **Team Management**: create teams, assign reps, remove members, delete teams
 - **CRM Workspace**: leads, deals, contacts, organizations, notes, tasks
+- **AI Insights**: lead/deal summaries, risk alerts, recommended actions, and dashboard AI summary
+- **Call Experience**: live call join/start flows and authenticated recording playback
 - **Imports**: CSV/XLSX import UI for customers and tickets
 - **Responsive Design**: optimized for desktop and mobile
 
@@ -109,7 +111,15 @@ forntend/AutoCRM-Frontend/
 
 - Permission checks are enforced by backend endpoints and mirrored in UI access guards.
 - `apiFetch` automatically refreshes tokens on `401` and does not log out on `403`.
+- `apiFetch` keeps a bounded in-memory cache and can return stale cached data during transient network failures for selected read endpoints.
+- Call recordings are fetched as authenticated blobs from the backend instead of being loaded from public static URLs.
 - Admin and manager consoles use the same permission matrix and user list APIs.
+- The app still stores access tokens, refresh tokens, cached profile data, and local permission snapshots in browser storage for the current development flow. Treat UI permission checks as UX helpers only; backend authorization remains the enforcement boundary.
+- There is currently no committed frontend test suite. Run `npm run build` and `npm run lint` before shipping changes.
+
+## AI Control Center
+
+The admin AI control center talks to backend `/api/agent/*` endpoints for runs, traces, approvals, settings, team stats, and AI agent credentials. These views are intended for administrators or users with AI/admin permissions; backend routes should remain the source of truth for access decisions.
 
 ## 🤝 Contributing
 
