@@ -36,6 +36,70 @@ const statusTone = (status = '') => {
   return 'neutral';
 };
 
+const humanize = (value, fallback = 'AI action') => {
+  const text = String(value || '').trim();
+  if (!text) return fallback;
+  return text.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const actionTitle = (item) => item?.action_display_title || humanize(item?.action_type || item?.trigger_type);
+const actionSummary = (item) => item?.action_summary || item?.reason || item?.summary || 'No summary provided.';
+const entityLabel = (item) => item?.entity_display_label || item?.entity_display_name || item?.entity_display_type || humanize(item?.entity_type, 'CRM record');
+const actorLabel = (item) => item?.requested_by_name || item?.created_by_name || 'AI service';
+
+const traceTitle = (item) => {
+  const labels = {
+    build_context: 'Collected CRM context',
+    retrieve_context: 'Reviewed knowledge base',
+    build_action: 'Prepared recommendation',
+    dispatch_action: 'Sent action for approval',
+    create_action: 'Created CRM action',
+    create_alert: 'Created alert request',
+    score_lead: 'Calculated lead score',
+  };
+  const step = String(item?.step || '').trim().toLowerCase();
+  return labels[step] || humanize(item?.step, 'Workflow step');
+};
+
+const traceSummary = (item) => {
+  const payload = item?.payload && typeof item.payload === 'object' ? item.payload : {};
+  if (payload.summary) return String(payload.summary);
+  if (payload.reason) return String(payload.reason);
+  if (payload.rag_sources?.length) return `Reviewed ${payload.rag_sources.length} knowledge source${payload.rag_sources.length === 1 ? '' : 's'}.`;
+  if (payload.context_keys?.length) return `Prepared ${payload.context_keys.length} context field${payload.context_keys.length === 1 ? '' : 's'} for the agent.`;
+  if (payload.entity_type) return `Prepared context for ${humanize(payload.entity_type, 'record')}.`;
+  return 'Workflow step recorded.';
+};
+
+const isAdminUser = (user) => {
+  const role = String(user?.role || '').toLowerCase();
+  return Boolean(user?.is_admin || user?.is_superuser || role === 'admin');
+};
+
+const TechnicalDetails = ({ label = 'Technical details', data, enabled = false }) => {
+  if (!enabled) return null;
+  return (
+  <details style={{ marginTop: 10, paddingTop: 2 }}>
+    <summary style={{ cursor: 'pointer', color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)', lineHeight: 1.4 }}>{label}</summary>
+    <pre style={{ margin: '8px 0 0', maxHeight: 160, overflow: 'auto', fontSize: 11, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
+      {JSON.stringify(data || {}, null, 2)}
+    </pre>
+  </details>
+  );
+};
+
+const RelatedEntities = ({ entities = [] }) => {
+  const visible = entities.filter((entity) => entity?.name);
+  if (visible.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+      {visible.map((entity, index) => (
+        <Pill key={`${entity.field}-${index}`}>{entity.label}: {entity.name}</Pill>
+      ))}
+    </div>
+  );
+};
+
 const Pill = ({ children, tone = 'neutral' }) => {
   const colors = {
     success: ['var(--color-success-subtle)', 'var(--color-success)'],
@@ -101,7 +165,54 @@ const EmptyState = ({ children }) => (
   </div>
 );
 
-const AIControlCenter = () => {
+const actionCardStyle = {
+  padding: 12,
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius)',
+  background: 'var(--color-bg-elevated)',
+  display: 'grid',
+  gap: 8,
+};
+
+const actionCardHeaderStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) auto',
+  alignItems: 'start',
+  gap: 10,
+};
+
+const actionTitleStyle = {
+  minWidth: 0,
+  fontSize: 'var(--text-sm)',
+  lineHeight: 1.35,
+};
+
+const mutedLineStyle = {
+  color: 'var(--color-text-secondary)',
+  fontSize: 'var(--text-xs)',
+  lineHeight: 1.45,
+};
+
+const metadataRowStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  minHeight: 16,
+  color: 'var(--color-text-tertiary)',
+  fontSize: 'var(--text-xs)',
+  lineHeight: 1,
+};
+
+const sectionHeaderStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  minHeight: 28,
+  marginBottom: 10,
+  fontWeight: 'var(--weight-semibold)',
+};
+
+const AIControlCenter = ({ currentUser }) => {
   const [runs, setRuns] = useState([]);
   const [approvals, setApprovals] = useState([]);
   const [trace, setTrace] = useState([]);
@@ -115,6 +226,8 @@ const AIControlCenter = () => {
   const [agentToggleBusy, setAgentToggleBusy] = useState('');
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
+  const [taskDueAt, setTaskDueAt] = useState('');
+  const developerModeEnabled = isAdminUser(currentUser) && Boolean(currentUser?.developer_mode);
 
   const loadControlCenter = useCallback(async () => {
     setLoading(true);
@@ -178,15 +291,21 @@ const AIControlCenter = () => {
 
   const decideApproval = async (approval, decision) => {
     const id = getId(approval);
+    const isTaskApproval = String(approval?.action_type || '').toLowerCase() === 'create_task';
+    if (decision === 'approve' && isTaskApproval && !taskDueAt) {
+      setError('Please choose a deadline before approving this AI task.');
+      return;
+    }
     setActionBusy(`${decision}:${id}`);
     setError('');
     try {
       if (decision === 'approve') {
-        await approveAgentAction(id, note);
+        await approveAgentAction(id, note, isTaskApproval ? { due_at: taskDueAt } : {});
       } else {
         await rejectAgentAction(id, note);
       }
       setNote('');
+      setTaskDueAt('');
       setSelectedApproval(null);
       await loadControlCenter();
     } catch (err) {
@@ -197,6 +316,13 @@ const AIControlCenter = () => {
   };
 
   const activeApproval = selectedApproval || approvals[0] || null;
+  const activeApprovalId = getId(activeApproval);
+  const activeApprovalCreatesTask = String(activeApproval?.action_type || '').toLowerCase() === 'create_task';
+
+  useEffect(() => {
+    const suggestedDueAt = activeApproval?.payload?.due_at;
+    setTaskDueAt(activeApprovalCreatesTask && suggestedDueAt ? String(suggestedDueAt).slice(0, 16) : '');
+  }, [activeApprovalId, activeApprovalCreatesTask, activeApproval?.payload?.due_at]);
 
   const toggleAiAgent = async (agent) => {
     setAgentToggleBusy(agent.agent_key);
@@ -325,7 +451,7 @@ const AIControlCenter = () => {
             )}
         </section>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 0.9fr) minmax(420px, 1.4fr)', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 0.9fr) minmax(420px, 1.4fr)', gap: 14, alignItems: 'start' }}>
           <section className="card card-padding" style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 className="section-title">Agent Runs</h2>
@@ -351,18 +477,25 @@ const AIControlCenter = () => {
                         border: active ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
                         background: active ? 'var(--color-accent-subtle)' : 'var(--color-bg-elevated)',
                         cursor: 'pointer',
+                        display: 'grid',
+                        gridTemplateRows: 'auto auto auto',
+                        gap: 7,
+                        minHeight: 94,
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                        <strong style={{ fontSize: 'var(--text-sm)' }}>{run.trigger_type || 'agent_run'}</strong>
+                      <div style={actionCardHeaderStyle}>
+                        <strong style={actionTitleStyle}>{actionTitle(run)}</strong>
                         <span style={{ display: 'inline-flex', gap: 6 }}>
                           {run.legacy_source && <Pill>legacy</Pill>}
                           <Pill tone={statusTone(run.status)}>{run.status || 'unknown'}</Pill>
                         </span>
                       </div>
-                      <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
-                        <span>{run.entity_type}:{shortId(run.entity_id)}</span>
-                        <span><Clock3 size={12} style={{ verticalAlign: 'text-bottom' }} /> {formatDate(run.started_at)}</span>
+                      <div style={mutedLineStyle}>
+                        {entityLabel(run)}
+                      </div>
+                      <div style={metadataRowStyle}>
+                        <Clock3 size={12} style={{ flexShrink: 0 }} />
+                        <span>{formatDate(run.started_at)}</span>
                       </div>
                     </button>
                   );
@@ -371,7 +504,7 @@ const AIControlCenter = () => {
             )}
           </section>
 
-          <section className="card card-padding" style={{ minWidth: 0 }}>
+          <section className="card card-padding" style={{ minWidth: 0, height: 503, maxHeight: 503, display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 className="section-title">Run Inspector</h2>
               {selectedRun && <Pill tone={statusTone(selectedRun.status)}>{selectedRun.status}</Pill>}
@@ -381,80 +514,83 @@ const AIControlCenter = () => {
             ) : detailLoading ? (
               <EmptyState><Loader2 size={16} className="animate-spin" />&nbsp;Loading trace...</EmptyState>
             ) : (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: trace.length === 0 ? '1fr' : 'minmax(260px, 0.9fr) minmax(320px, 1.1fr)',
-                  gap: 14,
-                  alignItems: 'start',
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  {(selectedRun.summary || selectedRun.failure_cause || selectedRun.failure_detail) && (
-                    <div style={{
-                      marginBottom: 12,
-                      padding: 10,
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius)',
-                      background: 'var(--color-bg-elevated)',
-                      color: 'var(--color-text-secondary)',
-                      fontSize: 'var(--text-xs)',
-                    }}>
-                      {selectedRun.summary && <div><strong>Summary:</strong> {selectedRun.summary}</div>}
-                      {selectedRun.failure_cause && <div><strong>Failure:</strong> {selectedRun.failure_cause}</div>}
-                      {selectedRun.failure_detail && (
-                        <pre style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', maxHeight: 140, overflow: 'auto' }}>
-                          {selectedRun.failure_detail}
-                        </pre>
-                      )}
+              <div style={{ display: 'grid', gap: 14, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
+                <div style={actionCardStyle}>
+                  <div style={actionCardHeaderStyle}>
+                    <div>
+                      <div style={{ fontWeight: 'var(--weight-semibold)', lineHeight: 1.35 }}>{actionTitle(selectedRun)}</div>
+                      <div style={{ ...mutedLineStyle, marginTop: 6 }}>{actionSummary(selectedRun)}</div>
                     </div>
-                  )}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontWeight: 'var(--weight-semibold)' }}>
-                    <GitBranch size={16} /> Run Trace
+                    <Pill tone={statusTone(selectedRun.status)}>{selectedRun.status || 'unknown'}</Pill>
                   </div>
-                  {trace.length === 0 ? (
-                    <EmptyState>No trace events recorded.</EmptyState>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
-                      {trace.map((item, index) => (
-                        <div key={`${item.step}-${index}`} style={{ padding: 10, border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', background: 'var(--color-bg-elevated)' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <strong style={{ fontSize: 'var(--text-sm)' }}>{item.step}</strong>
-                            <span style={{ display: 'inline-flex', gap: 6 }}>
-                              {item.legacy_source && <Pill>legacy</Pill>}
-                              <Pill tone={statusTone(item.status)}>{item.status}</Pill>
-                            </span>
-                          </div>
-                          <pre style={{ margin: '8px 0 0', maxHeight: 120, overflow: 'auto', fontSize: 11, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
-                            {JSON.stringify(item.payload || {}, null, 2)}
-                          </pre>
-                        </div>
-                      ))}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <Pill>{entityLabel(selectedRun)}</Pill>
+                  </div>
+                  {(selectedRun.failure_cause || selectedRun.failure_detail) && (
+                    <div style={{ color: 'var(--color-danger)', fontSize: 'var(--text-xs)', lineHeight: 1.45 }}>
+                      <strong>Failure:</strong> {selectedRun.failure_cause || 'Run failed'}
+                      {selectedRun.failure_detail && <TechnicalDetails label="Failure details" data={{ detail: selectedRun.failure_detail }} enabled={developerModeEnabled} />}
                     </div>
                   )}
+                  <TechnicalDetails label="Developer details" data={selectedRun} enabled={developerModeEnabled} />
                 </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontWeight: 'var(--weight-semibold)' }}>
-                    <FileClock size={16} /> Entity Memory
-                  </div>
-                  {memory.length === 0 ? (
-                    <EmptyState>No memory for this entity.</EmptyState>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
-                      {memory.map((item) => (
-                        <div key={getId(item)} style={{ padding: 10, border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', background: 'var(--color-bg-elevated)' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <strong style={{ fontSize: 'var(--text-sm)' }}>{item.action_type}</strong>
-                            <span style={{ display: 'inline-flex', gap: 6 }}>
-                              {item.legacy_source && <Pill>legacy</Pill>}
-                              <Pill tone={statusTone(item.approval_status)}>{item.approval_status || 'n/a'}</Pill>
-                            </span>
-                          </div>
-                          <div style={{ marginTop: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>{item.reason}</div>
-                        </div>
-                      ))}
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: 14,
+                    alignItems: 'start',
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={sectionHeaderStyle}>
+                      <GitBranch size={16} /> Run Trace
                     </div>
-                  )}
+                    {trace.length === 0 ? (
+                      <EmptyState>No trace events recorded.</EmptyState>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
+                        {trace.map((item, index) => (
+                          <div key={`${item.step}-${index}`} style={actionCardStyle}>
+                            <div style={actionCardHeaderStyle}>
+                              <strong style={actionTitleStyle}>{traceTitle(item)}</strong>
+                              <span style={{ display: 'inline-flex', gap: 6 }}>
+                                {item.legacy_source && <Pill>legacy</Pill>}
+                                <Pill tone={statusTone(item.status)}>{item.status}</Pill>
+                              </span>
+                            </div>
+                            <div style={mutedLineStyle}>{traceSummary(item)}</div>
+                            <TechnicalDetails label="Trace payload" data={item.payload || {}} enabled={developerModeEnabled} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={sectionHeaderStyle}>
+                      <FileClock size={16} /> Entity Memory
+                    </div>
+                    {memory.length === 0 ? (
+                      <EmptyState>No memory for this entity.</EmptyState>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
+                        {memory.map((item) => (
+                          <div key={getId(item)} style={actionCardStyle}>
+                            <div style={actionCardHeaderStyle}>
+                              <strong style={actionTitleStyle}>{actionTitle(item)}</strong>
+                              <span style={{ display: 'inline-flex', gap: 6 }}>
+                                {item.legacy_source && <Pill>legacy</Pill>}
+                                <Pill tone={statusTone(item.approval_status)}>{item.approval_status || 'n/a'}</Pill>
+                              </span>
+                            </div>
+                            <div style={mutedLineStyle}>{actionSummary(item)}</div>
+                            <RelatedEntities entities={item.related_entities} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -480,18 +616,21 @@ const AIControlCenter = () => {
                       onClick={() => setSelectedApproval(approval)}
                       style={{
                         textAlign: 'left',
-                        padding: '12px 14px',
+                        padding: 12,
                         borderRadius: 'var(--radius)',
                         border: active ? '1px solid var(--color-warning)' : '1px solid var(--color-border)',
                         background: active ? 'var(--color-warning-subtle)' : 'var(--color-bg-elevated)',
                         cursor: 'pointer',
+                        display: 'grid',
+                        gap: 8,
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                        <strong style={{ fontSize: 'var(--text-sm)' }}>Approval {shortId(getId(approval))}</strong>
+                      <div style={actionCardHeaderStyle}>
+                        <strong style={actionTitleStyle}>{actionTitle(approval)}</strong>
                         <Pill tone="warning">{approval.state || 'pending'}</Pill>
                       </div>
-                      <div style={{ marginTop: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>{approval.reason || 'No reason provided'}</div>
+                      <div style={mutedLineStyle}>{entityLabel(approval)}</div>
+                      <div style={{ ...mutedLineStyle, color: 'var(--color-text-tertiary)' }}>{actionSummary(approval)}</div>
                     </button>
                   );
                 })}
@@ -502,9 +641,32 @@ const AIControlCenter = () => {
                   <AlertTriangle size={16} color="var(--color-warning)" />
                   <strong>Review Action</strong>
                 </div>
-                <pre style={{ margin: 0, minHeight: 120, maxHeight: 220, overflow: 'auto', fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
-                  {JSON.stringify(activeApproval || {}, null, 2)}
-                </pre>
+                <div style={{ display: 'grid', gap: 12 }}>
+                  <div>
+                    <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Action</div>
+                    <div style={{ marginTop: 4, fontWeight: 'var(--weight-semibold)' }}>{actionTitle(activeApproval)}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Related record</div>
+                    <div style={{ marginTop: 4 }}>{entityLabel(activeApproval)}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Recommendation</div>
+                    <div style={{ marginTop: 4, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{actionSummary(activeApproval)}</div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+                    <div>
+                      <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>Requested by</div>
+                      <div style={{ marginTop: 3 }}>{actorLabel(activeApproval)}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>Created</div>
+                      <div style={{ marginTop: 3 }}>{formatDate(activeApproval?.created_at)}</div>
+                    </div>
+                  </div>
+                  <RelatedEntities entities={activeApproval?.related_entities} />
+                  <TechnicalDetails label="Technical payload" data={activeApproval || {}} enabled={developerModeEnabled} />
+                </div>
                 <textarea
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
@@ -521,6 +683,22 @@ const AIControlCenter = () => {
                     color: 'var(--color-text-primary)',
                   }}
                 />
+                {activeApprovalCreatesTask && (
+                  <div style={{ marginTop: 12 }}>
+                    <label className="label" htmlFor="ai-task-deadline">Task deadline *</label>
+                    <input
+                      id="ai-task-deadline"
+                      className="input"
+                      type="datetime-local"
+                      value={taskDueAt}
+                      onChange={(event) => setTaskDueAt(event.target.value)}
+                      required
+                    />
+                    <div style={{ marginTop: 6, color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>
+                      Required before approving AI-created tasks.
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
                   <button
                     type="button"
@@ -534,7 +712,7 @@ const AIControlCenter = () => {
                   <button
                     type="button"
                     className="btn btn-primary"
-                    disabled={!activeApproval || Boolean(actionBusy)}
+                    disabled={!activeApproval || Boolean(actionBusy) || (activeApprovalCreatesTask && !taskDueAt)}
                     onClick={() => decideApproval(activeApproval, 'approve')}
                   >
                     {actionBusy.startsWith('approve') ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}

@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Calendar, CheckSquare, DollarSign, Globe, Phone, StickyNote, Target, Users } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowLeft, Building2, Calendar, CheckSquare, ChevronDown, ChevronRight, DollarSign, Globe, Pencil, Phone, StickyNote, Target, Users, X } from 'lucide-react';
 import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { SkeletonCard } from '../components/Skeleton';
+import { SkeletonOrganizationDetail } from '../components/Skeleton';
 import { EntityCard } from '../components/EntityCard';
+import { toast } from '../utils/toast';
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -17,6 +19,12 @@ const formatDate = (value) => {
 const formatMoney = (value) => {
   const numeric = Number(value || 0);
   return '$' + numeric.toLocaleString(undefined, { maximumFractionDigits: 0 });
+};
+
+const parseAmount = (value) => {
+  if (value === null || value === undefined || value === '') return undefined;
+  const parsed = Number(String(value).replace(/[^0-9.-]+/g, ''));
+  return Number.isNaN(parsed) ? undefined : parsed;
 };
 
 const leadStatusClass = (status = '') => {
@@ -80,21 +88,47 @@ const MetricCard = ({ label, value, icon: Icon, tone = 'accent' }) => {
   );
 };
 
-const Section = ({ title, count, children }) => (
-  <section className="card card-padding" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-      <h2 className="section-title">{title}</h2>
-      <span className="badge badge-muted">{count} total</span>
-    </div>
-    {children}
-  </section>
-);
+const Section = ({ title, count, children, defaultOpen = false }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="card card-padding" style={{ display: 'flex', flexDirection: 'column', gap: open ? 14 : 0 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          width: '100%',
+          padding: 0,
+          border: 0,
+          background: 'transparent',
+          color: 'inherit',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          <span className="section-title">{title}</span>
+        </span>
+        <span className="badge badge-muted">{count} total</span>
+      </button>
+      {open && children}
+    </section>
+  );
+};
 
 const OrganizationDetail = () => {
   const { organizationId } = useParams();
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formData, setFormData] = useState({ name: '', website: '', industry: '', revenue: '', phone: '', address: '' });
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -119,6 +153,53 @@ const OrganizationDetail = () => {
   const notes = useMemo(() => workspace?.notes || [], [workspace]);
   const calls = useMemo(() => workspace?.calls || [], [workspace]);
 
+  const openEditOrganization = () => {
+    setFormData({
+      name: org.name || '',
+      website: org.website || '',
+      industry: org.industry || '',
+      revenue: org.revenue === null || org.revenue === undefined ? '' : String(org.revenue),
+      phone: org.phone || '',
+      address: org.address || '',
+    });
+    setIsEditOpen(true);
+  };
+
+  const closeEditOrganization = () => {
+    setIsEditOpen(false);
+  };
+
+  const handleUpdateOrganization = async (event) => {
+    event.preventDefault();
+    const name = formData.name.trim();
+    if (!name) {
+      setError('Organization name is required.');
+      return;
+    }
+    setError('');
+    setIsSaving(true);
+    try {
+      const payload = {
+        name,
+        website: formData.website.trim() || undefined,
+        industry: formData.industry.trim() || undefined,
+        revenue: parseAmount(formData.revenue),
+        phone: formData.phone.trim() || undefined,
+        address: formData.address.trim() || undefined,
+      };
+      const updated = await apiFetch(`/api/organizations/${organizationId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      setWorkspace((current) => current ? { ...current, organization: updated } : current);
+      setIsEditOpen(false);
+      toast.success('Organization updated successfully.');
+    } catch (err) {
+      const message = err?.message || 'Unable to update organization.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const activity = useMemo(() => {
     const rows = [
       ...leads.map((item) => ({ type: 'Lead', text: item.name, date: item.created_at })),
@@ -133,9 +214,7 @@ const OrganizationDetail = () => {
   if (loading) {
     return (
       <PageTransition>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-          {[1, 2, 3, 4, 5, 6].map((item) => <SkeletonCard key={item} />)}
-        </div>
+        <SkeletonOrganizationDetail />
       </PageTransition>
     );
   }
@@ -162,10 +241,15 @@ const OrganizationDetail = () => {
                 </div>
               </div>
             </div>
-            <div style={{ textAlign: 'right', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
-              <div>Revenue</div>
-              <div style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--weight-bold)', color: 'var(--color-text-primary)' }}>{formatMoney(org.revenue)}</div>
-              <div style={{ marginTop: 6, color: 'var(--color-text-tertiary)' }}>Updated {formatDate(org.updated_at)}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12 }}>
+              <button type="button" onClick={openEditOrganization} className="btn btn-secondary">
+                <Pencil size={14} /> Edit Organization
+              </button>
+              <div style={{ textAlign: 'right', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
+                <div>Revenue</div>
+                <div style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--weight-bold)', color: 'var(--color-text-primary)' }}>{formatMoney(org.revenue)}</div>
+                <div style={{ marginTop: 6, color: 'var(--color-text-tertiary)' }}>Updated {formatDate(org.updated_at)}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -293,6 +377,60 @@ const OrganizationDetail = () => {
             </Section>
           </div>
         </div>
+
+        <AnimatePresence>
+          {isEditOpen && (
+            <motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeEditOrganization}>
+              <motion.div className="modal-content" style={{ maxWidth: 520 }} onClick={(event) => event.stopPropagation()} initial={{ opacity: 0, scale: 0.97, y: 4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+                  <h3 className="section-title">Edit Organization</h3>
+                  <button onClick={closeEditOrganization} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18} /></button>
+                </div>
+                <form id="organization-edit-form" onSubmit={handleUpdateOrganization} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div>
+                    <label className="label">Organization Name *</label>
+                    <input type="text" required className="input" value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label className="label">Website</label>
+                      <input type="text" className="input" value={formData.website} onChange={(event) => setFormData({ ...formData, website: event.target.value })} />
+                    </div>
+                    <div>
+                      <label className="label">Revenue</label>
+                      <input type="text" className="input" placeholder="0.00" value={formData.revenue} onChange={(event) => setFormData({ ...formData, revenue: event.target.value })} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label className="label">Industry</label>
+                      <select className="input" value={formData.industry} onChange={(event) => setFormData({ ...formData, industry: event.target.value })}>
+                        <option value="">Select</option>
+                        <option>Software</option>
+                        <option>Finance</option>
+                        <option>Healthcare</option>
+                        <option>Retail</option>
+                        <option>Sports</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Phone</label>
+                      <input type="text" className="input" value={formData.phone} onChange={(event) => setFormData({ ...formData, phone: event.target.value })} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label">Address</label>
+                    <textarea className="input" rows={3} value={formData.address} onChange={(event) => setFormData({ ...formData, address: event.target.value })} />
+                  </div>
+                </form>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
+                  <button type="button" onClick={closeEditOrganization} className="btn btn-ghost">Discard</button>
+                  <button type="submit" form="organization-edit-form" disabled={isSaving} className="btn btn-primary">{isSaving ? 'Saving...' : 'Save Changes'}</button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </PageTransition>
   );

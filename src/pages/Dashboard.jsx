@@ -7,6 +7,7 @@ import { CountUp } from '../components/CountUp';
 import { PageTransition } from '../components/PageTransition';
 import { SkeletonDashboard } from '../components/Skeleton';
 import { useChartColors } from '../hooks/useChartColors';
+import { formatAiSummaryLines } from '../utils/aiContentFormatter';
 
 const DASHBOARD_TIMEOUT_MS = 20000;
 
@@ -236,6 +237,8 @@ const Dashboard = () => {
     ];
   }, [summary]);
 
+  const aiSummaryLines = useMemo(() => formatAiSummaryLines(aiSummary?.content), [aiSummary?.content]);
+
   const activityChartData = useMemo(() => {
     const series = activity?.series || [];
     return series.map((point) => ({
@@ -386,8 +389,13 @@ const Dashboard = () => {
                   <h2 className="section-title">Daily AI Summary</h2>
                   <span className="badge badge-purple">AI Generated</span>
                 </div>
-                <div style={{ color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-                  {aiSummary.content}
+                <div style={{ display: 'grid', gap: 8, color: 'var(--color-text-secondary)', lineHeight: 1.55 }}>
+                  {aiSummaryLines.map((line, index) => (
+                    <div key={`${line}-${index}`} style={{ display: 'grid', gridTemplateColumns: '8px minmax(0, 1fr)', gap: 10, alignItems: 'start' }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#c026d3', marginTop: 9 }} />
+                      <span>{line}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

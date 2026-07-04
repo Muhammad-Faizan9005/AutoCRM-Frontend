@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Plus, Search, RotateCcw, LayoutList, Columns2, Download, MoreHorizontal, Eye, Pencil, Trash2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
@@ -9,8 +10,6 @@ import { EmptyState } from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { toast } from '../utils/toast';
 
-const STAGE_LABELS = { prospecting:'Prospecting', qualification:'Qualification', proposal:'Proposal', negotiation:'Negotiation', closed:'Closed', closed_won:'Closed Won', closed_lost:'Closed Lost' };
-const STAGE_BADGE = { prospecting:'badge-muted', qualification:'badge-accent', proposal:'badge-warning', negotiation:'badge-warning', closed:'badge-success', closed_won:'badge-success', closed_lost:'badge-danger' };
 const STATUS_LABELS = { qualification: 'Qualification', demo_making: 'Demo/Making', proposal_quotation: 'Proposal/Quotation', negotiation: 'Negotiation', ready_to_close: 'Ready to Close', won: 'Won' };
 const STATUS_BADGE = { qualification: 'badge-muted', demo_making: 'badge-accent', proposal_quotation: 'badge-success', negotiation: 'badge-danger', ready_to_close: 'badge-purple', won: 'badge-orange' };
 const STATUS_ORDER = ['qualification', 'demo_making', 'proposal_quotation', 'negotiation', 'ready_to_close', 'won'];
@@ -29,7 +28,6 @@ const normalizeDealType = (value) => {
 };
 
 const normalizeStage = (s) => (s||'').toString().trim().toLowerCase().replace(/\s+/g,'_') || 'prospecting';
-const formatStage = (s) => STAGE_LABELS[normalizeStage(s)] || s || 'Unknown';
 const formatDate = (v) => { if (!v) return '-'; const d=new Date(v); return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); };
 const inferCurrency = (v) => { const t=String(v||'').toUpperCase(); if(t.includes('PKR')||t.includes('RS'))return'PKR'; if(t.includes('EUR'))return'EUR'; return'USD'; };
 const parseAmount = (v) => { if(v===null||v===undefined||v==='')return undefined; const p=Number(String(v).replace(/[^0-9.-]+/g,'')); return Number.isNaN(p)?undefined:p; };
@@ -50,10 +48,10 @@ const mapDeal = (deal,orgIdx) => {
   id: deal.id,
   org: deal.organization_name || orgIdx.get(deal.organization_id) || deal.lead_company || deal.lead_name || 'Organization loading...',
   revenue: formatMoney(deal.value, deal.currency),
-  stage: normalizeStage(deal.stage),
   status: mapDealStatus(deal.status),
   dealType: normalizeDealType(deal.deal_type),
   modified: formatDate(deal.updated_at),
+  aiInsights: Array.isArray(deal.ai_insights) ? deal.ai_insights : [],
   };
 };
 
@@ -222,7 +220,7 @@ const Deals = ({ user }) => {
 
         {error && <div style={{ padding:12, background:'var(--color-danger-subtle)', border:'1px solid var(--color-danger)', borderRadius:'var(--radius)', fontSize:'var(--text-sm)', color:'var(--color-danger)' }}>{error}</div>}
 
-        {loading ? <SkeletonTable rows={8} cols={6} /> : (
+        {loading ? <SkeletonTable rows={8} cols={8} /> : (
           <>
             {viewMode==='table' && (
               filtered.length===0 ? <EmptyState type="leads" title="No deals yet" desc="Create your first deal"/> : (
@@ -230,7 +228,7 @@ const Deals = ({ user }) => {
                   <table className="data-table">
                     <thead><tr>
                       <th style={{ width:36 }}><input type="checkbox" className="checkbox-input"/></th>
-                      <th>Organization</th><th>Type</th><th>Revenue</th><th>Stage</th><th>Status</th><th>Modified</th><th style={{ width:60, textAlign:'right' }}>Actions</th>
+                      <th>Organization</th><th>Type</th><th>Revenue</th><th>Status</th><th>Modified</th><th style={{ width:60, textAlign:'right' }}>Actions</th>
                     </tr></thead>
                     <motion.tbody ref={tbodyRef} variants={staggerContainer} initial="initial" animate="animate">
                       {filtered.map(d=>(
@@ -240,10 +238,11 @@ const Deals = ({ user }) => {
                           className="deal-row"
                         >
                           <td><input type="checkbox" className="checkbox-input"/></td>
-                          <td style={{ fontWeight:'var(--weight-medium)' }}>{d.org}</td>
+                          <td style={{ fontWeight:'var(--weight-medium)' }}>
+                            <Link to={`/deals/${d.id}`} className="table-link">{d.org}</Link>
+                          </td>
                           <td><span className={`badge ${DEAL_TYPE_BADGE[d.dealType] || 'badge-muted'}`}>{DEAL_TYPE_LABELS[d.dealType] || d.dealType}</span></td>
                           <td style={{ color:'var(--color-text-secondary)' }}>{d.revenue}</td>
-                          <td><span className={`badge ${STAGE_BADGE[d.stage]||'badge-muted'}`}>{formatStage(d.stage)}</span></td>
                           <td><span className={`badge ${STATUS_BADGE[d.status]||'badge-muted'}`}>{STATUS_LABELS[d.status] || d.status || 'Unknown'}</span></td>
                           <td style={{ color:'var(--color-text-tertiary)', fontSize:'var(--text-sm)' }}>{d.modified}</td>
                           <td style={{ textAlign:'right' }}>
@@ -251,7 +250,7 @@ const Deals = ({ user }) => {
                               <button className="btn btn-ghost btn-icon" onClick={()=>setActionMenu(actionMenu===d.id?null:d.id)} aria-label="Actions"><MoreHorizontal size={14}/></button>
                               {actionMenu===d.id && (
                                 <div className="dropdown-menu" style={{ position:'absolute', right:0, top:'calc(100% + 4px)' }}>
-                                  <button className="dropdown-item" onClick={()=>setActionMenu(null)}><Eye size={14}/> View</button>
+                                  <Link className="dropdown-item" to={`/deals/${d.id}`} onClick={()=>setActionMenu(null)}><Eye size={14}/> View</Link>
                                   {canDelete && <button className="dropdown-item dropdown-item-danger" onClick={()=>{handleDelete(d.id);setActionMenu(null);}}><Trash2 size={14}/> Delete</button>}
                                 </div>
                               )}
@@ -302,7 +301,7 @@ const Deals = ({ user }) => {
                           }}
                           onDragEnd={() => setDraggingDealId(null)}
                         >
-                          <div style={{ fontWeight:'var(--weight-medium)', marginBottom:4 }}>{d.org}</div>
+                          <Link to={`/deals/${d.id}`} className="table-link" style={{ fontWeight:'var(--weight-medium)', marginBottom:4 }}>{d.org}</Link>
                           <div style={{ fontSize:'var(--text-sm)', color:'var(--color-text-secondary)' }}>{d.revenue}</div>
                           <span className={`badge ${DEAL_TYPE_BADGE[d.dealType] || 'badge-muted'}`} style={{ marginTop: 6 }}>{DEAL_TYPE_LABELS[d.dealType] || d.dealType}</span>
                           {canDelete && <button onClick={()=>handleDelete(d.id)} className="btn btn-danger btn-sm" style={{ marginTop:8 }}><Trash2 size={12}/> Delete</button>}

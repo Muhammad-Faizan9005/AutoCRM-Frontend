@@ -166,48 +166,274 @@ export function SkeletonAdminTeams() {
 
 export function SkeletonLeadDetail() {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <SkeletonBlock width="180px" height="12px" />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <SkeletonBlock width="220px" height="28px" />
-            <SkeletonBlock width="260px" height="13px" />
-          </div>
-          <SkeletonBlock width="90px" height="32px" />
+    <div className="deal-detail-page" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div className="deal-detail-hero">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <SkeletonBlock width="82px" height="28px" />
+          <SkeletonBlock width="120px" height="10px" />
+          <SkeletonBlock width="250px" height="34px" />
+          <SkeletonBlock width="460px" height="13px" />
         </div>
-        <div className="card card-padding" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <SkeletonBlock width="110px" height="10px" />
-            <SkeletonBlock width="140px" height="22px" />
-            <SkeletonBlock width="300px" height="12px" />
-          </div>
-          <SkeletonBlock width="130px" height="32px" />
+        <div className="deal-detail-actions">
+          <SkeletonBlock width="74px" height="32px" />
+          <SkeletonBlock width="98px" height="32px" />
+          <SkeletonBlock width="96px" height="32px" />
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[60, 70, 65, 80, 72].map((w, i) => <SkeletonBlock key={i} width={`${w}px`} height="30px" />)}
-        </div>
-        <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {[1, 2, 3].map((i) => (
-            <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-              <SkeletonBlock width="28px" height="28px" className="skeleton-round" />
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <SkeletonBlock width="40%" height="13px" />
-                <SkeletonBlock width="70%" height="11px" />
+      </div>
+
+      <div className="deal-detail-grid">
+        <div className="deal-detail-main">
+          <section className="deal-detail-metrics">
+            <div className="deal-detail-metric lead-score-metric">
+              <div className="lead-score-metric-head">
+                <SkeletonBlock width="62px" height="10px" />
+                <SkeletonBlock width="28px" height="28px" />
               </div>
+              <SkeletonBlock width="92px" height="22px" />
+              <SkeletonBlock width="92%" height="10px" />
+              <SkeletonBlock width="78%" height="10px" />
+            </div>
+            {[1, 2, 3].map((item) => (
+              <div className="deal-detail-metric" key={item}>
+                <SkeletonBlock width="82px" height="10px" />
+                <SkeletonBlock width="125px" height="22px" />
+              </div>
+            ))}
+          </section>
+
+          <section className="ai-insights-panel">
+            <div className="ai-insights-header">
+              <div className="ai-insights-heading">
+                <SkeletonBlock width="32px" height="32px" />
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <SkeletonBlock width="110px" height="10px" />
+                  <SkeletonBlock width="210px" height="20px" />
+                </div>
+              </div>
+              <div className="ai-insights-header-actions">
+                <SkeletonBlock width="58px" height="20px" />
+                <SkeletonBlock width="30px" height="30px" />
+              </div>
+            </div>
+            <div className="ai-insight-card">
+              <SkeletonBlock width="32px" height="32px" />
+              <div style={{ display: 'grid', gap: 8 }}>
+                <SkeletonBlock width="140px" height="10px" />
+                <SkeletonBlock width="230px" height="18px" />
+                <SkeletonBlock width="90%" height="12px" />
+              </div>
+            </div>
+          </section>
+
+          <div className="tab-row">
+            {[70, 62, 58, 58, 58, 92].map((width, index) => (
+              <SkeletonBlock key={index} width={`${width}px`} height="30px" />
+            ))}
+          </div>
+
+          <div className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
+            {[1, 2, 3, 4].map((item) => (
+              <div className="activity-item" key={item}>
+                <SkeletonBlock width="28px" height="28px" />
+                <div style={{ display: 'grid', gap: 7 }}>
+                  <SkeletonBlock width="220px" height="13px" />
+                  <SkeletonBlock width="70%" height="11px" />
+                </div>
+                <SkeletonBlock width="70px" height="10px" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="deal-detail-sidebar">
+          {[1, 2, 3].map((card) => (
+            <div className="card" style={{ padding: 16, display: 'grid', gap: 10 }} key={card}>
+              <SkeletonBlock width="120px" height="16px" />
+              {[1, 2, 3, 4].map((line) => (
+                <SkeletonBlock key={line} width={`${64 + line * 7}%`} height="12px" />
+              ))}
+            </div>
+          ))}
+          <div className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
+            <SkeletonBlock width="140px" height="16px" />
+            <div className="deal-signal-grid">
+              {[1, 2, 3, 4].map((item) => (
+                <SkeletonBlock key={item} width="100%" height="34px" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function SkeletonDealDetail() {
+  return (
+    <div className="deal-detail-page" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div className="deal-detail-hero">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <SkeletonBlock width="86px" height="28px" />
+          <SkeletonBlock width="120px" height="10px" />
+          <SkeletonBlock width="260px" height="34px" />
+          <SkeletonBlock width="420px" height="13px" />
+        </div>
+        <div className="deal-detail-actions">
+          <SkeletonBlock width="90px" height="32px" />
+          <SkeletonBlock width="102px" height="32px" />
+          <SkeletonBlock width="96px" height="32px" />
+        </div>
+      </div>
+
+      <div className="deal-detail-grid">
+        <div className="deal-detail-main">
+          <section className="deal-detail-metrics">
+            {[1, 2, 3, 4].map((item) => (
+              <div className="deal-detail-metric" key={item}>
+                <SkeletonBlock width="82px" height="10px" />
+                <SkeletonBlock width="120px" height="22px" />
+              </div>
+            ))}
+          </section>
+
+          <section className="ai-insights-panel">
+            <div className="ai-insights-header">
+              <div className="ai-insights-heading">
+                <SkeletonBlock width="32px" height="32px" />
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <SkeletonBlock width="120px" height="10px" />
+                  <SkeletonBlock width="180px" height="20px" />
+                </div>
+              </div>
+              <SkeletonBlock width="58px" height="20px" />
+            </div>
+            {[1, 2].map((item) => (
+              <div className="ai-insight-card" key={item}>
+                <SkeletonBlock width="32px" height="32px" />
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <SkeletonBlock width="140px" height="10px" />
+                  <SkeletonBlock width="210px" height="18px" />
+                  <SkeletonBlock width="90%" height="12px" />
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <div className="tab-row">
+            {[70, 60, 76, 58, 58, 92].map((width, index) => (
+              <SkeletonBlock key={index} width={`${width}px`} height="30px" />
+            ))}
+          </div>
+
+          <div className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
+            {[1, 2, 3, 4].map((item) => (
+              <div className="activity-item" key={item}>
+                <SkeletonBlock width="28px" height="28px" />
+                <div style={{ display: 'grid', gap: 7 }}>
+                  <SkeletonBlock width="220px" height="13px" />
+                  <SkeletonBlock width="70%" height="11px" />
+                </div>
+                <SkeletonBlock width="70px" height="10px" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="deal-detail-sidebar">
+          {[1, 2, 3, 4].map((card) => (
+            <div className="card" style={{ padding: 16, display: 'grid', gap: 10 }} key={card}>
+              <SkeletonBlock width="120px" height="16px" />
+              {[1, 2, 3].map((line) => (
+                <SkeletonBlock key={line} width={`${70 + line * 7}%`} height="12px" />
+              ))}
             </div>
           ))}
         </div>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <SkeletonBlock width="40px" height="10px" />
-          <SkeletonBlock width="120px" height="15px" />
-          {[1, 2, 3, 4].map((i) => <SkeletonBlock key={i} width="100%" height="12px" />)}
+    </div>
+  );
+}
+
+export function SkeletonOrganizationDetail() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div>
+        <SkeletonBlock width="170px" height="32px" />
+        <div className="card" style={{ marginTop: 12, padding: '24px 28px', display: 'flex', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+            <SkeletonBlock width="48px" height="48px" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <SkeletonBlock width="150px" height="10px" />
+              <SkeletonBlock width="280px" height="34px" />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <SkeletonBlock width="86px" height="22px" />
+                <SkeletonBlock width="140px" height="22px" />
+                <SkeletonBlock width="110px" height="22px" />
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12 }}>
+            <SkeletonBlock width="150px" height="32px" />
+            <SkeletonBlock width="70px" height="12px" />
+            <SkeletonBlock width="120px" height="26px" />
+            <SkeletonBlock width="130px" height="10px" />
+          </div>
         </div>
-        <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <SkeletonBlock width="100px" height="14px" />
-          {[1, 2, 3].map((i) => <SkeletonBlock key={i} width="100%" height="30px" />)}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+        {[1, 2, 3, 4, 5, 6, 7].map((item) => (
+          <SkeletonMetricCard key={item} />
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(320px, 0.8fr)', gap: 16, alignItems: 'start' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {['People / Leads', 'Deals', 'Tasks'].map((title, index) => (
+            <section className="card card-padding" style={{ display: 'flex', flexDirection: 'column', gap: 14 }} key={title}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <SkeletonBlock width={`${120 + index * 18}px`} height="18px" />
+                <SkeletonBlock width="64px" height="22px" />
+              </div>
+              {index === 0 && (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {[1, 2, 3].map((item) => (
+                    <div className="card" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', gap: 12 }} key={item}>
+                      <div style={{ display: 'grid', gap: 7 }}>
+                        <SkeletonBlock width="160px" height="14px" />
+                        <SkeletonBlock width="210px" height="10px" />
+                      </div>
+                      <SkeletonBlock width="82px" height="22px" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {['Notes', 'Calls / Meetings', 'Recent Activity'].map((title) => (
+            <section className="card card-padding" style={{ display: 'flex', flexDirection: 'column', gap: 14 }} key={title}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <SkeletonBlock width="140px" height="18px" />
+                <SkeletonBlock width="64px" height="22px" />
+              </div>
+              {title === 'Recent Activity' && (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {[1, 2, 3].map((item) => (
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }} key={item}>
+                      <SkeletonBlock width="54px" height="22px" />
+                      <div style={{ display: 'grid', gap: 7 }}>
+                        <SkeletonBlock width="180px" height="13px" />
+                        <SkeletonBlock width="90px" height="10px" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          ))}
         </div>
       </div>
     </div>

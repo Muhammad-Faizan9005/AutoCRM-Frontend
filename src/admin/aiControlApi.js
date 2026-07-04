@@ -21,10 +21,10 @@ export async function listAgentApprovals() {
   return apiFetch('/api/agent/approvals', {}, { cache: false, timeoutMs: 20000 });
 }
 
-export async function approveAgentAction(approvalId, note = '') {
+export async function approveAgentAction(approvalId, note = '', options = {}) {
   return apiFetch(`/api/agent/approvals/${encodeURIComponent(approvalId)}/approve`, {
     method: 'POST',
-    body: JSON.stringify({ note }),
+    body: JSON.stringify({ note, ...options }),
   }, { cache: false, timeoutMs: 20000 });
 }
 

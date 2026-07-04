@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
 import LeadDetail from './pages/LeadDetail';
 import Deals from './pages/Deals';
+import DealDetail from './pages/DealDetail';
 import Contacts from './pages/Contacts';
 import Organizations from './pages/Organizations';
 import OrganizationDetail from './pages/OrganizationDetail';
@@ -80,6 +81,7 @@ const CrmShell = ({ user, permissions, onLogout, onUserUpdate }) => {
                 <Route path="/leads" element={guardRoute('leads', <Leads user={user} />)} />
                 <Route path="/leads/:leadId" element={guardRoute('leads', <LeadDetail user={user} />)} />
                 <Route path="/deals" element={guardRoute('deals', <Deals user={user} />)} />
+                <Route path="/deals/:dealId" element={guardRoute('deals', <DealDetail user={user} />)} />
                 <Route
                   path="/contacts"
                   element={guardRoute('contacts', <Contacts user={user} />)}

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Camera, Eye, EyeOff, KeyRound, Save, Trash2, X } from 'lucide-react';
+import { Camera, Code2, Eye, EyeOff, KeyRound, Save, Trash2, X } from 'lucide-react';
 import { apiFetch } from '../api/client';
 import { ThemeToggle } from './ThemeToggle';
 import { toast } from '../utils/toast';
@@ -11,6 +11,11 @@ const getInitials = (name) => {
 };
 
 const MAX_AVATAR_BYTES = 2_000_000;
+
+const isAdminUser = (user) => {
+  const role = String(user?.role || '').toLowerCase();
+  return Boolean(user?.is_admin || user?.is_superuser || role === 'admin');
+};
 
 const PasswordField = ({
   label,
@@ -61,6 +66,7 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '');
+  const [developerMode, setDeveloperMode] = useState(Boolean(user?.developer_mode));
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -72,6 +78,7 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const initializedUserId = useRef(null);
+  const canUseDeveloperMode = isAdminUser(user);
 
   useEffect(() => {
     if (initializedUserId.current === user?.id) return;
@@ -79,11 +86,12 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
     setFullName(user?.full_name || '');
     setEmail(user?.email || '');
     setAvatarUrl(user?.avatar_url || '');
+    setDeveloperMode(Boolean(user?.developer_mode));
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
     setVisiblePasswords({ current: false, next: false, confirm: false });
-  }, [user?.avatar_url, user?.email, user?.full_name, user?.id]);
+  }, [user?.avatar_url, user?.developer_mode, user?.email, user?.full_name, user?.id]);
 
   const displayName = fullName || user?.email || 'User';
 
@@ -171,6 +179,9 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
       full_name: trimmedName,
       email: trimmedEmail,
     };
+    if (canUseDeveloperMode) {
+      payload.developer_mode = developerMode;
+    }
     if (newPassword || emailChanged) {
       payload.current_password = currentPassword;
     }
@@ -306,6 +317,34 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
               </div>
               <ThemeToggle />
             </div>
+
+            {canUseDeveloperMode && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                borderTop: '1px solid var(--color-border)',
+                paddingTop: 16,
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-semibold)', color: 'var(--color-text-primary)' }}>
+                    <Code2 size={16} /> Developer Mode
+                  </div>
+                  <div style={{ marginTop: 3, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
+                    Show technical AI payloads and diagnostic details in admin tools.
+                  </div>
+                </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
+                  <input
+                    type="checkbox"
+                    checked={developerMode}
+                    onChange={(event) => setDeveloperMode(event.target.checked)}
+                  />
+                  {developerMode ? 'On' : 'Off'}
+                </label>
+              </div>
+            )}
 
             <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16, display: 'grid', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-primary)', fontWeight: 'var(--weight-semibold)' }}>
