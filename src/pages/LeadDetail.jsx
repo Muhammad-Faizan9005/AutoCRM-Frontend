@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { CheckSquare, ChevronDown, ChevronRight, Mail, Phone, PhoneOff, Plus, StickyNote } from 'lucide-react';
-import { apiFetch } from '../api/client';
+import { ArrowLeft, Building2, CheckSquare, ChevronDown, ChevronRight, Mail, Phone, PhoneOff, Plus, RotateCcw, StickyNote } from 'lucide-react';
+import { API_BASE, apiFetch, getAccessToken } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
 import { EntityCard } from '../components/EntityCard';
+import AIInsights from '../components/AIInsights';
 import { SkeletonLeadDetail } from '../components/Skeleton';
 import { useCallSession } from '../hooks/useCallSession';
 import { useCallRecording } from '../hooks/useCallRecording';
@@ -62,21 +63,67 @@ const formatTimer = (seconds) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-const buildRecordingUrl = (recordingPath) => {
-  if (!recordingPath) return '';
-  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-  const normalized = recordingPath.replace(/\\/g, '/');
-  const fileName = normalized.split('/').pop();
-  const urlPath = normalized.startsWith('/static/')
-    ? normalized
-    : normalized.startsWith('storage/recordings/')
-      ? `/static/recordings/${fileName}`
-      : normalized.startsWith('recordings/')
-        ? `/static/recordings/${fileName}`
-        : normalized.includes('/')
-          ? `/static/recordings/${fileName}`
-          : `/static/recordings/${normalized}`;
-  return `${apiBase}${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
+const buildRecordingUrl = (callId) => `${API_BASE}/api/calls/${encodeURIComponent(callId)}/recording/file`;
+
+const RecordingAudio = ({ call }) => {
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    if (!call?.id || !call?.recording_path) {
+      setSourceUrl('');
+      setLoadError('');
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    let objectUrl = '';
+
+    const loadRecording = async () => {
+      setLoadError('');
+      const token = getAccessToken();
+      if (!token) {
+        setLoadError('Sign in again to play this recording.');
+        return;
+      }
+
+      try {
+        const response = await fetch(buildRecordingUrl(call.id), {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error('Recording unavailable');
+        }
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+        setSourceUrl(objectUrl);
+      } catch (error) {
+        if (error?.name !== 'AbortError') {
+          setLoadError('Recording unavailable.');
+        }
+      }
+    };
+
+    loadRecording();
+
+    return () => {
+      controller.abort();
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [call?.id, call?.recording_path]);
+
+  if (loadError) {
+    return <div style={{ marginTop: 10, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{loadError}</div>;
+  }
+
+  if (!sourceUrl) {
+    return <div style={{ marginTop: 10, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Loading recording...</div>;
+  }
+
+  return <audio controls style={{ marginTop: 10, width: '100%' }} src={sourceUrl} />;
 };
 
 const recordingExtensionForMime = (mimeType = '') => (mimeType.includes('ogg') ? 'ogg' : 'webm');
@@ -245,7 +292,7 @@ const LeadDetail = ({ user }) => {
   };
 
   const isCallSectionExpanded = (callId, section) => (
-    expandedCallSections[`${callId}-${section}`] !== false
+    expandedCallSections[`${callId}-${section}`] === true
   );
 
   const toggleCallSection = (callId, section) => {
@@ -718,95 +765,115 @@ const LeadDetail = ({ user }) => {
 
   return (
     <PageTransition>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
-        <div className="reveal-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>
-            <Link to="/leads" style={{ color: 'inherit', textDecoration: 'none' }}>Leads</Link>
-            <span>/</span>
-            <span>{lead.name || 'Lead details'}</span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <h1 className="page-title" style={{ marginBottom: 4 }}>{lead.name || 'Lead'}</h1>
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
-                {lead.email || 'No email'} - {lead.phone || 'No phone'}
-              </div>
+      <div className="crm-page deal-detail-page">
+        <div className="deal-detail-hero">
+          <div>
+            <Link to="/leads" className="btn btn-ghost btn-sm" style={{ marginBottom: 10 }}>
+              <ArrowLeft size={14} /> Leads
+            </Link>
+            <div className="page-kicker">Lead Workspace</div>
+            <h1 className="page-title">{lead.name || 'Lead'}</h1>
+            <div className="deal-detail-subtitle">
+              <span><Mail size={14} /> {lead.email || 'No email'}</span>
+              <span><Phone size={14} /> {lead.phone || 'No phone'}</span>
+              {lead.company && <span><Building2 size={14} /> {lead.company}</span>}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary btn-sm" onClick={handleStartCall} disabled={callWorking}>
-                <Phone size={14} /> {callWorking ? 'Starting...' : 'Call'}
+          </div>
+          <div className="deal-detail-actions">
+            <button className="btn btn-secondary btn-sm" onClick={handleStartCall} disabled={callWorking}>
+              <Phone size={14} /> {callWorking ? 'Starting...' : 'Call'}
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setNoteModalOpen(true)}>
+              <StickyNote size={14} /> Add Note
+            </button>
+            {isManager && (
+              <button className="btn btn-primary btn-sm" onClick={() => setTaskModalOpen(true)}>
+                <Plus size={14} /> Add Task
               </button>
-              {isManager && activeTab === 'tasks' && (
-                <button className="btn btn-primary btn-sm" onClick={() => setTaskModalOpen(true)}>
-                  <Plus size={14} /> New Task
-                </button>
-              )}
-              {activeTab === 'notes' && (
-                <button className="btn btn-primary btn-sm" onClick={() => setNoteModalOpen(true)}>
-                  <Plus size={14} /> New Note
-                </button>
-              )}
-            </div>
+            )}
           </div>
+        </div>
 
-          {lead && (
-            <div className="card card-padding" style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--color-text-tertiary)' }}>AI Lead Score</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-                  <strong style={{ fontSize: 'var(--text-xl)' }}>{lead.score ?? 'Not scored'}</strong>
-                  {lead.score !== null && lead.score !== undefined && <span className={`badge ${Number(lead.score) >= 75 ? 'badge-success' : Number(lead.score) >= 45 ? 'badge-warning' : 'badge-danger'}`}>{Number(lead.score) >= 75 ? 'High' : Number(lead.score) >= 45 ? 'Medium' : 'Low'} Priority</span>}
-                </div>
-                <div style={{ marginTop: 6, color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>{lead.score_reason || 'Run scoring to generate an AI priority explanation.'}</div>
-              </div>
-              <button className="btn btn-secondary btn-sm" onClick={refreshLeadScore}>Refresh AI Score</button>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {TABS.map((tab) => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className="btn btn-sm"
-                  style={{
-                    borderColor: isActive ? 'var(--color-border-strong)' : 'var(--color-border)',
-                    background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
-                    color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                  }}
-                >
-                  {tab.label}
+        <div className="deal-detail-grid">
+          <div className="deal-detail-main">
+          <section className="deal-detail-metrics">
+            <div className="deal-detail-metric lead-score-metric">
+              <div className="lead-score-metric-head">
+                <span>AI score</span>
+                <button className="btn btn-ghost btn-icon" type="button" onClick={refreshLeadScore} aria-label="Refresh AI score" title="Refresh AI score">
+                  <RotateCcw size={14} />
                 </button>
-              );
-            })}
+              </div>
+              <strong>
+                {lead.score ?? 'Not scored'}
+                {lead.score !== null && lead.score !== undefined && (
+                  <span className={`badge ${Number(lead.score) >= 75 ? 'badge-success' : Number(lead.score) >= 45 ? 'badge-warning' : 'badge-danger'}`} style={{ marginLeft: 8 }}>
+                    {Number(lead.score) >= 75 ? 'High' : Number(lead.score) >= 45 ? 'Medium' : 'Low'}
+                  </span>
+                )}
+              </strong>
+              <p>{lead.score_reason || 'Run scoring to generate an AI priority explanation.'}</p>
+            </div>
+            <div className="deal-detail-metric">
+              <span>Status</span>
+              <strong><span className="badge badge-accent">{formatLeadStatus(lead.status)}</span></strong>
+            </div>
+            <div className="deal-detail-metric">
+              <span>Open tasks</span>
+              <strong>{tasks.filter((task) => !['done', 'canceled'].includes(normalizeStatus(task.status))).length}</strong>
+            </div>
+            <div className="deal-detail-metric">
+              <span>Owner</span>
+              <strong>{ownerName || 'Unassigned'}</strong>
+            </div>
+          </section>
+
+          <AIInsights
+            items={aiHistory}
+            title="AI Follow-up Intelligence"
+            eyebrow="Lead Assistant"
+            emptyTitle="No AI follow-up suggestions yet"
+            emptyDescription="Trigger a stale lead or follow-up agent run to see the recommended next step here."
+            collapsible
+          />
+
+          <div className="tab-row">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`btn btn-sm ${activeTab === tab.id ? 'btn-primary' : 'btn-ghost'}`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
 
           {activeTab === 'activity' && (
             activityItems.length ? (
-              <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div className="card" style={{ padding: 16 }}>
+                <div className="activity-list">
                 {activityItems.map((item) => (
-                  <div key={item.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                    <div className="avatar avatar-sm avatar-accent" style={{ marginTop: 2 }}>
-                      {item.type === 'email' ? <Mail size={12} /> : item.type === 'call' ? <Phone size={12} /> : item.type === 'task' ? <CheckSquare size={12} /> : <StickyNote size={12} />}
+                  <div key={item.id} className="activity-item">
+                    <div className="activity-icon">
+                      {item.type === 'email' ? <Mail size={14} /> : item.type === 'call' ? <Phone size={14} /> : item.type === 'task' ? <CheckSquare size={14} /> : <StickyNote size={14} />}
                     </div>
-                    <div style={{ flex: 1 }}>
+                    <div>
                       <div style={{ fontWeight: 'var(--weight-medium)' }}>{item.title}</div>
                       <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>{item.subtitle}</div>
                     </div>
                     <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{formatDateTime(item.timestamp)}</div>
                   </div>
                 ))}
+                </div>
               </div>
             ) : (
               <EmptyState type="activity" title="No activity" desc="No recent activity for this lead." />
             )
           )}
 
-          {activeTab === 'activity' && aiHistory.length > 0 && (
+          {false && activeTab === 'activity' && aiHistory.length > 0 && (
             <div className="card card-padding" style={{ display: 'grid', gap: 12 }}>
               <h2 className="section-title">AI History</h2>
               {aiHistory.map((item) => (
@@ -824,17 +891,20 @@ const LeadDetail = ({ user }) => {
 
           {activeTab === 'emails' && (
             emails.length ? (
-              <div className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
+              <div className="card" style={{ padding: 16 }}>
+                <div className="activity-list">
                 {emails.map((email) => (
-                  <div key={email.id} style={{ padding: 12, border: '1px solid var(--color-border)', borderRadius: 'var(--radius)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <div key={email.id} className="activity-item">
+                    <div className="activity-icon"><Mail size={14} /></div>
+                    <div>
                       <div style={{ fontWeight: 'var(--weight-medium)' }}>{email.subject || 'Email'}</div>
-                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{formatDateTime(email.sent_at)}</div>
+                      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{email.direction === 'sent' ? `To: ${email.to}` : `From: ${email.from}`}</div>
+                      <div style={{ color: 'var(--color-text-secondary)' }}>{email.snippet}</div>
                     </div>
-                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{email.direction === 'sent' ? `To: ${email.to}` : `From: ${email.from}`}</div>
-                    <div style={{ marginTop: 6, color: 'var(--color-text-secondary)' }}>{email.snippet}</div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{formatDateTime(email.sent_at)}</div>
                   </div>
                 ))}
+                </div>
               </div>
             ) : (
               <EmptyState type="emails" title="No emails" desc="No email activity yet." />
@@ -854,11 +924,7 @@ const LeadDetail = ({ user }) => {
                       {(call.outcome || 'Call')} · {Math.round((call.duration_seconds || 0) / 60)} min
                     </div>
                     {call.recording_path && (
-                      <audio
-                        controls
-                        style={{ marginTop: 10, width: '100%' }}
-                        src={buildRecordingUrl(call.recording_path)}
-                      />
+                      <RecordingAudio call={call} />
                     )}
                     <div style={{ marginTop: 8, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
                       Transcript: {call.transcript ? 'Available' : (call.processing_status === 'failed' ? 'Failed' : 'Processing')}
@@ -947,7 +1013,7 @@ const LeadDetail = ({ user }) => {
 
           {activeTab === 'tasks' && (
             tasks.length ? (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+              <div className="entity-grid">
                 {tasks.map((task) => (
                   <EntityCard
                     key={task.id}
@@ -972,7 +1038,7 @@ const LeadDetail = ({ user }) => {
 
           {activeTab === 'notes' && (
             notes.length ? (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+              <div className="entity-grid">
                 {notes.map((note, idx) => (
                   <EntityCard
                     key={note.id}
@@ -996,49 +1062,71 @@ const LeadDetail = ({ user }) => {
           )}
         </div>
 
-        <div className="reveal-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card" style={{ padding: 16 }}>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Lead</div>
-            <div style={{ fontWeight: 'var(--weight-medium)', marginBottom: 12 }}>{lead.name || 'Lead'}</div>
-            <div style={{ display: 'grid', gap: 8, fontSize: 'var(--text-sm)' }}>
-              <div><strong>Status:</strong> {formatLeadStatus(lead.status)}</div>
-              <div><strong>Source:</strong> {formatLeadSource(lead.source)}</div>
-              <div><strong>Organization:</strong> {lead.company || '-'}</div>
-              <div><strong>Owner:</strong> {ownerName || 'Unassigned'}</div>
+          <aside className="deal-detail-sidebar">
+            <div className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
+              <div className="section-title">Lead Details</div>
+              <div className="detail-list">
+                <div><strong>Status:</strong> {formatLeadStatus(lead.status)}</div>
+                <div><strong>Source:</strong> {formatLeadSource(lead.source)}</div>
+                <div><strong>Created:</strong> {formatDate(lead.created_at)}</div>
+                <div><strong>Updated:</strong> {formatDate(lead.updated_at)}</div>
+              </div>
             </div>
-          </div>
 
-          <div className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
-            <div style={{ fontWeight: 'var(--weight-medium)' }}>Quick actions</div>
-            {isManager && (
-              <button className="btn btn-secondary btn-sm" type="button" onClick={handleOpenAssignModal}>
-                Assign Lead
-              </button>
-            )}
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={handleConvertToDeal}
-              disabled={isConverting || lead?.converted}
-            >
-              {lead?.converted ? 'Converted to Deal' : isConverting ? 'Converting...' : 'Convert to Deal'}
-            </button>
-            {isManager && lead?.converted && (
-              <button
-                className="btn btn-secondary btn-sm"
-                type="button"
-                onClick={() => setDiscardConfirmOpen(true)}
-                disabled={isDiscarding || dealDiscarded}
-              >
-                {dealDiscarded ? 'Deal Discarded' : isDiscarding ? 'Discarding...' : 'Discard Deal'}
-              </button>
-            )}
-            {isManager && (
-              <button className="btn btn-secondary btn-sm" type="button" onClick={handleOpenStatusModal}>
-                Update Status
-              </button>
-            )}
-          </div>
+            <div className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
+              <div className="section-title">Contact</div>
+              <div className="detail-list">
+                <div><strong>Name:</strong> {lead.name || '-'}</div>
+                <div><strong>Email:</strong> {lead.email || '-'}</div>
+                <div><strong>Phone:</strong> {lead.phone || '-'}</div>
+                <div><strong>Organization:</strong> {lead.company || '-'}</div>
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
+              <div className="section-title">Quick Actions</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {isManager && (
+                  <button className="btn btn-secondary btn-sm" type="button" onClick={handleOpenAssignModal}>
+                    Assign Lead
+                  </button>
+                )}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  type="button"
+                  onClick={handleConvertToDeal}
+                  disabled={isConverting || lead?.converted}
+                >
+                  {lead?.converted ? 'Converted to Deal' : isConverting ? 'Converting...' : 'Convert to Deal'}
+                </button>
+                {isManager && lead?.converted && (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => setDiscardConfirmOpen(true)}
+                    disabled={isDiscarding || dealDiscarded}
+                  >
+                    {dealDiscarded ? 'Deal Discarded' : isDiscarding ? 'Discarding...' : 'Discard Deal'}
+                  </button>
+                )}
+                {isManager && (
+                  <button className="btn btn-secondary btn-sm" type="button" onClick={handleOpenStatusModal}>
+                    Update Status
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: 16, display: 'grid', gap: 12 }}>
+              <div className="section-title">Workspace Signals</div>
+              <div className="deal-signal-grid">
+                <span><Phone size={14} /> {calls.length} calls</span>
+                <span><Mail size={14} /> {emails.length} emails</span>
+                <span><CheckSquare size={14} /> {tasks.length} tasks</span>
+                <span><StickyNote size={14} /> {notes.length} notes</span>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
 

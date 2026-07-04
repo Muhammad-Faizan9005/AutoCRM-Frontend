@@ -7,6 +7,8 @@ const REFRESH_TOKEN_KEY = "refresh_token";
 const DEFAULT_TIMEOUT_MS = 0;
 const AUTH_REFRESH_TIMEOUT_MS = 15000;
 const DEFAULT_CACHE_TTL_MS = 120000;
+const MAX_CACHE_ENTRIES = 250;
+const MAX_IN_FLIGHT_REQUESTS = 100;
 
 const CACHEABLE_PREFIXES = [
   "/api/leads/",
@@ -112,6 +114,9 @@ function getCachedEntry(cacheKey, options = {}) {
     return { hit: false, stale: false, value: null };
   }
 
+  memoryCache.delete(cacheKey);
+  memoryCache.set(cacheKey, entry);
+
   if (entry.expiresAt <= Date.now()) {
     if (allowStale) {
       return { hit: true, stale: true, value: entry.data };
@@ -122,11 +127,32 @@ function getCachedEntry(cacheKey, options = {}) {
   return { hit: true, stale: false, value: entry.data };
 }
 
+function pruneCache() {
+  const now = Date.now();
+  for (const [key, entry] of memoryCache.entries()) {
+    if (entry.expiresAt <= now) {
+      memoryCache.delete(key);
+    }
+  }
+  while (memoryCache.size > MAX_CACHE_ENTRIES) {
+    const oldestKey = memoryCache.keys().next().value;
+    if (!oldestKey) break;
+    memoryCache.delete(oldestKey);
+  }
+  while (inFlightRequests.size > MAX_IN_FLIGHT_REQUESTS) {
+    const oldestKey = inFlightRequests.keys().next().value;
+    if (!oldestKey) break;
+    inFlightRequests.delete(oldestKey);
+  }
+}
+
 function setCacheEntry(cacheKey, data, ttlMs) {
+  pruneCache();
   memoryCache.set(cacheKey, {
     data,
     expiresAt: Date.now() + ttlMs,
   });
+  pruneCache();
 }
 
 function invalidateCacheByPrefix(prefix) {
@@ -412,6 +438,7 @@ export async function apiFetch(path, init = {}, options = {}) {
   };
 
   if (shouldCache && cacheKey) {
+    pruneCache();
     const requestPromise = executeRequest().finally(() => {
       if (inFlightRequests.get(cacheKey) === requestPromise) {
         inFlightRequests.delete(cacheKey);

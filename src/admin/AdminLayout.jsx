@@ -137,7 +137,7 @@ const AdminLayout = ({ user, onLogout, permissions, onUserUpdate }) => {
               path="ai"
               element={
                 canControlAI ? (
-                  <AIControlCenter />
+                  <AIControlCenter currentUser={user} />
                 ) : (
                   <Navigate to={firstAllowedPath} replace />
                 )

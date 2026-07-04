@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, RotateCcw, Building2, Trash2, X, Globe, DollarSign } from 'lucide-react';
+import { Plus, Search, RotateCcw, Building2, Trash2, X, Globe, DollarSign, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
@@ -36,6 +36,9 @@ const mapOrg = (org) => ({
   website: org.website || '',
   industry: org.industry || '-',
   revenue: formatRevenue(org.revenue),
+  revenueValue: org.revenue ?? '',
+  phone: org.phone || '',
+  address: org.address || '',
   modified: formatDate(org.updated_at),
 });
 
@@ -52,14 +55,40 @@ const Organizations = ({ user }) => {
   const [totalLoaded, setTotalLoaded] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingOrg, setEditingOrg] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const latestRequestId = useRef(0);
   const navigate = useNavigate();
   const [gridRef] = useAutoAnimate();
   const canDelete = user?.role === 'admin';
 
-  const [formData, setFormData] = useState({ name: '', website: '', industry: '', revenue: '' });
-  const resetForm = () => setFormData({ name: '', website: '', industry: '', revenue: '' });
+  const [formData, setFormData] = useState({ name: '', website: '', industry: '', revenue: '', phone: '', address: '' });
+  const resetForm = () => setFormData({ name: '', website: '', industry: '', revenue: '', phone: '', address: '' });
+
+  const closeOrgModal = () => {
+    setIsCreateModalOpen(false);
+    setEditingOrg(null);
+    resetForm();
+  };
+
+  const openCreateOrg = () => {
+    setEditingOrg(null);
+    resetForm();
+    setIsCreateModalOpen(true);
+  };
+
+  const openEditOrg = (org) => {
+    setEditingOrg(org);
+    setFormData({
+      name: org.name === '-' ? '' : org.name,
+      website: org.website || '',
+      industry: org.industry === '-' ? '' : org.industry,
+      revenue: org.revenueValue === null || org.revenueValue === undefined ? '' : String(org.revenueValue),
+      phone: org.phone || '',
+      address: org.address || '',
+    });
+    setIsCreateModalOpen(true);
+  };
 
   const hasDataRef = useRef(initialOrgs.length > 0);
   const fetchOrganizations = useCallback(async (skip = 0, append = false) => {
@@ -92,16 +121,28 @@ const Organizations = ({ user }) => {
     setError('');
     const name = formData.name.trim();
     if (!name) { setError('Organization name is required.'); return; }
-    const payload = { name, website: formData.website.trim() || undefined, industry: formData.industry.trim() || undefined, revenue: parseAmount(formData.revenue) };
+    const payload = {
+      name,
+      website: formData.website.trim() || undefined,
+      industry: formData.industry.trim() || undefined,
+      revenue: parseAmount(formData.revenue),
+      phone: formData.phone.trim() || undefined,
+      address: formData.address.trim() || undefined,
+    };
     setIsSaving(true);
     try {
-      const created = await apiFetch('/api/organizations/', { method: 'POST', body: JSON.stringify(payload) });
-      setOrgs((prev) => [mapOrg(created), ...prev]);
-      setIsCreateModalOpen(false);
-      resetForm();
-      toast.success('Organization created successfully.');
+      if (editingOrg) {
+        const updated = await apiFetch(`/api/organizations/${editingOrg.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+        setOrgs((prev) => prev.map((org) => (org.id === editingOrg.id ? mapOrg(updated) : org)));
+        toast.success('Organization updated successfully.');
+      } else {
+        const created = await apiFetch('/api/organizations/', { method: 'POST', body: JSON.stringify(payload) });
+        setOrgs((prev) => [mapOrg(created), ...prev]);
+        toast.success('Organization created successfully.');
+      }
+      closeOrgModal();
     } catch (err) {
-      const message = err?.message || 'Unable to create organization.';
+      const message = err?.message || `Unable to ${editingOrg ? 'update' : 'create'} organization.`;
       setError(message);
       toast.error(message);
     }
@@ -130,7 +171,7 @@ const Organizations = ({ user }) => {
           <h1 className="page-title">Organizations</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button onClick={() => { setTotalLoaded(0); fetchOrganizations(0, false); }} className="btn btn-ghost btn-icon" aria-label="Refresh"><RotateCcw size={16} /></button>
-            <button onClick={() => setIsCreateModalOpen(true)} className="btn btn-primary"><Plus size={15} /> Add Organization</button>
+            <button onClick={openCreateOrg} className="btn btn-primary"><Plus size={15} /> Add Organization</button>
           </div>
         </div>
 
@@ -187,9 +228,12 @@ const Organizations = ({ user }) => {
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: 10 }}>
                     <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Updated {o.modified}</span>
-                    {canDelete && (
-                      <button onClick={(event) => { event.stopPropagation(); handleDeleteOrg(o.id); }} className="btn btn-danger btn-sm"><Trash2 size={12} /> Delete</button>
-                    )}
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <button onClick={(event) => { event.stopPropagation(); openEditOrg(o); }} className="btn btn-secondary btn-sm"><Pencil size={12} /> Edit</button>
+                      {canDelete && (
+                        <button onClick={(event) => { event.stopPropagation(); handleDeleteOrg(o.id); }} className="btn btn-danger btn-sm"><Trash2 size={12} /> Delete</button>
+                      )}
+                    </div>
                   </div>
                 </motion.div>
               ))}
@@ -205,11 +249,11 @@ const Organizations = ({ user }) => {
 
         <AnimatePresence>
           {isCreateModalOpen && (
-            <motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsCreateModalOpen(false)}>
+            <motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeOrgModal}>
               <motion.div className="modal-content" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()} initial={{ opacity: 0, scale: 0.97, y: 4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
-                  <h3 className="section-title">New Organization</h3>
-                  <button onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18} /></button>
+                  <h3 className="section-title">{editingOrg ? 'Edit Organization' : 'New Organization'}</h3>
+                  <button onClick={closeOrgModal} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18} /></button>
                 </div>
                 <form id="org-form" onSubmit={handleSaveOrg} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div><label className="label">Organization Name *</label><input type="text" required className="input" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} /></div>
@@ -217,11 +261,13 @@ const Organizations = ({ user }) => {
                     <div><label className="label">Website</label><input type="text" className="input" value={formData.website} onChange={(e) => setFormData({ ...formData, website: e.target.value })} /></div>
                     <div><label className="label">Revenue</label><input type="text" className="input" placeholder="0.00" value={formData.revenue} onChange={(e) => setFormData({ ...formData, revenue: e.target.value })} /></div>
                   </div>
+                  <div><label className="label">Phone</label><input type="text" className="input" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} /></div>
                   <div><label className="label">Industry</label><select className="input" value={formData.industry} onChange={(e) => setFormData({ ...formData, industry: e.target.value })}><option value="">Select</option><option>Software</option><option>Finance</option><option>Healthcare</option><option>Retail</option><option>Sports</option></select></div>
+                  <div><label className="label">Address</label><textarea className="input" rows={3} value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} /></div>
                 </form>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
-                  <button type="button" onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost">Discard</button>
-                  <button type="submit" form="org-form" disabled={isSaving} className="btn btn-primary">{isSaving ? 'Creating...' : 'Create'}</button>
+                  <button type="button" onClick={closeOrgModal} className="btn btn-ghost">Discard</button>
+                  <button type="submit" form="org-form" disabled={isSaving} className="btn btn-primary">{isSaving ? 'Saving...' : editingOrg ? 'Save Changes' : 'Create'}</button>
                 </div>
               </motion.div>
             </motion.div>
