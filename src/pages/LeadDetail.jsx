@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Building2, CheckSquare, ChevronDown, ChevronRight, Mail, Phone, PhoneOff, Plus, RotateCcw, StickyNote } from 'lucide-react';
-import { API_BASE, apiFetch, getAccessToken } from '../api/client';
+import { API_BASE, apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
 import { EntityCard } from '../components/EntityCard';
@@ -81,15 +81,10 @@ const RecordingAudio = ({ call }) => {
 
     const loadRecording = async () => {
       setLoadError('');
-      const token = getAccessToken();
-      if (!token) {
-        setLoadError('Sign in again to play this recording.');
-        return;
-      }
 
       try {
         const response = await fetch(buildRecordingUrl(call.id), {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
           signal: controller.signal,
         });
         if (!response.ok) {
@@ -313,8 +308,12 @@ const LeadDetail = ({ user }) => {
     return ownerName || 'Assigned';
   };
 
+  const getAssignableLeadOwnerId = (ownerId) => (
+    teamReps.some((rep) => String(rep.id) === String(ownerId || '')) ? ownerId : ''
+  );
+
   const handleOpenAssignModal = () => {
-    setSelectedOwnerId(lead?.owner_id || (canUnassignLead ? '' : teamReps[0]?.id || ''));
+    setSelectedOwnerId(getAssignableLeadOwnerId(lead?.owner_id) || '');
     setAssignModalOpen(true);
   };
 
@@ -561,7 +560,7 @@ const LeadDetail = ({ user }) => {
       });
       setLead((prev) => (prev ? { ...prev, converted: true, status: 'qualified' } : prev));
       setDealDiscarded(false);
-      toast.success('Deal converted successfully.');
+      toast.success(lead?.converted ? 'New deal created.' : 'Deal converted successfully.');
     } catch (err) {
       const message = err?.message || 'Unable to convert lead.';
       toast.error(message);
@@ -1095,9 +1094,9 @@ const LeadDetail = ({ user }) => {
                   className="btn btn-secondary btn-sm"
                   type="button"
                   onClick={handleConvertToDeal}
-                  disabled={isConverting || lead?.converted}
+                  disabled={isConverting}
                 >
-                  {lead?.converted ? 'Converted to Deal' : isConverting ? 'Converting...' : 'Convert to Deal'}
+                  {isConverting ? 'Creating...' : lead?.converted ? 'Create Another Deal' : 'Convert to Deal'}
                 </button>
                 {isManager && lead?.converted && (
                   <button
@@ -1142,10 +1141,10 @@ const LeadDetail = ({ user }) => {
                 <label className="label">Owner</label>
                 <select
                   className="input"
-                  value={selectedOwnerId}
+                  value={getAssignableLeadOwnerId(selectedOwnerId)}
                   onChange={(event) => setSelectedOwnerId(event.target.value)}
                 >
-                  {canUnassignLead && <option value="">Unassigned</option>}
+                  <option value="" disabled={!canUnassignLead}>Unassigned to team</option>
                   {teamReps.map((rep) => (
                     <option key={rep.id} value={rep.id}>
                       {rep.full_name || rep.email || 'Assignable user'}
@@ -1155,7 +1154,7 @@ const LeadDetail = ({ user }) => {
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                 <button type="button" className="btn btn-ghost" onClick={() => setAssignModalOpen(false)} disabled={quickActionSaving}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={quickActionSaving}>
+                <button type="submit" className="btn btn-primary" disabled={quickActionSaving || (!canUnassignLead && !selectedOwnerId)}>
                   {quickActionSaving ? 'Saving...' : 'Save Assignment'}
                 </button>
               </div>
@@ -1319,7 +1318,7 @@ const LeadDetail = ({ user }) => {
       )}
 
       {callModalOpen && (
-        <div className="modal-overlay no-blur">
+        <div className="modal-overlay no-blur" onClick={() => !callWorking && setCallModalOpen(false)}>
           <div className="modal-content" style={{ maxWidth: 520 }} onClick={(event) => event.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
               <div>

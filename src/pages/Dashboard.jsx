@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, RefreshCcw, ChevronDown, Users, Briefcase, Building2, CheckSquare, DollarSign, TrendingUp, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 import { motion } from 'framer-motion';
@@ -148,6 +148,7 @@ const Dashboard = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [timeRange, setTimeRange] = useState('Last 7 Days');
   const [activeDropdown, setActiveDropdown] = useState(null);
+  const timeDropdownRef = useRef(null);
   const [summary, setSummary] = useState(null);
   const [activity, setActivity] = useState(null);
   const [aiSummary, setAiSummary] = useState(null);
@@ -162,6 +163,26 @@ const Dashboard = () => {
   };
 
   const selectedDays = daysMap[timeRange] || 7;
+
+  useEffect(() => {
+    if (!activeDropdown) return undefined;
+
+    const closeDropdown = (event) => {
+      if (timeDropdownRef.current?.contains(event.target)) return;
+      setActiveDropdown(null);
+    };
+
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setActiveDropdown(null);
+    };
+
+    document.addEventListener('pointerdown', closeDropdown);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeDropdown);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [activeDropdown]);
 
   const fetchDashboard = useCallback(async (showLoader = true) => {
     if (showLoader) {
@@ -322,7 +343,7 @@ const Dashboard = () => {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {/* Time Range Selector */}
-            <div style={{ position: 'relative' }}>
+            <div ref={timeDropdownRef} style={{ position: 'relative' }}>
               <button
                 onClick={() => setActiveDropdown(activeDropdown === 'time' ? null : 'time')}
                 className="btn btn-secondary"

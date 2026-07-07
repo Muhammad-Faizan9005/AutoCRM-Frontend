@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, RotateCcw, Trash2, X, Download, SquarePen } from 'lucide-react';
+import { Plus, Search, RotateCcw, Trash2, X, Download, SquarePen, SlidersHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
@@ -10,6 +10,7 @@ import { SkeletonCard } from '../components/Skeleton';
 import { EntityCard } from '../components/EntityCard';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../utils/toast';
+import { useCloseFilterMenusOnOutside } from '../hooks/useOutsideDismiss';
 
 const CARD_GRID_STYLE = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 20, alignItems: 'stretch' };
 
@@ -19,6 +20,20 @@ const REP_STATUS_OPTIONS = ['in_progress', 'done'];
 const STATUS_BADGE = { backlog: 'badge-muted', todo: 'badge-accent', in_progress: 'badge-warning', done: 'badge-success', canceled: 'badge-danger' };
 const STATUS_LABEL = { backlog: 'Backlog', todo: 'Todo', in_progress: 'In Progress', done: 'Done', canceled: 'Canceled' };
 const STATUS_ACCENT = { backlog: 'note-border-muted', todo: 'note-border-accent', in_progress: 'note-border-warning', done: 'note-border-success', canceled: 'note-border-danger' };
+const STATUS_FILTERS = [{ id: 'all', label: 'All' }, ...STATUS_ORDER.map((status) => ({ id: status, label: STATUS_LABEL[status] }))];
+const PRIORITY_FILTERS = [
+  { id: 'all', label: 'All priorities' },
+  { id: 'high', label: 'High' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'low', label: 'Low' },
+];
+const DUE_FILTERS = [
+  { id: 'all', label: 'All due dates' },
+  { id: 'overdue', label: 'Overdue' },
+  { id: 'today', label: 'Due today' },
+  { id: 'upcoming', label: 'Upcoming' },
+  { id: 'none', label: 'No due date' },
+];
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -48,12 +63,14 @@ const getAssigneeLabel = (assignedTo, currentUser, directory) => {
   return 'Assigned rep';
 };
 
-const normalizeTask = (task, currentUser, directory, leadDirectory) => ({
+const normalizeTask = (task, currentUser, directory, leadDirectory) => {
+  const rawStatus = String(task.status || 'backlog').toLowerCase();
+  return {
   id: task.id,
   title: task.title || 'Untitled task',
   description: task.description || '',
-  status: task.status === 'open' ? 'todo' : task.status || 'backlog',
-  priority: task.priority || 'medium',
+  status: rawStatus === 'open' ? 'todo' : rawStatus,
+  priority: String(task.priority || 'medium').toLowerCase(),
   dueAt: task.due_at || '',
   dueDateLabel: formatDate(task.due_at),
   assignedTo: task.assigned_to || null,
@@ -61,9 +78,10 @@ const normalizeTask = (task, currentUser, directory, leadDirectory) => ({
   modifiedLabel: formatDateTime(task.updated_at || task.created_at),
   leadId: String(task.entity_id || ''),
   leadName: task.lead_name || leadDirectory[String(task.entity_id)] || 'Loading lead...',
-  source: task.source || 'manual',
+  source: String(task.source || 'manual').toLowerCase(),
   aiReason: task.ai_reason || '',
-});
+  };
+};
 
 const TASKS_INITIAL_PATH = `/api/tasks/?entity_type=${LEAD_ENTITY_TYPE}&skip=0&limit=20`;
 const TASKS_LEADS_PATH = '/api/leads/?skip=0&limit=500';
@@ -96,6 +114,12 @@ const Tasks = ({ user }) => {
   const [loading, setLoading] = useState(!cachedTasks.hit);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [assigneeFilter, setAssigneeFilter] = useState('all');
+  const [leadFilter, setLeadFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [dueFilter, setDueFilter] = useState('all');
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalLoaded, setTotalLoaded] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -124,6 +148,7 @@ const Tasks = ({ user }) => {
 
   const latestReq = useRef(0);
   const [gridRef] = useAutoAnimate();
+  useCloseFilterMenusOnOutside();
 
   const loadAssignees = useCallback(async () => {
     if (!canManageTasks) return;
@@ -205,10 +230,81 @@ const Tasks = ({ user }) => {
     fetchTasks(0, false);
   }, [fetchTasks]);
 
-  const filtered = useMemo(
-    () => tasks.filter((task) => task.title.toLowerCase().includes(searchTerm.toLowerCase())),
-    [tasks, searchTerm]
-  );
+  const taskAssigneeOptions = useMemo(() => {
+    const seen = new Map();
+    tasks.forEach((task) => {
+      const key = task.assignedTo ? String(task.assignedTo) : '__unassigned__';
+      if (!seen.has(key)) seen.set(key, task.assigneeLabel || 'Unassigned');
+    });
+    return Array.from(seen, ([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [tasks]);
+
+  const taskLeadOptions = useMemo(() => {
+    const seen = new Map();
+    tasks.forEach((task) => {
+      const key = task.leadId || '__none__';
+      if (!seen.has(key)) seen.set(key, task.leadName || 'No linked lead');
+    });
+    return Array.from(seen, ([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [tasks]);
+
+  const sourceOptions = useMemo(() => (
+    Array.from(new Set(tasks.map((task) => String(task.source || 'manual').toLowerCase()).filter(Boolean))).sort()
+  ), [tasks]);
+
+  const activeFilterLabels = useMemo(() => {
+    const labels = [];
+    if (statusFilter !== 'all') labels.push(STATUS_LABEL[statusFilter] || statusFilter);
+    if (priorityFilter !== 'all') labels.push(PRIORITY_FILTERS.find((filter) => filter.id === priorityFilter)?.label || priorityFilter);
+    if (assigneeFilter !== 'all') labels.push(taskAssigneeOptions.find((option) => option.id === assigneeFilter)?.label || 'Assignee');
+    if (leadFilter !== 'all') labels.push(taskLeadOptions.find((option) => option.id === leadFilter)?.label || 'Lead');
+    if (sourceFilter !== 'all') labels.push(`Source: ${sourceFilter}`);
+    if (dueFilter !== 'all') labels.push(DUE_FILTERS.find((filter) => filter.id === dueFilter)?.label || dueFilter);
+    return labels;
+  }, [statusFilter, priorityFilter, assigneeFilter, leadFilter, sourceFilter, dueFilter, taskAssigneeOptions, taskLeadOptions]);
+
+  const hasActiveFilters = activeFilterLabels.length > 0;
+  const secondaryFilterCount = [priorityFilter, assigneeFilter, leadFilter, sourceFilter, dueFilter].filter((value) => value !== 'all').length;
+
+  const clearFilters = () => {
+    setStatusFilter('all');
+    setPriorityFilter('all');
+    setAssigneeFilter('all');
+    setLeadFilter('all');
+    setSourceFilter('all');
+    setDueFilter('all');
+  };
+
+  const filtered = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    return tasks.filter((task) => {
+      const dueAt = task.dueAt ? new Date(task.dueAt) : null;
+      const hasValidDueDate = dueAt && !Number.isNaN(dueAt.getTime());
+      const isClosed = ['done', 'canceled'].includes(task.status);
+      if (statusFilter !== 'all' && task.status !== statusFilter) return false;
+      if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
+      if (assigneeFilter !== 'all') {
+        const key = task.assignedTo ? String(task.assignedTo) : '__unassigned__';
+        if (key !== assigneeFilter) return false;
+      }
+      if (leadFilter !== 'all') {
+        const key = task.leadId || '__none__';
+        if (key !== leadFilter) return false;
+      }
+      if (sourceFilter !== 'all' && String(task.source || 'manual').toLowerCase() !== sourceFilter) return false;
+      if (dueFilter === 'none' && hasValidDueDate) return false;
+      if (dueFilter === 'overdue' && (!hasValidDueDate || dueAt >= today || isClosed)) return false;
+      if (dueFilter === 'today' && (!hasValidDueDate || dueAt < today || dueAt >= tomorrow)) return false;
+      if (dueFilter === 'upcoming' && (!hasValidDueDate || dueAt < tomorrow)) return false;
+      if (!term) return true;
+      return [task.title, task.description, task.leadName, task.assigneeLabel, task.priority, task.source].some((value) => String(value).toLowerCase().includes(term));
+    });
+  }, [tasks, searchTerm, statusFilter, priorityFilter, assigneeFilter, leadFilter, sourceFilter, dueFilter]);
 
   const openCreate = async () => {
     if (!canManageTasks) return;
@@ -380,9 +476,62 @@ const Tasks = ({ user }) => {
           </div>
         </div>
 
-        <div style={{ position: 'relative', maxWidth: 320 }}>
-          <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-tertiary)' }} />
-          <input type="text" placeholder="Search tasks..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        <div className="filter-toolbar">
+          <div className="filter-search">
+            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-tertiary)' }} />
+            <input type="text" placeholder="Search tasks..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="filter-group">
+            {STATUS_FILTERS.map((filter) => (
+              <button key={filter.id} className={`btn btn-sm ${statusFilter === filter.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setStatusFilter(filter.id)} type="button">
+                {filter.label}
+              </button>
+            ))}
+          </div>
+          <details className="filter-menu">
+            <summary className={`btn btn-sm ${secondaryFilterCount > 0 ? 'btn-primary' : 'btn-secondary'}`}>
+              <SlidersHorizontal size={14} />
+              Filters{secondaryFilterCount > 0 ? ` (${secondaryFilterCount})` : ''}
+            </summary>
+            <div className="filter-menu-panel filter-menu-panel-wide">
+              <div>
+                <label className="label">Priority</label>
+                <select className="input" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} aria-label="Filter tasks by priority">
+                  {PRIORITY_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{filter.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Assignee</label>
+                <select className="input" value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} aria-label="Filter tasks by assignee">
+                  <option value="all">All assignees</option>
+                  {taskAssigneeOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Lead</label>
+                <select className="input" value={leadFilter} onChange={(e) => setLeadFilter(e.target.value)} aria-label="Filter tasks by lead">
+                  <option value="all">All leads</option>
+                  {taskLeadOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Source</label>
+                <select className="input" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} aria-label="Filter tasks by source">
+                  <option value="all">All sources</option>
+                  {sourceOptions.map((source) => <option key={source} value={source}>{source}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Due date</label>
+                <select className="input" value={dueFilter} onChange={(e) => setDueFilter(e.target.value)} aria-label="Filter tasks by due date">
+                  {DUE_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{filter.label}</option>)}
+                </select>
+              </div>
+              {hasActiveFilters && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear filters</button>
+              )}
+            </div>
+          </details>
         </div>
 
         {error && <div className="alert alert-danger">{error}</div>}

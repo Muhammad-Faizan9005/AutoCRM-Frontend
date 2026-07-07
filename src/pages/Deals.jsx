@@ -9,6 +9,8 @@ import { PageTransition, staggerContainer, staggerItem } from '../components/Pag
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { toast } from '../utils/toast';
+import { useOutsideDismiss } from '../hooks/useOutsideDismiss';
+import { listDealAssignmentOwners } from '../admin/adminApi';
 
 const STATUS_LABELS = { qualification: 'Qualification', demo_making: 'Demo/Making', proposal_quotation: 'Proposal/Quotation', negotiation: 'Negotiation', ready_to_close: 'Ready to Close', won: 'Won' };
 const STATUS_BADGE = { qualification: 'badge-muted', demo_making: 'badge-accent', proposal_quotation: 'badge-success', negotiation: 'badge-danger', ready_to_close: 'badge-purple', won: 'badge-orange' };
@@ -52,6 +54,9 @@ const mapDeal = (deal,orgIdx) => {
   dealType: normalizeDealType(deal.deal_type),
   modified: formatDate(deal.updated_at),
   aiInsights: Array.isArray(deal.ai_insights) ? deal.ai_insights : [],
+  ownerId: deal.owner_id || '',
+  ownerName: deal.owner_name || deal.owner_email || '',
+  ownerEmail: deal.owner_email || '',
   };
 };
 
@@ -65,6 +70,7 @@ const Deals = ({ user }) => {
   const [dealRecords, setDealRecords] = useState(cachedDeals.hit ? cachedDeals.value : []);
   const [organizations, setOrganizations] = useState(cachedOrgs.hit ? cachedOrgs.value : []);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingDeal, setEditingDeal] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [actionMenu, setActionMenu] = useState(null);
@@ -74,15 +80,19 @@ const Deals = ({ user }) => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalLoaded, setTotalLoaded] = useState(cachedDeals.hit ? cachedDeals.value.length : 0);
   const [hasMore, setHasMore] = useState(cachedDeals.hit ? cachedDeals.value.length === 20 : true);
+  const [dealOwners, setDealOwners] = useState([]);
+  const [assigningMap, setAssigningMap] = useState({});
   const latestReq = useRef(0);
   const hasDataRef = useRef(cachedDeals.hit);
   const [tbodyRef] = useAutoAnimate();
   const [draggingDealId, setDraggingDealId] = useState(null);
   const [dragOverStatus, setDragOverStatus] = useState(null);
+  useOutsideDismiss(Boolean(actionMenu), () => setActionMenu(null), [], ['[data-row-actions]']);
   const canDelete = user?.role === 'admin';
+  const canAssignDeal = ['admin', 'sales_manager', 'manager'].includes(String(user?.role || '').toLowerCase());
 
-  const [formData, setFormData] = useState({ orgName:'', website:'', revenue:'', industry:'', dealType:'new_business', firstName:'', lastName:'', email:'', mobile:'', status:'qualification' });
-  const resetForm = () => setFormData({ orgName:'', website:'', revenue:'', industry:'', dealType:'new_business', firstName:'', lastName:'', email:'', mobile:'', status:'qualification' });
+  const [formData, setFormData] = useState({ orgName:'', website:'', revenue:'', industry:'', dealType:'new_business', firstName:'', lastName:'', email:'', mobile:'', status:'qualification', ownerId:'' });
+  const resetForm = () => setFormData({ orgName:'', website:'', revenue:'', industry:'', dealType:'new_business', firstName:'', lastName:'', email:'', mobile:'', status:'qualification', ownerId:'' });
 
   const orgIdx = useMemo(() => new Map(organizations.map(o=>[o.id,o.name||'-'])), [organizations]);
   const deals = useMemo(() => dealRecords.map(d=>mapDeal(d,orgIdx)), [dealRecords,orgIdx]);
@@ -111,6 +121,20 @@ const Deals = ({ user }) => {
   }, []);
   useEffect(()=>{fetchDeals(0,false);fetchOrgs();},[fetchDeals,fetchOrgs]);
   useEffect(() => {
+    let active = true;
+    const fetchOwners = async () => {
+      if (!canAssignDeal) return;
+      try {
+        const owners = await listDealAssignmentOwners();
+        if (active) setDealOwners(owners);
+      } catch {
+        if (active) setDealOwners([]);
+      }
+    };
+    fetchOwners();
+    return () => { active = false; };
+  }, [canAssignDeal]);
+  useEffect(() => {
     const className = 'crm-kanban-active';
     if (viewMode === 'kanban') {
       document.body.classList.add(className);
@@ -132,9 +156,82 @@ const Deals = ({ user }) => {
   const ensureOrgId = async()=>{const n=formData.orgName.trim();if(!n)return null;const ex=organizations.find(o=>o.name?.toLowerCase()===n.toLowerCase());if(ex)return ex.id;const c=await apiFetch('/api/organizations/',{method:'POST',body:JSON.stringify({name:n,website:formData.website.trim()||undefined,industry:formData.industry||undefined,revenue:parseAmount(formData.revenue)})});setOrganizations(p=>[c,...p]);return c.id;};
   const ensureLeadId = async()=>{const nm=[formData.firstName.trim(),formData.lastName.trim()].filter(Boolean).join(' ');const em=formData.email.trim();if(!nm&&!em)return null;const c=await apiFetch('/api/leads/',{method:'POST',body:JSON.stringify({name:nm||'New Lead',email:em||undefined,phone:formData.mobile.trim()||undefined,company:formData.orgName.trim()||undefined,status:'new',source:MANUAL_LEAD_SOURCE})});return c.id;};
 
-  const handleSave = async(e)=>{e.preventDefault();setError('');setIsSaving(true);try{const oid=await ensureOrgId();const lid=await ensureLeadId();const created=await apiFetch('/api/deals/',{method:'POST',body:JSON.stringify({organization_id:oid||undefined,lead_id:lid||undefined,stage:normalizeStage(formData.status),status:formData.status,deal_type:formData.dealType,value:parseAmount(formData.revenue),currency:inferCurrency(formData.revenue)})});setDealRecords(p=>[created,...p]);setIsCreateOpen(false);resetForm();}catch(e){setError(e?.message||'Unable to create deal.');}finally{setIsSaving(false);}};
+  const openCreateDeal = () => {
+    setEditingDeal(null);
+    resetForm();
+    setIsCreateOpen(true);
+  };
+
+  const openEditDeal = (deal) => {
+    if (!deal) return;
+    setEditingDeal(deal);
+    setFormData({
+      orgName: deal.organization_name || orgIdx.get(deal.organization_id) || deal.lead_company || deal.lead_name || '',
+      website: '',
+      revenue: deal.value ?? '',
+      industry: '',
+      dealType: normalizeDealType(deal.deal_type),
+      firstName: '',
+      lastName: '',
+      email: '',
+      mobile: '',
+      status: mapDealStatus(deal.status),
+      ownerId: deal.owner_id || '',
+    });
+    setIsCreateOpen(true);
+  };
+
+  const closeDealModal = () => {
+    setIsCreateOpen(false);
+    setEditingDeal(null);
+    resetForm();
+  };
+
+  const handleSave = async(e)=>{e.preventDefault();setError('');setIsSaving(true);try{const assignableOwnerId=getAssignableDealOwnerId(formData.ownerId)||undefined;if(editingDeal){const oid=await ensureOrgId();const updated=await apiFetch(`/api/deals/${editingDeal.id}`,{method:'PATCH',body:JSON.stringify({organization_id:oid||editingDeal.organization_id||undefined,stage:normalizeStage(formData.status),status:formData.status,deal_type:formData.dealType,value:parseAmount(formData.revenue),currency:inferCurrency(formData.revenue),owner_id:assignableOwnerId})});setDealRecords(p=>p.map(d=>d.id===updated.id?updated:d));closeDealModal();}else{const oid=await ensureOrgId();const lid=await ensureLeadId();const created=await apiFetch('/api/deals/',{method:'POST',body:JSON.stringify({organization_id:oid||undefined,lead_id:lid||undefined,stage:normalizeStage(formData.status),status:formData.status,deal_type:formData.dealType,value:parseAmount(formData.revenue),currency:inferCurrency(formData.revenue),owner_id:assignableOwnerId})});setDealRecords(p=>[created,...p]);closeDealModal();}}catch(e){setError(e?.message||`Unable to ${editingDeal?'update':'create'} deal.`);}finally{setIsSaving(false);}};
 
   const handleDelete = async(id)=>{if(!canDelete||!window.confirm('Delete this deal?'))return;try{await apiFetch(`/api/deals/${id}`,{method:'DELETE'});setDealRecords(p=>p.filter(d=>d.id!==id));}catch(e){setError(e?.message||'Delete failed.');}};
+
+  const getOwnerLabel = (ownerId, fallback = 'Unassigned') => {
+    if (!ownerId) return fallback;
+    const owner = dealOwners.find((item) => String(item.id) === String(ownerId));
+    return owner?.full_name || owner?.email || fallback;
+  };
+
+  const getAssignableDealOwnerId = (ownerId) => (
+    dealOwners.some((owner) => String(owner.id) === String(ownerId || '')) ? ownerId : ''
+  );
+
+  const handleAssignDeal = async (dealId, ownerId) => {
+    if (!ownerId) return;
+    const current = dealRecords.find((deal) => String(deal.id) === String(dealId));
+    if (!current || String(current.owner_id || '') === String(ownerId || '')) return;
+    const previousOwnerId = current.owner_id || '';
+    const nextOwner = dealOwners.find((owner) => String(owner.id) === String(ownerId));
+    setError('');
+    setAssigningMap((prev) => ({ ...prev, [dealId]: true }));
+    setDealRecords((prev) => prev.map((deal) => (
+      String(deal.id) === String(dealId)
+        ? { ...deal, owner_id: ownerId, owner_name: nextOwner?.full_name || nextOwner?.email || deal.owner_name, owner_email: nextOwner?.email || deal.owner_email }
+        : deal
+    )));
+    try {
+      const updated = await apiFetch(`/api/deals/${dealId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ owner_id: ownerId }),
+      });
+      setDealRecords((prev) => prev.map((deal) => (String(deal.id) === String(dealId) ? { ...deal, ...updated } : deal)));
+      toast.success(`Deal assigned to ${getOwnerLabel(ownerId, 'selected owner')}.`);
+    } catch (err) {
+      setDealRecords((prev) => prev.map((deal) => (
+        String(deal.id) === String(dealId) ? { ...deal, owner_id: previousOwnerId } : deal
+      )));
+      const message = err?.message || 'Unable to assign deal.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setAssigningMap((prev) => ({ ...prev, [dealId]: false }));
+    }
+  };
 
   const handleDealStatusChange = async (dealId, nextStatus) => {
     const current = dealRecords.find((deal) => String(deal.id) === String(dealId));
@@ -187,7 +284,7 @@ const Deals = ({ user }) => {
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={()=>{setTotalLoaded(0);fetchDeals(0,false,true);}} className="btn btn-ghost btn-icon" aria-label="Refresh"><RotateCcw size={16}/></button>
             <button onClick={exportXl} className="btn btn-secondary btn-sm"><Download size={14}/> Export</button>
-            <button onClick={()=>setIsCreateOpen(true)} className="btn btn-primary"><Plus size={15}/> Add Deal</button>
+            <button onClick={openCreateDeal} className="btn btn-primary"><Plus size={15}/> Add Deal</button>
           </div>
         </div>
 
@@ -228,7 +325,7 @@ const Deals = ({ user }) => {
                   <table className="data-table">
                     <thead><tr>
                       <th style={{ width:36 }}><input type="checkbox" className="checkbox-input"/></th>
-                      <th>Organization</th><th>Type</th><th>Revenue</th><th>Status</th><th>Modified</th><th style={{ width:60, textAlign:'right' }}>Actions</th>
+                      <th>Organization</th><th>Type</th><th>Revenue</th><th>Status</th><th>Owner</th><th>Modified</th><th style={{ width:60, textAlign:'right' }}>Actions</th>
                     </tr></thead>
                     <motion.tbody ref={tbodyRef} variants={staggerContainer} initial="initial" animate="animate">
                       {filtered.map(d=>(
@@ -244,13 +341,37 @@ const Deals = ({ user }) => {
                           <td><span className={`badge ${DEAL_TYPE_BADGE[d.dealType] || 'badge-muted'}`}>{DEAL_TYPE_LABELS[d.dealType] || d.dealType}</span></td>
                           <td style={{ color:'var(--color-text-secondary)' }}>{d.revenue}</td>
                           <td><span className={`badge ${STATUS_BADGE[d.status]||'badge-muted'}`}>{STATUS_LABELS[d.status] || d.status || 'Unknown'}</span></td>
+                          <td>
+                            {canAssignDeal ? (
+                              <div>
+                                <select
+                                  className="input"
+                                  value={getAssignableDealOwnerId(d.ownerId)}
+                                  onChange={(event) => handleAssignDeal(d.id, event.target.value)}
+                                  disabled={assigningMap[d.id]}
+                                  style={{ minWidth: 170, height: 34, padding: '0 10px' }}
+                                >
+                                  <option value="">Unassigned to team</option>
+                                  {dealOwners.map((owner) => (
+                                    <option key={owner.id} value={owner.id}>{owner.full_name || owner.email}</option>
+                                  ))}
+                                </select>
+                                {assigningMap[d.id] && (
+                                  <div style={{ fontSize:'var(--text-xs)', color:'var(--color-text-tertiary)', marginTop:4 }}>Saving...</div>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ color:'var(--color-text-secondary)' }}>{d.ownerName || d.ownerEmail || 'Unassigned'}</span>
+                            )}
+                          </td>
                           <td style={{ color:'var(--color-text-tertiary)', fontSize:'var(--text-sm)' }}>{d.modified}</td>
                           <td style={{ textAlign:'right' }}>
-                            <div style={{ position:'relative', display:'inline-block' }}>
+                            <div data-row-actions style={{ position:'relative', display:'inline-block' }}>
                               <button className="btn btn-ghost btn-icon" onClick={()=>setActionMenu(actionMenu===d.id?null:d.id)} aria-label="Actions"><MoreHorizontal size={14}/></button>
                               {actionMenu===d.id && (
                                 <div className="dropdown-menu" style={{ position:'absolute', right:0, top:'calc(100% + 4px)' }}>
                                   <Link className="dropdown-item" to={`/deals/${d.id}`} onClick={()=>setActionMenu(null)}><Eye size={14}/> View</Link>
+                                  <button className="dropdown-item" onClick={()=>{openEditDeal(dealRecords.find((deal)=>deal.id===d.id));setActionMenu(null);}}><Pencil size={14}/> Edit</button>
                                   {canDelete && <button className="dropdown-item dropdown-item-danger" onClick={()=>{handleDelete(d.id);setActionMenu(null);}}><Trash2 size={14}/> Delete</button>}
                                 </div>
                               )}
@@ -319,11 +440,11 @@ const Deals = ({ user }) => {
 
         <AnimatePresence>
           {isCreateOpen && (
-            <motion.div className="modal-overlay" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} onClick={()=>setIsCreateOpen(false)}>
+            <motion.div className="modal-overlay" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} onClick={closeDealModal}>
               <motion.div className="modal-content" style={{ maxWidth:600 }} onClick={e=>e.stopPropagation()} initial={{ opacity:0,scale:0.97,y:4 }} animate={{ opacity:1,scale:1,y:0 }} exit={{ opacity:0,scale:0.97 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid var(--color-border)' }}>
-                  <h3 className="section-title">Create Deal</h3>
-                  <button onClick={()=>setIsCreateOpen(false)} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18}/></button>
+                  <h3 className="section-title">{editingDeal ? 'Edit Deal' : 'Create Deal'}</h3>
+                  <button onClick={closeDealModal} className="btn btn-ghost btn-icon" aria-label="Close"><X size={18}/></button>
                 </div>
                 <form id="deal-form" onSubmit={handleSave} style={{ padding:20, display:'flex', flexDirection:'column', gap:14, maxHeight:'60vh', overflowY:'auto' }}>
                   <div><label className="label">Organization Name</label><input type="text" className="input" value={formData.orgName} onChange={e=>setFormData({...formData,orgName:e.target.value})}/></div>
@@ -335,20 +456,29 @@ const Deals = ({ user }) => {
                     <div><label className="label">Revenue</label><input type="text" className="input" value={formData.revenue} onChange={e=>setFormData({...formData,revenue:e.target.value})}/></div>
                     <div><label className="label">Status</label><select className="input" value={formData.status} onChange={e=>setFormData({...formData,status:e.target.value})}>{STATUS_ORDER.map((status)=><option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></div>
                   </div>
+                  {canAssignDeal && (
+                    <div>
+                      <label className="label">Deal owner</label>
+                      <select className="input" value={getAssignableDealOwnerId(formData.ownerId)} onChange={e=>setFormData({...formData,ownerId:e.target.value})}>
+                        <option value="">Unassigned to team</option>
+                        {dealOwners.map((owner)=><option key={owner.id} value={owner.id}>{owner.full_name || owner.email}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <div><label className="label">Deal Type</label><select className="input" value={formData.dealType} onChange={e=>setFormData({...formData,dealType:e.target.value})}>{DEAL_TYPE_ORDER.map((type)=><option key={type} value={type}>{DEAL_TYPE_LABELS[type]}</option>)}</select></div>
                   <div style={{ padding:14, background:'var(--color-bg-hover)', borderRadius:'var(--radius)', border:'1px solid var(--color-border)' }}>
-                    <div style={{ fontSize:'var(--text-sm)', fontWeight:'var(--weight-semibold)', marginBottom:10, color:'var(--color-text-secondary)' }}>Primary Contact (Optional)</div>
+                    <div style={{ fontSize:'var(--text-sm)', fontWeight:'var(--weight-semibold)', marginBottom:10, color:'var(--color-text-secondary)' }}>Primary Contact {editingDeal ? '(Only for new deals)' : '(Optional)'}</div>
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                      <div><label className="label">First Name</label><input type="text" className="input" value={formData.firstName} onChange={e=>setFormData({...formData,firstName:e.target.value})}/></div>
-                      <div><label className="label">Last Name</label><input type="text" className="input" value={formData.lastName} onChange={e=>setFormData({...formData,lastName:e.target.value})}/></div>
-                      <div><label className="label">Email</label><input type="email" className="input" value={formData.email} onChange={e=>setFormData({...formData,email:e.target.value})}/></div>
-                      <div><label className="label">Mobile</label><input type="text" className="input" value={formData.mobile} onChange={e=>setFormData({...formData,mobile:e.target.value})}/></div>
+                      <div><label className="label">First Name</label><input type="text" className="input" value={formData.firstName} disabled={Boolean(editingDeal)} onChange={e=>setFormData({...formData,firstName:e.target.value})}/></div>
+                      <div><label className="label">Last Name</label><input type="text" className="input" value={formData.lastName} disabled={Boolean(editingDeal)} onChange={e=>setFormData({...formData,lastName:e.target.value})}/></div>
+                      <div><label className="label">Email</label><input type="email" className="input" value={formData.email} disabled={Boolean(editingDeal)} onChange={e=>setFormData({...formData,email:e.target.value})}/></div>
+                      <div><label className="label">Mobile</label><input type="text" className="input" value={formData.mobile} disabled={Boolean(editingDeal)} onChange={e=>setFormData({...formData,mobile:e.target.value})}/></div>
                     </div>
                   </div>
                 </form>
                 <div style={{ display:'flex', justifyContent:'flex-end', gap:8, padding:'12px 20px', borderTop:'1px solid var(--color-border)' }}>
-                  <button type="button" onClick={()=>setIsCreateOpen(false)} className="btn btn-ghost">Discard</button>
-                  <button type="submit" form="deal-form" disabled={isSaving} className="btn btn-primary">{isSaving?'Creating...':'Create Deal'}</button>
+                  <button type="button" onClick={closeDealModal} className="btn btn-ghost">Discard</button>
+                  <button type="submit" form="deal-form" disabled={isSaving} className="btn btn-primary">{isSaving ? (editingDeal ? 'Saving...' : 'Creating...') : (editingDeal ? 'Save Deal' : 'Create Deal')}</button>
                 </div>
               </motion.div>
             </motion.div>

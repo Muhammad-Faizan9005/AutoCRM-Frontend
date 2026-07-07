@@ -27,6 +27,7 @@ const getId = (item) => String(item?.id || item?.run_id || item?.external_run_id
 const asArray = (value) => (Array.isArray(value) ? value : []);
 const shortId = (value) => String(value || '').slice(0, 8) || 'n/a';
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : 'n/a');
+const RUNS_PAGE_SIZE = 25;
 
 const statusTone = (status = '') => {
   const normalized = status.toLowerCase();
@@ -221,6 +222,8 @@ const AIControlCenter = ({ currentUser }) => {
   const [selectedRun, setSelectedRun] = useState(null);
   const [selectedApproval, setSelectedApproval] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [runsLoadingMore, setRunsLoadingMore] = useState(false);
+  const [runsPagination, setRunsPagination] = useState({ page: 1, limit: RUNS_PAGE_SIZE, has_more: false });
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState('');
   const [agentToggleBusy, setAgentToggleBusy] = useState('');
@@ -229,20 +232,31 @@ const AIControlCenter = ({ currentUser }) => {
   const [taskDueAt, setTaskDueAt] = useState('');
   const developerModeEnabled = isAdminUser(currentUser) && Boolean(currentUser?.developer_mode);
 
-  const loadControlCenter = useCallback(async () => {
-    setLoading(true);
+  const loadControlCenter = useCallback(async ({ page = 1, append = false } = {}) => {
+    if (append) {
+      setRunsLoadingMore(true);
+    } else {
+      setLoading(true);
+    }
     setError('');
     try {
-      const snapshot = await getControlCenterSnapshot();
+      const snapshot = await getControlCenterSnapshot({ runsPage: page, runsLimit: RUNS_PAGE_SIZE });
       const nextRuns = asArray(snapshot?.runs);
-      setRuns(nextRuns);
+      setRuns((currentRuns) => {
+        if (!append) return nextRuns;
+        const byId = new Map(currentRuns.map((run) => [getId(run), run]));
+        nextRuns.forEach((run) => byId.set(getId(run), run));
+        return Array.from(byId.values());
+      });
       setApprovals(asArray(snapshot?.approvals));
       setAiAgents(asArray(snapshot?.ai_agents));
+      setRunsPagination(snapshot?.runs_pagination || { page, limit: RUNS_PAGE_SIZE, has_more: false });
       setSelectedRun((current) => current || nextRuns[0] || null);
     } catch (err) {
       setError(err?.message || 'Unable to load AI control center.');
     } finally {
       setLoading(false);
+      setRunsLoadingMore(false);
     }
   }, []);
 
@@ -253,26 +267,24 @@ const AIControlCenter = ({ currentUser }) => {
   useEffect(() => {
     let active = true;
     const loadDetails = async () => {
-      if (!selectedRun?.id) {
+      const selectedRunId = getId(selectedRun);
+      if (!selectedRunId) {
         setTrace([]);
         setMemory([]);
         return;
       }
       setDetailLoading(true);
+      const tracePromise = getAgentRunTrace(selectedRunId);
+      const memoryPromise = selectedRun.entity_type && selectedRun.entity_id
+        ? getAgentMemory(selectedRun.entity_type, selectedRun.entity_id)
+        : Promise.resolve([]);
       try {
-        const [traceData, memoryData] = await Promise.all([
-          getAgentRunTrace(selectedRun.id),
-          selectedRun.entity_type && selectedRun.entity_id
-            ? getAgentMemory(selectedRun.entity_type, selectedRun.entity_id)
-            : Promise.resolve([]),
-        ]);
+        const [traceResult, memoryResult] = await Promise.allSettled([tracePromise, memoryPromise]);
         if (!active) return;
-        setTrace(asArray(traceData));
-        setMemory(asArray(memoryData));
-      } catch {
-        if (active) {
-          setTrace([]);
-          setMemory([]);
+        setTrace(traceResult.status === 'fulfilled' ? asArray(traceResult.value) : []);
+        setMemory(memoryResult.status === 'fulfilled' ? asArray(memoryResult.value) : []);
+        if (traceResult.status === 'rejected') {
+          setError(traceResult.reason?.message || 'Unable to load run trace.');
         }
       } finally {
         if (active) setDetailLoading(false);
@@ -357,7 +369,7 @@ const AIControlCenter = ({ currentUser }) => {
                 Inspect agent runs, approval gates, action history, and the context used before the system writes back to CRM.
               </p>
             </div>
-            <button type="button" className="btn btn-secondary" onClick={loadControlCenter} disabled={loading}>
+            <button type="button" className="btn btn-secondary" onClick={() => loadControlCenter()} disabled={loading}>
               {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
               Refresh
             </button>
@@ -455,7 +467,7 @@ const AIControlCenter = ({ currentUser }) => {
           <section className="card card-padding" style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 className="section-title">Agent Runs</h2>
-              <Pill>{runs.length} total</Pill>
+              <Pill>{runs.length} loaded</Pill>
             </div>
             {loading ? (
               <EmptyState><Loader2 size={16} className="animate-spin" />&nbsp;Loading runs...</EmptyState>
@@ -464,7 +476,7 @@ const AIControlCenter = ({ currentUser }) => {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
                 {runs.map((run) => {
-                  const active = selectedRun?.id === run.id;
+                  const active = getId(selectedRun) === getId(run);
                   return (
                     <button
                       type="button"
@@ -500,6 +512,18 @@ const AIControlCenter = ({ currentUser }) => {
                     </button>
                   );
                 })}
+                {runsPagination.has_more && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ justifyContent: 'center', minHeight: 38 }}
+                    disabled={runsLoadingMore}
+                    onClick={() => loadControlCenter({ page: runsPagination.page + 1, append: true })}
+                  >
+                    {runsLoadingMore ? <Loader2 size={15} className="animate-spin" /> : <FileClock size={15} />}
+                    Load more runs
+                  </button>
+                )}
               </div>
             )}
           </section>

@@ -26,6 +26,11 @@ export async function listAdminUsers({ search, page = 1, pageSize = DEFAULT_PAGE
   };
 }
 
+export async function listDealAssignmentOwners() {
+  const data = await apiFetch('/api/deals/assignment-owners', {}, { cache: false });
+  return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+}
+
 export async function createAdminUser(payload) {
   return apiFetch('/api/admin/users', {
     method: 'POST',

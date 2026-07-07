@@ -31,7 +31,7 @@ const ImportData = () => {
     formData.append('file', file);
     setIsSubmitting(true);
     try {
-      const data = await apiFetch(`/api/import/${entity}`, { method: 'POST', body: formData }, { timeoutMs: 2000000000 });
+      const data = await apiFetch(`/api/import/${entity}`, { method: 'POST', body: formData }, { timeoutMs: 60000 });
       setResult(data);
     } catch (err) { setError(err?.message || 'Import failed.'); }
     finally { setIsSubmitting(false); }

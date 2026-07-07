@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 
 const ThemeContext = createContext({ theme: 'light', setTheme: () => {} });
 
@@ -27,16 +27,34 @@ export function ThemeProvider({ children, defaultTheme = 'light' }) {
     }
   }, []);
 
-  const setTheme = (newTheme) => {
-    setThemeState(newTheme);
-  };
+  const setTheme = useCallback((newTheme, options = {}) => {
+    const normalizedTheme = newTheme === 'dark' ? 'dark' : 'light';
+    setThemeState(normalizedTheme);
+    if (options.persist !== false && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('autocrm-theme-changed', {
+        detail: { theme: normalizedTheme },
+      }));
+    }
+  }, []);
 
-  const toggleTheme = () => {
-    setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
-  };
+  const applyTheme = useCallback((newTheme) => {
+    setThemeState(newTheme);
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setThemeState((prev) => {
+      const nextTheme = prev === 'dark' ? 'light' : 'dark';
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('autocrm-theme-changed', {
+          detail: { theme: nextTheme },
+        }));
+      }
+      return nextTheme;
+    });
+  }, []);
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, applyTheme, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );

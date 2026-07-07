@@ -8,6 +8,7 @@ import { EntityCard } from '../components/EntityCard';
 import AIInsights from '../components/AIInsights';
 import { SkeletonDealDetail } from '../components/Skeleton';
 import { toast } from '../utils/toast';
+import { listDealAssignmentOwners } from '../admin/adminApi';
 
 const TABS = [
   { id: 'activity', label: 'Activity' },
@@ -109,6 +110,8 @@ const DealDetail = ({ user }) => {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [isSavingDeal, setIsSavingDeal] = useState(false);
+  const [ownerOptions, setOwnerOptions] = useState([]);
+  const [ownersLoading, setOwnersLoading] = useState(false);
   const [callModalOpen, setCallModalOpen] = useState(false);
   const [callSession, setCallSession] = useState(null);
   const [inviteUrl, setInviteUrl] = useState('');
@@ -121,6 +124,7 @@ const DealDetail = ({ user }) => {
     currency: 'USD',
     status: 'qualification',
     dealType: 'new_business',
+    ownerId: '',
     expectedClose: '',
     closedAt: '',
     lostReason: '',
@@ -159,6 +163,9 @@ const DealDetail = ({ user }) => {
   const attachments = workspace?.attachments || [];
 
   const dealName = organization.name || deal.lead_company || lead.company || lead.name || 'Deal';
+  const getAssignableDealOwnerId = (ownerId) => (
+    ownerOptions.some((option) => String(option.id) === String(ownerId || '')) ? ownerId : ''
+  );
 
   const openEditDeal = () => {
     setDealForm({
@@ -166,12 +173,36 @@ const DealDetail = ({ user }) => {
       currency: deal.currency || 'USD',
       status: normalizeKey(deal.status || deal.stage || 'qualification'),
       dealType: normalizeKey(deal.deal_type || 'new_business'),
+      ownerId: deal.owner_id || '',
       expectedClose: toDateInputValue(deal.expected_close_at),
       closedAt: toDateInputValue(deal.closed_at),
       lostReason: deal.lost_reason || '',
     });
     setEditModalOpen(true);
   };
+
+  useEffect(() => {
+    if (!editModalOpen || !isManager) return;
+    let mounted = true;
+
+    const loadOwners = async () => {
+      setOwnersLoading(true);
+      try {
+        const owners = await listDealAssignmentOwners();
+        if (mounted) setOwnerOptions(owners);
+      } catch (err) {
+        if (mounted) {
+          setOwnerOptions([]);
+          toast.error(err?.message || 'Unable to load deal owners.');
+        }
+      } finally {
+        if (mounted) setOwnersLoading(false);
+      }
+    };
+
+    loadOwners();
+    return () => { mounted = false; };
+  }, [editModalOpen, isManager]);
 
   const activityItems = useMemo(() => {
     const items = [];
@@ -273,6 +304,7 @@ const DealDetail = ({ user }) => {
         status,
         stage: status,
         deal_type: normalizeKey(dealForm.dealType || 'new_business'),
+        owner_id: getAssignableDealOwnerId(dealForm.ownerId) || undefined,
         expected_close_at: toApiDateTime(dealForm.expectedClose),
         closed_at: toApiDateTime(dealForm.closedAt),
         lost_reason: dealForm.lostReason.trim() || undefined,
@@ -426,7 +458,6 @@ const DealDetail = ({ user }) => {
               eyebrow="AI Risk Watcher"
               emptyTitle="No AI risk analysis yet"
               emptyDescription="Deal risk recommendations will appear here after the risk watcher runs."
-              limit={4}
               collapsible
             />
 
@@ -674,6 +705,22 @@ const DealDetail = ({ user }) => {
                       {DEAL_TYPE_ORDER.map((type) => <option key={type} value={type}>{DEAL_TYPE_LABELS[type]}</option>)}
                     </select>
                   </div>
+                </div>
+                <div>
+                  <label className="label">Deal owner</label>
+                  <select
+                    className="input"
+                    value={getAssignableDealOwnerId(dealForm.ownerId)}
+                    onChange={(event) => setDealForm((prev) => ({ ...prev, ownerId: event.target.value }))}
+                    disabled={ownersLoading}
+                  >
+                    <option value="">{ownersLoading ? 'Loading owners...' : 'Unassigned to team'}</option>
+                    {ownerOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.full_name || option.email} ({option.role})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
