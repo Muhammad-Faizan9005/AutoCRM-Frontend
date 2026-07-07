@@ -39,9 +39,9 @@ const AdminLayout = ({ user, onLogout, permissions, onUserUpdate }) => {
   const canImport = permissions?.import_data === true;
   const canControlAI = permissions?.admin_panel === true || permissions?.admin_users === true;
 
-  // Managers land on their team page; admins land on users
-  const firstAllowedPath = managerUser && canManageUsers
-    ? '/admin/team'
+  // Admins and managers land on the console dashboard.
+  const firstAllowedPath = (adminUser || managerUser) && canManageUsers
+    ? '/admin'
     : canManageUsers
       ? '/admin/users'
       : canManagePermissions
@@ -52,7 +52,7 @@ const AdminLayout = ({ user, onLogout, permissions, onUserUpdate }) => {
             ? '/admin'
             : '/';
 
-  const showDashboard = adminUser;
+  const showDashboard = adminUser || (managerUser && canManageUsers);
 
   return (
     <div className="admin-shell">

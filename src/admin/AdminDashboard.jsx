@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowUpRight, Clock, FileSpreadsheet, ShieldCheck, Users } from 'lucide-react';
+import { Activity, ArrowUpRight, Briefcase, Clock, DollarSign, ShieldCheck, Target, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { getAdminOverview } from './adminApi';
@@ -8,13 +8,57 @@ import { CountUp } from '../components/CountUp';
 import { SkeletonDashboard } from '../components/Skeleton';
 
 const ICON_BY_LABEL = {
+  'Open Pipeline': DollarSign,
+  'Won Revenue': Target,
+  'New Leads': Activity,
+  'Overdue Tasks': Clock,
   'Active Operators': Users,
-  'Permissions Changed': ShieldCheck,
-  'Data Imports': FileSpreadsheet,
+  'Unassigned Records': Briefcase,
 };
 
 const getErrorMessage = (error, fallback) => error?.message || error?.data?.detail || fallback;
-const EMPTY = { highlights: [], coverage: [], watchlist: [], queues: [], activity: [] };
+const EMPTY = { highlights: [], coverage: [], sources: [], watchlist: [], queues: [], team_performance: [], activity: [] };
+
+const getNumericValue = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const MetricValue = ({ value }) => {
+  const numeric = getNumericValue(value);
+  if (numeric === null) return <>{value || '0'}</>;
+  return <CountUp value={numeric} />;
+};
+
+const ProgressList = ({ title, subtitle, items, emptyText }) => (
+  <div className="card card-padding">
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 12 }}>
+      <h3 className="section-title">{title}</h3>
+      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', textAlign: 'right' }}>{subtitle}</span>
+    </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {items.map(item => (
+        <div key={item.label}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)', marginBottom: 6, gap: 12 }}>
+            <span>{item.label}</span>
+            <span style={{ color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}>
+              {item.value || `${item.percent}%`}{item.meta ? ` - ${item.meta}` : ''}
+            </span>
+          </div>
+          <div style={{ height: 6, borderRadius: 999, background: 'var(--color-bg-hover)' }}>
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.max(0, Math.min(100, Number(item.percent) || 0))}%` }}
+              transition={{ duration: 0.6, ease: 'easeOut' }}
+              style={{ height: '100%', borderRadius: 999, background: 'var(--color-accent)' }}
+            />
+          </div>
+        </div>
+      ))}
+      {items.length === 0 && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>{emptyText}</p>}
+    </div>
+  </div>
+);
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -31,8 +75,10 @@ const AdminDashboard = () => {
         if (mounted) setOverview({
           highlights: Array.isArray(data?.highlights) ? data.highlights : [],
           coverage: Array.isArray(data?.coverage) ? data.coverage : [],
+          sources: Array.isArray(data?.sources) ? data.sources : [],
           watchlist: Array.isArray(data?.watchlist) ? data.watchlist : [],
           queues: Array.isArray(data?.queues) ? data.queues : [],
+          team_performance: Array.isArray(data?.team_performance) ? data.team_performance : [],
           activity: Array.isArray(data?.activity) ? data.activity : [],
         });
       } catch (e) { if (mounted) { setError(getErrorMessage(e, 'Failed to load overview.')); setOverview(EMPTY); } }
@@ -54,10 +100,10 @@ const AdminDashboard = () => {
         <motion.div className="card" style={{ padding: '28px 32px' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
             <div>
-              <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>Mission Control</div>
-              <h1 className="page-title">Live governance radar</h1>
+              <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>CRM Command Center</div>
+              <h1 className="page-title">Live revenue operations</h1>
               <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 6, maxWidth: 500 }}>
-                Track how access, data, and workflows are evolving without relying on the sales dashboard visuals.
+                Track pipeline, team motion, overdue work, and data quality from the records your CRM is already collecting.
               </p>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -74,7 +120,7 @@ const AdminDashboard = () => {
         ) : (
           <>
             {/* KPI Cards */}
-            <motion.div variants={staggerContainer} initial="initial" animate="animate" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+            <motion.div variants={staggerContainer} initial="initial" animate="animate" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 16 }}>
               {overview.highlights.map((item) => {
                 const Icon = ICON_BY_LABEL[item.label] || Activity;
                 return (
@@ -86,7 +132,7 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                     <div style={{ fontSize: 'var(--text-3xl)', fontWeight: 'var(--weight-bold)', fontFamily: 'var(--font-display)', marginTop: 8 }}>
-                      <CountUp value={typeof item.value === 'number' ? item.value : 0} />
+                      <MetricValue value={item.value} />
                     </div>
                     <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: 4 }}>{item.meta}</div>
                   </motion.div>
@@ -99,43 +145,34 @@ const AdminDashboard = () => {
               )}
             </motion.div>
 
-            {/* Coverage + Watchlist */}
+            {/* Pipeline + Sources */}
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
-              <div className="card card-padding">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                  <h3 className="section-title">Access coverage</h3>
-                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Relative module activity</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {overview.coverage.map(item => (
-                    <div key={item.label}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)', marginBottom: 6 }}>
-                        <span>{item.label}</span>
-                        <span style={{ color: 'var(--color-text-tertiary)' }}>{item.percent}%</span>
-                      </div>
-                      <div style={{ height: 6, borderRadius: 999, background: 'var(--color-bg-hover)' }}>
-                        <motion.div
-                          initial={{ width: 0 }}
-                          animate={{ width: `${item.percent}%` }}
-                          transition={{ duration: 0.6, ease: 'easeOut' }}
-                          style={{ height: '100%', borderRadius: 999, background: 'var(--color-accent)' }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                  {overview.coverage.length === 0 && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>No coverage metrics yet.</p>}
-                </div>
-              </div>
+              <ProgressList
+                title="Deal stages"
+                subtitle="Count and value by stage"
+                items={overview.coverage}
+                emptyText="No deal stage metrics yet."
+              />
 
+              <ProgressList
+                title="Lead sources"
+                subtitle="Top acquisition channels"
+                items={overview.sources}
+                emptyText="No lead source metrics yet."
+              />
+            </div>
+
+            {/* Watchlist + Team performance */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div className="card card-padding">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginBottom: 14 }}>
-                  <Activity size={16} /> Risk watchlist
+                  <ShieldCheck size={16} /> CRM watchlist
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {overview.watchlist.map(item => (
                     <div key={item.title} style={{ display: 'flex', gap: 10 }}>
                       <div style={{ width: 36, height: 36, borderRadius: 'var(--radius)', background: 'var(--color-danger-subtle)', color: 'var(--color-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <ShieldCheck size={16} />
+                        <Activity size={16} />
                       </div>
                       <div>
                         <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-semibold)' }}>{item.title}</div>
@@ -144,6 +181,25 @@ const AdminDashboard = () => {
                     </div>
                   ))}
                   {overview.watchlist.length === 0 && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>No alerts.</p>}
+                </div>
+              </div>
+
+              <div className="card card-padding">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <h3 className="section-title">Team performance</h3>
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Pipeline performance</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {overview.team_performance.map(item => (
+                    <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--color-border)' }}>
+                      <div>
+                        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-medium)' }}>{item.label}</div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{item.meta}</div>
+                      </div>
+                      <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-semibold)', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>{item.value}</div>
+                    </div>
+                  ))}
+                  {overview.team_performance.length === 0 && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>No team performance yet.</p>}
                 </div>
               </div>
             </div>

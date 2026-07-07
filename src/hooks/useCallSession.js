@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { logger } from '../utils/logger';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -113,29 +114,46 @@ export const useCallSession = () => {
       wsRef.current = ws;
 
       ws.onmessage = async (event) => {
-        const message = JSON.parse(event.data || '{}');
-        if (message.type === 'recording') {
-          setRecordingActive(Boolean(message.active));
-          return;
-        }
-        if (message.type === 'ready' && callerRef.current) {
-          const offer = await peer.createOffer();
-          await peer.setLocalDescription(offer);
-          ws.send(JSON.stringify({ type: 'offer', sdp: offer }));
-        }
-        if (message.type === 'offer') {
-          await peer.setRemoteDescription(new RTCSessionDescription(message.sdp));
-          const answer = await peer.createAnswer();
-          await peer.setLocalDescription(answer);
-          ws.send(JSON.stringify({ type: 'answer', sdp: answer }));
-        }
-        if (message.type === 'answer') {
-          await peer.setRemoteDescription(new RTCSessionDescription(message.sdp));
-        }
-        if (message.type === 'ice' && message.candidate) {
-          await peer.addIceCandidate(new RTCIceCandidate(message.candidate));
-        }
-        if (message.type === 'end') {
+        try {
+          const message = JSON.parse(event.data || '{}');
+          if (!message || typeof message !== 'object' || typeof message.type !== 'string') {
+            logger.warn('call.ws.malformed_message', { data: typeof event.data });
+            return;
+          }
+
+          if (message.type === 'recording') {
+            setRecordingActive(Boolean(message.active));
+          } else if (message.type === 'ready' && callerRef.current) {
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+            ws.send(JSON.stringify({ type: 'offer', sdp: offer }));
+          } else if (message.type === 'offer') {
+            if (typeof message.sdp !== 'string' && typeof message.sdp !== 'object') {
+              logger.warn('call.ws.invalid_offer');
+              return;
+            }
+            await peer.setRemoteDescription(new RTCSessionDescription(message.sdp));
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+            ws.send(JSON.stringify({ type: 'answer', sdp: answer }));
+          } else if (message.type === 'answer') {
+            if (typeof message.sdp !== 'string' && typeof message.sdp !== 'object') {
+              logger.warn('call.ws.invalid_answer');
+              return;
+            }
+            await peer.setRemoteDescription(new RTCSessionDescription(message.sdp));
+          } else if (message.type === 'ice') {
+            if (!message.candidate || typeof message.candidate !== 'object') {
+              logger.warn('call.ws.invalid_ice');
+              return;
+            }
+            await peer.addIceCandidate(new RTCIceCandidate(message.candidate));
+          } else if (message.type === 'end') {
+            cleanup();
+          }
+        } catch (err) {
+          logger.error('call.ws.onmessage_error', { message: err?.message });
+          setError('Call signaling error.');
           cleanup();
         }
       };

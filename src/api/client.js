@@ -1,14 +1,16 @@
 import { logger } from "../utils/logger";
+import { toast } from "../utils/toast";
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-const ACCESS_TOKEN_KEY = "access_token";
-const REFRESH_TOKEN_KEY = "refresh_token";
-const DEFAULT_TIMEOUT_MS = 0;
+const CSRF_TOKEN_COOKIE = "csrf_token";
+const CSRF_HEADER = "X-CSRF-Token";
+const DEFAULT_TIMEOUT_MS = 15000;
 const AUTH_REFRESH_TIMEOUT_MS = 15000;
 const DEFAULT_CACHE_TTL_MS = 120000;
 const MAX_CACHE_ENTRIES = 250;
 const MAX_IN_FLIGHT_REQUESTS = 100;
+const STALE_DATA_EVENT = "autocrm-stale-data";
 
 const CACHEABLE_PREFIXES = [
   "/api/leads/",
@@ -33,30 +35,26 @@ const CACHE_TTL_BY_PREFIX = {
 const memoryCache = new Map();
 const inFlightRequests = new Map();
 
-export function getAccessToken() {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
-}
+let cacheUserScope = "anonymous";
 
-export function getRefreshToken() {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
-}
-
-export function setTokens({ accessToken, refreshToken }) {
+// Called on successful /me (login/bootstrap) and on logout, so cached data
+// from one identity is never served to another identity in the same tab.
+export function setCacheUserScope(userId) {
+  const nextScope = userId ? String(userId) : "anonymous";
+  if (nextScope === cacheUserScope) {
+    return;
+  }
+  cacheUserScope = nextScope;
   memoryCache.clear();
   inFlightRequests.clear();
-  if (accessToken) {
-    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-  }
-  if (refreshToken) {
-    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-  }
 }
 
-export function clearTokens() {
-  memoryCache.clear();
-  inFlightRequests.clear();
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
+function getCsrfToken() {
+  if (typeof document === "undefined") {
+    return "";
+  }
+  const match = document.cookie.match(new RegExp(`(?:^|; )${CSRF_TOKEN_COOKIE}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : "";
 }
 
 function isJsonResponse(response) {
@@ -95,9 +93,8 @@ function getCacheablePrefix(path) {
   return CACHEABLE_PREFIXES.find((prefix) => cleanPath.startsWith(prefix)) || null;
 }
 
-function getCacheKey(method, path, authToken = "") {
-  const tokenScope = authToken ? authToken.slice(-16) : "anonymous";
-  return `${tokenScope}:${method}:${path}`;
+function getCacheKey(method, path) {
+  return `${cacheUserScope}:${method}:${path}`;
 }
 
 function getCacheTtlMs(prefix, overrideTtlMs) {
@@ -250,55 +247,37 @@ async function parseResponseBody(response) {
 }
 
 async function refreshAccessToken() {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) {
-    return false;
-  }
   try {
     const response = await fetchWithTimeout(
       `${API_BASE}/api/auth/refresh`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refreshToken }),
+        headers: { "Content-Type": "application/json", [CSRF_HEADER]: getCsrfToken() },
+        credentials: "include",
       },
       AUTH_REFRESH_TIMEOUT_MS
     );
 
     if (!response.ok) {
       logger.warn("auth.refresh.failed", { status: response.status });
-      clearTokens();
+      setCacheUserScope(null);
       return false;
     }
-
-    const data = await response.json();
-    if (!data?.access_token || !data?.refresh_token) {
-      logger.warn("auth.refresh.invalid_response");
-      clearTokens();
-      return false;
-    }
-
-    setTokens({
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-    });
 
     return true;
   } catch (error) {
     logger.error("auth.refresh.error", { message: error?.message });
-    clearTokens();
+    setCacheUserScope(null);
     return false;
   }
 }
 
-export function peekCache(path, options = {}) {
-  const { skipAuth = false } = options;
+export function peekCache(path) {
   const cachePrefix = getCacheablePrefix(path);
   if (!cachePrefix) {
     return { hit: false, value: null };
   }
-  const accessToken = skipAuth ? "" : getAccessToken();
-  const cacheKey = getCacheKey("GET", path, accessToken);
+  const cacheKey = getCacheKey("GET", path);
   return getCachedEntry(cacheKey);
 }
 
@@ -323,18 +302,21 @@ export async function apiFetch(path, init = {}, options = {}) {
   const method = (init.method || "GET").toUpperCase();
   const cachePrefix = getCacheablePrefix(path);
   const shouldCache = cache && method === "GET" && cachePrefix;
+  const isMutating = method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
 
   if (!isFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
-  const accessToken = skipAuth ? "" : getAccessToken();
-  if (!skipAuth && accessToken) {
-    headers.set("Authorization", `Bearer ${accessToken}`);
+  if (!skipAuth && isMutating) {
+    const csrfToken = getCsrfToken();
+    if (csrfToken) {
+      headers.set(CSRF_HEADER, csrfToken);
+    }
   }
 
   if (shouldCache) {
-    const cacheKey = getCacheKey(method, path, accessToken);
+    const cacheKey = getCacheKey(method, path);
     const cached = getCachedEntry(cacheKey);
     const inFlight = inFlightRequests.get(cacheKey);
     if (inFlight && !forceRefresh) {
@@ -349,8 +331,9 @@ export async function apiFetch(path, init = {}, options = {}) {
   const requestInit = {
     ...init,
     headers,
+    credentials: init.credentials || "include",
   };
-  const cacheKey = shouldCache ? getCacheKey(method, path, accessToken) : null;
+  const cacheKey = shouldCache ? getCacheKey(method, path) : null;
   const executeRequest = async () => {
     let response;
     try {
@@ -368,6 +351,10 @@ export async function apiFetch(path, init = {}, options = {}) {
             path,
             reason: error?.code || error?.message || "network_error",
           });
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent(STALE_DATA_EVENT, { detail: { path } }));
+          }
+          toast.info("Showing offline/outdated data — reconnecting…", { id: `stale:${path}` });
           return stale.value;
         }
       }
@@ -392,7 +379,7 @@ export async function apiFetch(path, init = {}, options = {}) {
     const data = await parseResponseBody(response);
     if (!response.ok) {
       if (!skipAuth && response.status === 401) {
-        clearTokens();
+        setCacheUserScope(null);
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("autocrm-logout"));
         }
@@ -411,7 +398,7 @@ export async function apiFetch(path, init = {}, options = {}) {
         "Request failed";
 
       if (!skipAuth && response.status === 403 && /inactive/i.test(message || "")) {
-        clearTokens();
+        setCacheUserScope(null);
         if (typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("autocrm-inactive", {

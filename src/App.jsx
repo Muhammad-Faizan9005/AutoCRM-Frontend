@@ -19,15 +19,37 @@ import Notes from './pages/Notes';
 import Tasks from './pages/Tasks';
 import ImportData from './pages/ImportData';
 import AdminLayout from './admin/AdminLayout';
-import { API_BASE, apiFetch, clearTokens, getAccessToken, getRefreshToken } from './api/client';
+import { API_BASE, apiFetch, setCacheUserScope } from './api/client';
 import { getPermissionsForUser } from './admin/permissionsStore';
 import { logger } from './utils/logger';
 import { LoadingScreen } from './components/LoadingScreen';
+import { useTheme } from './hooks/useTheme';
 
-const USER_PROFILE_KEY = 'user_profile';
 const LOGOUT_ANIMATION_MS = 1200;
 const LOGOUT_ROUTE_SETTLE_MS = 300;
 const LOGIN_LOADER_MS = 5000;
+
+const isConsoleLandingUser = (user) => {
+  if (!user) return false;
+  if (user.is_admin || user.is_superuser) return true;
+  const role = (user.role || '').toString().toLowerCase().replace(/[-\s]+/g, '_');
+  return ['admin', 'administrator', 'system_manager', 'superuser', 'sales_manager', 'manager'].includes(role);
+};
+
+const getLandingPath = (user, userPermissions) => {
+  if (
+    isConsoleLandingUser(user) &&
+    (
+      userPermissions?.admin_panel === true ||
+      userPermissions?.admin_users === true ||
+      userPermissions?.admin_permissions === true ||
+      userPermissions?.import_data === true
+    )
+  ) {
+    return '/admin';
+  }
+  return '/';
+};
 
 const CRM_ROUTES = [
   { permission: 'dashboard', path: '/' },
@@ -108,6 +130,7 @@ const CrmShell = ({ user, permissions, onLogout, onUserUpdate }) => {
 };
 
 function App() {
+  const { applyTheme } = useTheme();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState(() => getPermissionsForUser(null));
@@ -118,49 +141,26 @@ function App() {
   const isSigningOutRef = useRef(false);
 
   const clearSession = () => {
-    clearTokens();
-    localStorage.removeItem(USER_PROFILE_KEY);
+    setCacheUserScope(null);
     setUser(null);
     setPermissions(getPermissionsForUser(null));
   };
 
-  // Check if user is already logged in
+  // Check if user is already logged in. The access token lives in an httpOnly
+  // cookie, so the only way to know is to ask the backend with a fresh /me call.
   useEffect(() => {
     let isMounted = true;
 
     const bootstrapSession = async () => {
-      const accessToken = getAccessToken();
-      const refreshToken = getRefreshToken();
-      const cachedProfile = localStorage.getItem(USER_PROFILE_KEY);
-      const cachedUser = cachedProfile ? JSON.parse(cachedProfile) : null;
-
-      if (!accessToken && !refreshToken) {
-        if (isMounted) {
-          setLoading(false);
-        }
-        return;
-      }
-
       try {
         const me = await apiFetch('/api/auth/me', {}, { timeoutMs: 3000 });
         if (isMounted) {
+          setCacheUserScope(me?.id);
           setUser(me);
           setPermissions(getPermissionsForUser(me));
-          localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(me));
         }
       } catch (error) {
-        const status = error?.status;
-
-        if (status === 401 || status === 403) {
-          if (isMounted) {
-            clearSession();
-          }
-        } else if (cachedUser) {
-          if (isMounted) {
-            setUser(cachedUser);
-            setPermissions(getPermissionsForUser(cachedUser));
-          }
-        } else if (isMounted) {
+        if (isMounted) {
           setUser(null);
         }
       } finally {
@@ -179,6 +179,32 @@ function App() {
 
   useEffect(() => {
     setPermissions(getPermissionsForUser(user));
+  }, [user]);
+
+  useEffect(() => {
+    const savedTheme = user?.settings?.theme;
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+      applyTheme(savedTheme);
+    }
+  }, [applyTheme, user?.settings?.theme]);
+
+  useEffect(() => {
+    const handleThemeChanged = async (event) => {
+      const nextTheme = event?.detail?.theme;
+      if (!user || (nextTheme !== 'light' && nextTheme !== 'dark')) return;
+      try {
+        const updatedUser = await apiFetch('/api/auth/profile', {
+          method: 'PATCH',
+          body: JSON.stringify({ settings: { theme: nextTheme } }),
+        }, { cache: false, timeoutMs: 10000 });
+        setUser((currentUser) => ({ ...(currentUser || {}), ...(updatedUser || {}) }));
+      } catch (error) {
+        logger.warn('profile.theme_save_failed', { message: error?.message });
+      }
+    };
+
+    window.addEventListener('autocrm-theme-changed', handleThemeChanged);
+    return () => window.removeEventListener('autocrm-theme-changed', handleThemeChanged);
   }, [user]);
 
   useEffect(() => {
@@ -202,7 +228,6 @@ function App() {
         };
         setUser(nextUser);
         setPermissions(getPermissionsForUser(nextUser));
-        localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(nextUser));
         return;
       }
 
@@ -282,9 +307,9 @@ function App() {
   }, []);
 
   const handleLogin = (userData) => {
+    setCacheUserScope(userData?.id);
     setUser(userData);
     setPermissions(getPermissionsForUser(userData));
-    localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(userData));
     setShowLoginLoader(true);
     if (loginLoaderTimerRef.current) {
       clearTimeout(loginLoaderTimerRef.current);
@@ -302,7 +327,6 @@ function App() {
         ...(updatedUser || {}),
       };
       setPermissions(getPermissionsForUser(nextUser));
-      localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(nextUser));
       return nextUser;
     });
   };
@@ -325,23 +349,22 @@ function App() {
     setShowLoginLoader(false);
     setIsLoggingOut(true);
 
-    const accessToken = getAccessToken();
-    const refreshToken = getRefreshToken();
     logger.info('auth.logout', { reason: 'user' });
 
-    if (refreshToken && accessToken) {
-      fetch(`${API_BASE}/api/auth/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-        keepalive: true,
-      }).catch((error) => {
-        logger.warn('auth.logout.request_failed', { message: error?.message });
-      });
-    }
+    const csrfMatch = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
+    const csrfToken = csrfMatch ? decodeURIComponent(csrfMatch[1]) : '';
+
+    fetch(`${API_BASE}/api/auth/logout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      credentials: 'include',
+      keepalive: true,
+    }).catch((error) => {
+      logger.warn('auth.logout.request_failed', { message: error?.message });
+    });
 
     window.setTimeout(() => {
       clearSession();
@@ -397,7 +420,7 @@ function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route
           path="/login"
-          element={user ? <Navigate to="/" replace /> : <Login onLogin={handleLogin} />}
+          element={user ? <Navigate to={getLandingPath(user, permissions)} replace /> : <Login onLogin={handleLogin} />}
         />
         <Route
           path="/admin/*"

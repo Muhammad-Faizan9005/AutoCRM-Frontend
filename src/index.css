@@ -507,10 +507,26 @@ textarea.input {
 }
 
 
+.filter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  position: relative;
+  flex-wrap: nowrap;
+}
+
+.filter-search {
+  position: relative;
+  flex: 0 0 clamp(230px, 26vw, 320px);
+  min-width: 220px;
+}
+
 .filter-group {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 4px;
   padding: 4px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -520,6 +536,7 @@ textarea.input {
 .filter-pill {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 8px;
   padding: 6px 10px;
   border-radius: 999px;
@@ -544,6 +561,59 @@ textarea.input {
 .filter-pill button:hover {
   background: var(--color-border-strong);
   color: var(--color-text-primary);
+}
+
+.filter-select {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 132px;
+  max-width: 180px;
+  height: 34px;
+  padding: 0 30px 0 10px;
+  font-size: var(--text-sm);
+}
+
+.filter-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.filter-menu summary {
+  list-style: none;
+}
+
+.filter-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.filter-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 80;
+  width: min(280px, calc(100vw - 32px));
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.filter-menu-panel-wide {
+  width: min(340px, calc(100vw - 32px));
+}
+
+@media (max-width: 720px) {
+  .filter-toolbar {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .filter-search {
+    flex-basis: 220px;
+  }
 }
 
 /* ─── MODAL OVERLAY ─── */
@@ -744,6 +814,14 @@ textarea.input {
 .ai-insights-list {
   display: grid;
   gap: 10px;
+}
+
+.ai-insights-panel-collapsible .ai-insights-list {
+  max-height: min(52vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .ai-insight-card {
@@ -1030,6 +1108,10 @@ textarea.input {
   .ai-insights-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .ai-insights-panel-collapsible .ai-insights-list {
+    max-height: 420px;
   }
 
   .deal-detail-hero,

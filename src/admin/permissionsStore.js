@@ -1,7 +1,3 @@
-import { getUserKey } from './adminStorage';
-
-const PERMISSIONS_STORAGE_KEY = 'autocrm_user_permissions';
-
 export const PERMISSION_GROUPS = [
   {
     label: 'CRM Core',
@@ -89,25 +85,6 @@ export const DEFAULT_PERMISSIONS = {
   admin_permissions: false,
 };
 
-const getStoredPermissions = () => {
-  const raw = localStorage.getItem(PERMISSIONS_STORAGE_KEY);
-  if (!raw) return {};
-
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-};
-
-const saveStoredPermissions = (permissionsByUser) => {
-  localStorage.setItem(
-    PERMISSIONS_STORAGE_KEY,
-    JSON.stringify(permissionsByUser || {}),
-  );
-};
-
 const isAdminUser = (user) => {
   if (!user) return false;
   if (user.is_admin || user.is_superuser) return true;
@@ -141,19 +118,5 @@ const applyDefaultPermissions = (user, storedPermissions) => {
 export const getPermissionsForUser = (user) => {
   if (!user) return { ...DEFAULT_PERMISSIONS };
 
-  if (user.permissions && typeof user.permissions === 'object') {
-    return applyDefaultPermissions(user, user.permissions);
-  }
-
-  const allPermissions = getStoredPermissions();
-  const userKey = getUserKey(user);
-  const stored = allPermissions[userKey];
-
-  return applyDefaultPermissions(user, stored);
-};
-
-export const setPermissionsForUser = (userKey, permissions) => {
-  const allPermissions = getStoredPermissions();
-  allPermissions[userKey] = { ...permissions };
-  saveStoredPermissions(allPermissions);
+  return applyDefaultPermissions(user, user.permissions);
 };

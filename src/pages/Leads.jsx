@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Search, LayoutList, Columns2, RotateCcw, Eye, Pencil, Trash2, MoreHorizontal, Download, X } from 'lucide-react';
+import { Plus, Search, LayoutList, Columns2, RotateCcw, Eye, Pencil, Trash2, MoreHorizontal, Download, X, SlidersHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
@@ -10,10 +10,19 @@ import { EmptyState } from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../utils/toast';
+import { useCloseFilterMenusOnOutside, useOutsideDismiss } from '../hooks/useOutsideDismiss';
 
 const STATUS_LABELS = { new: 'New', contacted: 'Contacted', nurture: 'Nurture', qualified: 'Qualified', unqualified: 'Unqualified', junk: 'Junk' };
 const STATUS_BADGE = { new: 'badge-muted', contacted: 'badge-accent', nurture: 'badge-success', qualified: 'badge-danger', unqualified: 'badge-purple', junk: 'badge-orange' };
 const STATUS_ORDER = ['new', 'contacted', 'nurture', 'qualified', 'unqualified', 'junk'];
+const STATUS_FILTERS = [{ id: 'all', label: 'All' }, ...STATUS_ORDER.map((status) => ({ id: status, label: STATUS_LABELS[status] }))];
+const CONTACT_FILTERS = [
+  { id: 'all', label: 'All contact' },
+  { id: 'email', label: 'Has email' },
+  { id: 'phone', label: 'Has phone' },
+  { id: 'complete', label: 'Email + phone' },
+  { id: 'missing', label: 'Missing contact' },
+];
 const MANUAL_LEAD_SOURCE = 'manual';
 const normalizeStatus = (status) => (status || '').toString().trim().toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_');
 const mapLeadStatus = (status) => {
@@ -39,6 +48,7 @@ const mapLeadToRow = (lead) => ({
   status: mapLeadStatus(lead.status),
   email: lead.email || '-',
   mobile: lead.phone || '-',
+  source: lead.source || 'unknown',
   modified: formatDate(lead.updated_at),
   ownerId: lead.owner_id || null,
 });
@@ -63,6 +73,10 @@ const Leads = ({ user }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [ownerFilter, setOwnerFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [contactFilter, setContactFilter] = useState('all');
   const [actionMenu, setActionMenu] = useState(null);
   const [selectedLeadIds, setSelectedLeadIds] = useState(() => new Set());
   const [teamReps, setTeamReps] = useState([]);
@@ -72,6 +86,8 @@ const Leads = ({ user }) => {
   const [draggingLeadId, setDraggingLeadId] = useState(null);
   const [dragOverStatus, setDragOverStatus] = useState(null);
   const [tbodyRef] = useAutoAnimate();
+  useCloseFilterMenusOnOutside();
+  useOutsideDismiss(Boolean(actionMenu), () => setActionMenu(null), [], ['[data-row-actions]']);
 
   const [formData, setFormData] = useState({
     salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'new'
@@ -168,11 +184,58 @@ const Leads = ({ user }) => {
     return () => { active = false; };
   }, [canAssignLead]);
 
+  const sourceOptions = useMemo(() => {
+    const values = Array.from(new Set(leads.map((lead) => String(lead.source || 'unknown').toLowerCase()).filter(Boolean)));
+    return values.sort();
+  }, [leads]);
+
+  const activeFilterLabels = useMemo(() => {
+    const labels = [];
+    if (statusFilter !== 'all') labels.push(STATUS_LABELS[statusFilter] || statusFilter);
+    if (ownerFilter !== 'all') {
+      if (ownerFilter === 'assigned') labels.push('Assigned');
+      else if (ownerFilter === 'unassigned') labels.push('Unassigned');
+      else if (ownerFilter === 'mine') labels.push('Mine');
+      else {
+        const ownerId = ownerFilter.replace('owner:', '');
+        const rep = teamReps.find((item) => String(item.id) === String(ownerId));
+        labels.push(rep?.full_name || rep?.email || 'Assigned rep');
+      }
+    }
+    if (sourceFilter !== 'all') labels.push(`Source: ${sourceFilter}`);
+    if (contactFilter !== 'all') labels.push(CONTACT_FILTERS.find((filter) => filter.id === contactFilter)?.label || contactFilter);
+    return labels;
+  }, [statusFilter, ownerFilter, sourceFilter, contactFilter, teamReps, user]);
+
+  const hasActiveFilters = activeFilterLabels.length > 0;
+  const secondaryFilterCount = [ownerFilter, sourceFilter, contactFilter].filter((value) => value !== 'all').length;
+
+  const clearFilters = () => {
+    setStatusFilter('all');
+    setOwnerFilter('all');
+    setSourceFilter('all');
+    setContactFilter('all');
+  };
+
   const filteredLeads = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    if (!term) return leads;
-    return leads.filter((lead) => [lead.name, lead.org, lead.email].some((v) => String(v).toLowerCase().includes(term)));
-  }, [leads, searchTerm]);
+    return leads.filter((lead) => {
+      const hasEmail = Boolean(lead.email && lead.email !== '-');
+      const hasPhone = Boolean(lead.mobile && lead.mobile !== '-');
+      if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
+      if (ownerFilter === 'assigned' && !lead.ownerId) return false;
+      if (ownerFilter === 'unassigned' && lead.ownerId) return false;
+      if (ownerFilter === 'mine' && String(lead.ownerId || '') !== String(user?.id || '')) return false;
+      if (ownerFilter.startsWith('owner:') && String(lead.ownerId || '') !== ownerFilter.replace('owner:', '')) return false;
+      if (sourceFilter !== 'all' && String(lead.source || 'unknown').toLowerCase() !== sourceFilter) return false;
+      if (contactFilter === 'email' && !hasEmail) return false;
+      if (contactFilter === 'phone' && !hasPhone) return false;
+      if (contactFilter === 'complete' && (!hasEmail || !hasPhone)) return false;
+      if (contactFilter === 'missing' && (hasEmail || hasPhone)) return false;
+      if (!term) return true;
+      return [lead.name, lead.org, lead.email, lead.mobile, lead.source].some((v) => String(v).toLowerCase().includes(term));
+    });
+  }, [leads, searchTerm, statusFilter, ownerFilter, sourceFilter, contactFilter, user]);
 
   const handleSaveLead = async (e) => {
     e?.preventDefault();
@@ -319,6 +382,10 @@ const Leads = ({ user }) => {
     return 'Assigned';
   };
 
+  const getAssignableLeadOwnerId = (ownerId) => (
+    teamReps.some((rep) => String(rep.id) === String(ownerId || '')) ? ownerId : ''
+  );
+
   const handleLeadStatusChange = async (leadId, nextStatus) => {
     const normalized = normalizeStatus(nextStatus) || 'new';
     const current = leads.find((lead) => String(lead.id) === String(leadId));
@@ -379,11 +446,11 @@ const Leads = ({ user }) => {
 
   const groupedLeads = useMemo(() => {
     const groups = STATUS_ORDER.reduce((acc, status) => {
-      acc[status] = leads.filter((lead) => lead.status === status);
+      acc[status] = filteredLeads.filter((lead) => lead.status === status);
       return acc;
     }, {});
     return groups;
-  }, [leads]);
+  }, [filteredLeads]);
 
   return (
     <PageTransition>
@@ -425,9 +492,52 @@ const Leads = ({ user }) => {
         </div>
 
         {/* SEARCH */}
-        <div style={{ position: 'relative', maxWidth: 320 }}>
-          <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-tertiary)' }} />
-          <input type="text" placeholder="Search leads..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        <div className="filter-toolbar">
+          <div className="filter-search">
+            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-tertiary)' }} />
+            <input type="text" placeholder="Search leads..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="filter-group">
+            {STATUS_FILTERS.map((filter) => (
+              <button key={filter.id} className={`btn btn-sm ${statusFilter === filter.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setStatusFilter(filter.id)} type="button">
+                {filter.label}
+              </button>
+            ))}
+          </div>
+          <details className="filter-menu">
+            <summary className={`btn btn-sm ${secondaryFilterCount > 0 ? 'btn-primary' : 'btn-secondary'}`}>
+              <SlidersHorizontal size={14} />
+              Filters{secondaryFilterCount > 0 ? ` (${secondaryFilterCount})` : ''}
+            </summary>
+            <div className="filter-menu-panel">
+              <div>
+                <label className="label">Owner</label>
+                <select className="input" value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} aria-label="Filter leads by owner">
+                  <option value="all">All owners</option>
+                  <option value="assigned">Assigned</option>
+                  <option value="unassigned">Unassigned</option>
+                  {user?.id && <option value="mine">Mine</option>}
+                  {teamReps.map((rep) => <option key={rep.id} value={`owner:${rep.id}`}>{rep.full_name || rep.email || 'Assigned rep'}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Source</label>
+                <select className="input" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} aria-label="Filter leads by source">
+                  <option value="all">All sources</option>
+                  {sourceOptions.map((source) => <option key={source} value={source}>{source}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Contact</label>
+                <select className="input" value={contactFilter} onChange={(e) => setContactFilter(e.target.value)} aria-label="Filter leads by contact info">
+                  {CONTACT_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{filter.label}</option>)}
+                </select>
+              </div>
+              {hasActiveFilters && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear filters</button>
+              )}
+            </div>
+          </details>
         </div>
 
 
@@ -481,11 +591,11 @@ const Leads = ({ user }) => {
                               <div>
                                 <select
                                   className="input"
-                                  value={l.ownerId || ''}
+                                  value={getAssignableLeadOwnerId(l.ownerId)}
                                   onChange={(e) => handleAssignLead(l.id, e.target.value)}
                                   style={{ minWidth: 170, height: 34, padding: '0 10px' }}
                                 >
-                                  <option value="">Unassigned</option>
+                                  <option value="">Unassigned to team</option>
                                   {teamReps.map((rep) => (
                                     <option key={rep.id} value={rep.id}>
                                       {rep.full_name || rep.email}
@@ -506,7 +616,7 @@ const Leads = ({ user }) => {
                           </td>
                           <td style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>{l.modified}</td>
                           <td style={{ textAlign: 'right' }}>
-                            <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <div data-row-actions style={{ position: 'relative', display: 'inline-block' }}>
                               <button
                                 className="btn btn-ghost btn-icon"
                                 onClick={() => setActionMenu(actionMenu === l.id ? null : l.id)}

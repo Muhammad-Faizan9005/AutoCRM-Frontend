@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { apiFetch, setTokens } from '../api/client';
+import { apiFetch } from '../api/client';
 import { logger } from '../utils/logger';
 
 export default function Login({ onLogin }) {
@@ -38,10 +38,6 @@ export default function Login({ onLogin }) {
         { skipAuth: true, retryOn401: false }
       );
 
-      setTokens({
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-      });
       onLogin(data.user);
       logger.info('auth.login.success');
     } catch (err) {

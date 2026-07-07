@@ -126,7 +126,7 @@ const Sidebar = ({ onLogout, user, permissions, onUserUpdate }) => {
   const adminHomePath = adminUser
     ? '/admin'
     : isManager && permissions?.admin_users === true
-      ? '/admin/team'
+      ? '/admin'
       : permissions?.admin_users === true
         ? '/admin/users'
         : permissions?.admin_permissions === true
@@ -136,8 +136,8 @@ const Sidebar = ({ onLogout, user, permissions, onUserUpdate }) => {
             : '/';
 
   const adminItems = [
-    ...(adminUser
-      ? [{ name: consoleLabel, icon: Shield, path: '/admin', permission: 'admin_panel' }]
+    ...(adminUser || (isManager && permissions?.admin_users === true)
+      ? [{ name: consoleLabel, icon: Shield, path: '/admin', permission: adminUser ? 'admin_panel' : 'admin_users' }]
       : []),
     { name: 'AI Control', icon: Bot, path: '/admin/ai', permission: 'ai_control' },
     { name: 'Users', icon: Users, path: '/admin/users', permission: 'admin_users' },

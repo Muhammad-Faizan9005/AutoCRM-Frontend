@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, RotateCcw, Pencil, Trash2, MoreHorizontal, Download, X } from 'lucide-react';
+import { Plus, Search, RotateCcw, Pencil, Trash2, MoreHorizontal, Download, X, SlidersHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import * as XLSX from 'xlsx';
@@ -9,9 +9,19 @@ import { EmptyState } from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../utils/toast';
+import { useCloseFilterMenusOnOutside, useOutsideDismiss } from '../hooks/useOutsideDismiss';
 
 const STATUS_BADGE = { active: 'badge-success', inactive: 'badge-muted', lead: 'badge-accent', churned: 'badge-danger' };
 const STATUS_LABEL = { active: 'Active', inactive: 'Inactive', lead: 'Lead', churned: 'Churned' };
+const STATUS_ORDER = ['active', 'inactive', 'lead', 'churned'];
+const STATUS_FILTERS = [{ id: 'all', label: 'All' }, ...STATUS_ORDER.map((status) => ({ id: status, label: STATUS_LABEL[status] }))];
+const CONTACT_FILTERS = [
+  { id: 'all', label: 'All contact' },
+  { id: 'email', label: 'Has email' },
+  { id: 'phone', label: 'Has phone' },
+  { id: 'complete', label: 'Email + phone' },
+  { id: 'missing', label: 'Missing contact' },
+];
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -25,7 +35,7 @@ const mapCustomerToContact = (customer) => ({
   email: customer.email,
   phone: customer.phone || '-',
   org: customer.company || '-',
-  status: customer.status || 'active',
+  status: String(customer.status || 'active').toLowerCase(),
   modified: formatDate(customer.updated_at),
   fullName: customer.full_name || customer.email,
 });
@@ -48,10 +58,15 @@ const Contacts = ({ user }) => {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [organizationFilter, setOrganizationFilter] = useState('all');
+  const [contactFilter, setContactFilter] = useState('all');
   const [actionMenu, setActionMenu] = useState(null);
   const [selectedContactIds, setSelectedContactIds] = useState(() => new Set());
   const latestRequestId = useRef(0);
   const [tbodyRef] = useAutoAnimate();
+  useCloseFilterMenusOnOutside();
+  useOutsideDismiss(Boolean(actionMenu), () => setActionMenu(null), [], ['[data-row-actions]']);
   const canDelete = user?.role === 'admin';
   const canEdit = user?.role === 'admin' || (user?.role || '').toLowerCase().includes('manager');
 
@@ -107,11 +122,43 @@ const Contacts = ({ user }) => {
 
   useEffect(() => { fetchContacts(0, false); }, [fetchContacts]);
 
+  const organizationOptions = useMemo(() => (
+    Array.from(new Set(contacts.map((contact) => contact.org).filter((org) => org && org !== '-'))).sort()
+  ), [contacts]);
+
+  const activeFilterLabels = useMemo(() => {
+    const labels = [];
+    if (statusFilter !== 'all') labels.push(STATUS_LABEL[statusFilter] || statusFilter);
+    if (organizationFilter !== 'all') labels.push(organizationFilter === '__none__' ? 'No organization' : organizationFilter);
+    if (contactFilter !== 'all') labels.push(CONTACT_FILTERS.find((filter) => filter.id === contactFilter)?.label || contactFilter);
+    return labels;
+  }, [statusFilter, organizationFilter, contactFilter]);
+
+  const hasActiveFilters = activeFilterLabels.length > 0;
+  const secondaryFilterCount = [organizationFilter, contactFilter].filter((value) => value !== 'all').length;
+
+  const clearFilters = () => {
+    setStatusFilter('all');
+    setOrganizationFilter('all');
+    setContactFilter('all');
+  };
+
   const filteredContacts = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    if (!term) return contacts;
-    return contacts.filter((c) => [c.email, c.org, c.phone, c.fullName].some((v) => String(v).toLowerCase().includes(term)));
-  }, [contacts, searchTerm]);
+    return contacts.filter((c) => {
+      const hasEmail = Boolean(c.email && c.email !== '-');
+      const hasPhone = Boolean(c.phone && c.phone !== '-');
+      if (statusFilter !== 'all' && c.status !== statusFilter) return false;
+      if (organizationFilter === '__none__' && c.org !== '-') return false;
+      if (organizationFilter !== 'all' && organizationFilter !== '__none__' && c.org !== organizationFilter) return false;
+      if (contactFilter === 'email' && !hasEmail) return false;
+      if (contactFilter === 'phone' && !hasPhone) return false;
+      if (contactFilter === 'complete' && (!hasEmail || !hasPhone)) return false;
+      if (contactFilter === 'missing' && (hasEmail || hasPhone)) return false;
+      if (!term) return true;
+      return [c.email, c.org, c.phone, c.fullName].some((v) => String(v).toLowerCase().includes(term));
+    });
+  }, [contacts, searchTerm, statusFilter, organizationFilter, contactFilter]);
 
 
   const visibleContactIds = useMemo(() => filteredContacts.map((contact) => String(contact.id)), [filteredContacts]);
@@ -216,9 +263,43 @@ const Contacts = ({ user }) => {
           </div>
         </div>
 
-        <div style={{ position: 'relative', maxWidth: 320 }}>
-          <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-tertiary)' }} />
-          <input type="text" placeholder="Search contacts..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        <div className="filter-toolbar">
+          <div className="filter-search">
+            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-tertiary)' }} />
+            <input type="text" placeholder="Search contacts..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="filter-group">
+            {STATUS_FILTERS.map((filter) => (
+              <button key={filter.id} className={`btn btn-sm ${statusFilter === filter.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setStatusFilter(filter.id)} type="button">
+                {filter.label}
+              </button>
+            ))}
+          </div>
+          <details className="filter-menu">
+            <summary className={`btn btn-sm ${secondaryFilterCount > 0 ? 'btn-primary' : 'btn-secondary'}`}>
+              <SlidersHorizontal size={14} />
+              Filters{secondaryFilterCount > 0 ? ` (${secondaryFilterCount})` : ''}
+            </summary>
+            <div className="filter-menu-panel">
+              <div>
+                <label className="label">Organization</label>
+                <select className="input" value={organizationFilter} onChange={(e) => setOrganizationFilter(e.target.value)} aria-label="Filter contacts by organization">
+                  <option value="all">All organizations</option>
+                  <option value="__none__">No organization</option>
+                  {organizationOptions.map((organization) => <option key={organization} value={organization}>{organization}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Contact</label>
+                <select className="input" value={contactFilter} onChange={(e) => setContactFilter(e.target.value)} aria-label="Filter contacts by contact info">
+                  {CONTACT_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{filter.label}</option>)}
+                </select>
+              </div>
+              {hasActiveFilters && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear filters</button>
+              )}
+            </div>
+          </details>
         </div>
 
         {error && (
@@ -262,7 +343,7 @@ const Contacts = ({ user }) => {
                       <td style={{ color: 'var(--color-text-secondary)' }}>{c.phone}</td>
                       <td style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-sm)' }}>{c.modified}</td>
                       <td style={{ textAlign: 'right' }}>
-                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                        <div data-row-actions style={{ position: 'relative', display: 'inline-block' }}>
                           <button className="btn btn-ghost btn-icon" onClick={() => setActionMenu(actionMenu === c.id ? null : c.id)} aria-label="Row actions"><MoreHorizontal size={14} /></button>
                           {actionMenu === c.id && (
                             <div className="dropdown-menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)' }}>

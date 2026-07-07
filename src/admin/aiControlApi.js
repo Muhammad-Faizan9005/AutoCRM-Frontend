@@ -1,7 +1,11 @@
 import { apiFetch } from '../api/client';
 
-export async function getControlCenterSnapshot() {
-  return apiFetch('/api/agent/control-center', {}, { cache: false, timeoutMs: 45000 });
+export async function getControlCenterSnapshot(params = {}) {
+  const search = new URLSearchParams();
+  if (params.runsPage) search.set('runs_page', params.runsPage);
+  if (params.runsLimit) search.set('runs_limit', params.runsLimit);
+  const suffix = search.toString() ? `?${search.toString()}` : '';
+  return apiFetch(`/api/agent/control-center${suffix}`, {}, { cache: false, timeoutMs: 45000 });
 }
 
 export async function listAgentRuns(params = {}) {
@@ -70,19 +74,19 @@ export async function updateAiAgent(agentKey, payload) {
   }, { cache: false, timeoutMs: 20000 });
 }
 
-export async function createAiAgentCredential(agentKey, payload = {}) {
-  return apiFetch(`/api/agent/ai-agents/${encodeURIComponent(agentKey)}/credentials`, {
+export async function createAiAgentCredential(_agentKey, payload = {}) {
+  return apiFetch('/api/agent/service-credentials', {
     method: 'POST',
     body: JSON.stringify(payload),
   }, { cache: false, timeoutMs: 20000 });
 }
 
-export async function listAiAgentCredentials(agentKey) {
-  return apiFetch(`/api/agent/ai-agents/${encodeURIComponent(agentKey)}/credentials`, {}, { cache: false, timeoutMs: 20000 });
+export async function listAiAgentCredentials(_agentKey) {
+  return apiFetch('/api/agent/service-credentials', {}, { cache: false, timeoutMs: 20000 });
 }
 
-export async function revokeAiAgentCredential(agentKey, credentialId) {
-  return apiFetch(`/api/agent/ai-agents/${encodeURIComponent(agentKey)}/credentials/${encodeURIComponent(credentialId)}`, {
+export async function revokeAiAgentCredential(_agentKey, credentialId) {
+  return apiFetch(`/api/agent/service-credentials/${encodeURIComponent(credentialId)}`, {
     method: 'DELETE',
   }, { cache: false, timeoutMs: 20000 });
 }
