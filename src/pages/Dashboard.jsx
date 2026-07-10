@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { apiFetch } from '../api/client';
 import { CountUp } from '../components/CountUp';
 import { PageTransition } from '../components/PageTransition';
-import { SkeletonDashboard } from '../components/Skeleton';
+import { SkeletonCrmDashboard } from '../components/Skeleton';
 import { useChartColors } from '../hooks/useChartColors';
 import { formatAiSummaryLines } from '../utils/aiContentFormatter';
 
@@ -323,7 +323,7 @@ const Dashboard = () => {
   if (loading) {
     return (
       <PageTransition>
-        <SkeletonDashboard />
+        <SkeletonCrmDashboard />
       </PageTransition>
     );
   }

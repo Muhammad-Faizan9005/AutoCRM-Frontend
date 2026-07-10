@@ -7,7 +7,7 @@ import * as XLSX from 'xlsx';
 import { apiFetch, peekCache } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 import { EmptyState } from '../components/EmptyState';
-import { SkeletonCard } from '../components/Skeleton';
+import { SkeletonOrganizations } from '../components/Skeleton';
 import { toast } from '../utils/toast';
 
 const formatDate = (value) => {
@@ -184,9 +184,7 @@ const Organizations = ({ user }) => {
         {error && <div className="alert alert-danger">{error}</div>}
 
         {loading ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-            {[1, 2, 3, 4, 5, 6].map(i => <SkeletonCard key={i} />)}
-          </div>
+          <SkeletonOrganizations />
         ) : (
           filteredOrgs.length === 0 ? <EmptyState type="organizations" /> : (
             <div ref={gridRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>

@@ -1339,6 +1339,12 @@ textarea.input {
   min-height: 0;
 }
 
+.page-transition::after {
+  content: "";
+  display: block;
+  flex: 0 0 64px;
+}
+
 /* ─── KANBAN ─── */
 .crm-page {
   display: flex;
@@ -1627,7 +1633,7 @@ textarea.input {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 24px 32px;
+  padding: 24px 32px 72px;
   display: flex;
   flex-direction: column;
 }
@@ -1670,7 +1676,7 @@ body.crm-kanban-active .crm-main {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: clamp(16px, 2.4vw, 40px) clamp(16px, 2.6vw, 44px);
+  padding: clamp(16px, 2.4vw, 40px) clamp(16px, 2.6vw, 44px) 72px;
 }
 
 .admin-container {

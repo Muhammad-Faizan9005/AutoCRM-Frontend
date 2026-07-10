@@ -5,17 +5,17 @@ import { apiFetch } from '../api/client';
 import { PageTransition } from '../components/PageTransition';
 
 const entityOptions = [
-  { value: 'customers', label: 'Customers' },
+  { value: 'leads', label: 'Leads' },
   { value: 'tickets', label: 'Tickets' },
 ];
 
 const entityColumns = {
-  customers: ['email (required)', 'full_name (required)', 'phone', 'company', 'status', 'notes'],
+  leads: ['name or full_name', 'email', 'phone', 'company', 'source', 'status', 'score', 'notes'],
   tickets: ['subject (required)', 'customer_id (required unless customer_email exists)', 'customer_email', 'description', 'status', 'priority', 'category', 'assigned_to'],
 };
 
 const ImportData = () => {
-  const [entity, setEntity] = useState('customers');
+  const [entity, setEntity] = useState('leads');
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -43,9 +43,9 @@ const ImportData = () => {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h1 className="page-title">Import Data</h1>
+            <h1 className="page-title">Import Leads</h1>
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
-              Upload CSV or Excel files to bulk-import CRM data.
+              Upload CSV or Excel files to create or update lead records.
             </p>
           </div>
           <div style={{
@@ -97,7 +97,7 @@ const ImportData = () => {
 
         {/* Required Columns */}
         <div className="card card-padding">
-          <h3 className="section-title" style={{ marginBottom: 12 }}>Required Columns</h3>
+          <h3 className="section-title" style={{ marginBottom: 12 }}>{entity === 'leads' ? 'Lead Template Columns' : 'Required Columns'}</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
             {columns.map(col => (
               <div key={col} style={{

@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
-  Bot,
   CheckCircle2,
   CircleDot,
   Clock3,
@@ -746,19 +745,6 @@ const AIControlCenter = ({ currentUser }) => {
               </div>
             </div>
           )}
-        </section>
-
-        <section className="card card-padding">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Bot size={17} />
-              <h2 className="section-title">Quick Controls</h2>
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button type="button" className="btn btn-secondary" onClick={loadControlCenter}><RefreshCw size={15} /> Retry Load</button>
-              <button type="button" className="btn btn-secondary" disabled><GitBranch size={15} /> Reroute</button>
-            </div>
-          </div>
         </section>
       </div>
     </PageTransition>

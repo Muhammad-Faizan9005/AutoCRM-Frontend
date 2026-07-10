@@ -7,6 +7,7 @@ import AdminImports from './AdminImports';
 import AdminTeams from './AdminTeams';
 import ManagerTeam from './ManagerTeam';
 import AIControlCenter from './AIControlCenter';
+import AdminActivityLog from './AdminActivityLog';
 import Sidebar from '../components/Sidebar';
 
 const isAdminUser = (user) => {
@@ -138,6 +139,17 @@ const AdminLayout = ({ user, onLogout, permissions, onUserUpdate }) => {
               element={
                 canControlAI ? (
                   <AIControlCenter currentUser={user} />
+                ) : (
+                  <Navigate to={firstAllowedPath} replace />
+                )
+              }
+            />
+
+            <Route
+              path="activity-log"
+              element={
+                canManageUsers ? (
+                  <AdminActivityLog />
                 ) : (
                   <Navigate to={firstAllowedPath} replace />
                 )
