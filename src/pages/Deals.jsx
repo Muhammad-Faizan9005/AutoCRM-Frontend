@@ -54,7 +54,8 @@ const mapDeal = (deal,orgIdx) => {
   dealType: normalizeDealType(deal.deal_type),
   modified: formatDate(deal.updated_at),
   aiInsights: Array.isArray(deal.ai_insights) ? deal.ai_insights : [],
-  ownerId: deal.owner_id || '',
+  ownerId: deal.owner_id || deal.effective_owner_id || '',
+  rawOwnerId: deal.owner_id || '',
   ownerName: deal.owner_name || deal.owner_email || '',
   ownerEmail: deal.owner_email || '',
   };
@@ -201,10 +202,18 @@ const Deals = ({ user }) => {
     dealOwners.some((owner) => String(owner.id) === String(ownerId || '')) ? ownerId : ''
   );
 
+  const getDealOwnerSelectValue = (deal) => (
+    deal?.ownerId ? String(deal.ownerId) : ''
+  );
+
+  const getDealOwnerDisplayName = (deal) => (
+    deal?.ownerName || deal?.ownerEmail || (deal?.ownerId ? 'Assigned owner' : 'Unassigned')
+  );
+
   const handleAssignDeal = async (dealId, ownerId) => {
     if (!ownerId) return;
     const current = dealRecords.find((deal) => String(deal.id) === String(dealId));
-    if (!current || String(current.owner_id || '') === String(ownerId || '')) return;
+    if (!current || String(current.owner_id || current.effective_owner_id || '') === String(ownerId || '')) return;
     const previousOwnerId = current.owner_id || '';
     const nextOwner = dealOwners.find((owner) => String(owner.id) === String(ownerId));
     setError('');
@@ -346,12 +355,15 @@ const Deals = ({ user }) => {
                               <div>
                                 <select
                                   className="input"
-                                  value={getAssignableDealOwnerId(d.ownerId)}
+                                  value={getDealOwnerSelectValue(d)}
                                   onChange={(event) => handleAssignDeal(d.id, event.target.value)}
                                   disabled={assigningMap[d.id]}
                                   style={{ minWidth: 170, height: 34, padding: '0 10px' }}
                                 >
                                   <option value="">Unassigned to team</option>
+                                  {d.ownerId && !getAssignableDealOwnerId(d.ownerId) && (
+                                    <option value={d.ownerId} disabled>{getDealOwnerDisplayName(d)}</option>
+                                  )}
                                   {dealOwners.map((owner) => (
                                     <option key={owner.id} value={owner.id}>{owner.full_name || owner.email}</option>
                                   ))}

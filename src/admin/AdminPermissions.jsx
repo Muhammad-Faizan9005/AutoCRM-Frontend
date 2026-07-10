@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, ShieldCheck, UserCheck, CheckCircle } from 'lucide-react';
+import { Loader2, UserCheck, CheckCircle } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { DEFAULT_PERMISSIONS, PERMISSION_GROUPS } from './permissionsStore';
 import { getAdminUserPermissions, listAdminUsers, updateAdminUserPermissions } from './adminApi';
@@ -179,15 +179,15 @@ const AdminPermissions = ({ currentUser }) => {
 
         {/* Header */}
         <div className="card" style={{ padding: '24px 28px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div>
-              <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--color-text-tertiary)', marginBottom: 4 }}>Permission Studio</div>
-              <h1 className="page-title" style={{ fontSize: 'var(--text-2xl)' }}>Feature access matrix</h1>
-              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 4 }}>Toggle what each operator can see inside the CRM. Changes apply instantly.</p>
+              <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--color-text-tertiary)', marginBottom: 4 }}>Access control</div>
+              <h1 className="page-title" style={{ fontSize: 'var(--text-2xl)' }}>User permissions</h1>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 4 }}>Choose a user and update the CRM modules they can access.</p>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary" onClick={() => setAll(true)} disabled={!activeUser}>Enable all</button>
-              <button className="btn btn-ghost" onClick={() => setAll(false)} disabled={!activeUser}>Lock down</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'center' }}>
+              <button className="btn btn-secondary" onClick={() => setAll(true)} disabled={!activeUser}>Allow all</button>
+              <button className="btn btn-ghost" onClick={() => setAll(false)} disabled={!activeUser}>Clear access</button>
             </div>
           </div>
         </div>
@@ -237,10 +237,11 @@ const AdminPermissions = ({ currentUser }) => {
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  {group.permissions.map(perm => (
+                  {group.permissions.map((perm, index) => (
                     <div key={perm.key} style={{
                       display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12,
                       padding: '14px 16px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)',
+                      gridColumn: group.permissions.length % 2 === 1 && index === group.permissions.length - 1 ? '1 / -1' : 'auto',
                     }}>
                       <div>
                         <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-medium)' }}>{perm.label}</div>
@@ -255,13 +256,6 @@ const AdminPermissions = ({ currentUser }) => {
                 </div>
               </div>
             ))}
-
-            <div className="card" style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
-                <ShieldCheck size={16} /> Changes are persisted to backend permission records.
-              </div>
-              <button className="btn btn-ghost btn-sm" disabled>Export matrix</button>
-            </div>
           </div>
         </div>
       </div>

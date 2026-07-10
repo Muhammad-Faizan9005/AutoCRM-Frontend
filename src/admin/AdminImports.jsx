@@ -10,9 +10,9 @@ const AdminImports = () => {
           <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
             Data Operations
           </div>
-          <h1 className="page-title" style={{ fontSize: 'var(--text-2xl)' }}>Controlled CSV imports</h1>
+          <h1 className="page-title" style={{ fontSize: 'var(--text-2xl)' }}>Lead imports</h1>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 4 }}>
-            Upload validated data to the CRM. Use the queue summary to verify success and resolve failures quickly.
+            Upload lead spreadsheets, validate the results, and resolve any failed rows from the import summary.
           </p>
         </div>
         <ImportData variant="admin" />

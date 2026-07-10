@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowUpRight, Briefcase, Clock, DollarSign, ShieldCheck, Target, Users } from 'lucide-react';
+import { Activity, Briefcase, Clock, DollarSign, Target, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { getAdminOverview } from './adminApi';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { CountUp } from '../components/CountUp';
@@ -61,7 +61,6 @@ const ProgressList = ({ title, subtitle, items, emptyText }) => (
 );
 
 const AdminDashboard = () => {
-  const navigate = useNavigate();
   const [overview, setOverview] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -95,24 +94,6 @@ const AdminDashboard = () => {
   return (
     <PageTransition>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-
-        {/* Hero header */}
-        <motion.div className="card" style={{ padding: '28px 32px' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
-            <div>
-              <div style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>CRM Command Center</div>
-              <h1 className="page-title">Live revenue operations</h1>
-              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 6, maxWidth: 500 }}>
-                Track pipeline, team motion, overdue work, and data quality from the records your CRM is already collecting.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary" onClick={() => navigate('/admin/permissions')}>Run access audit</button>
-              <button className="btn btn-primary" onClick={() => navigate('/admin/imports')}>Open import queue</button>
-            </div>
-          </div>
-        </motion.div>
-
         {error && <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>}
 
         {loading ? (
@@ -162,28 +143,7 @@ const AdminDashboard = () => {
               />
             </div>
 
-            {/* Watchlist + Team performance */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div className="card card-padding">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginBottom: 14 }}>
-                  <ShieldCheck size={16} /> CRM watchlist
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {overview.watchlist.map(item => (
-                    <div key={item.title} style={{ display: 'flex', gap: 10 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 'var(--radius)', background: 'var(--color-danger-subtle)', color: 'var(--color-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <Activity size={16} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-semibold)' }}>{item.title}</div>
-                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{item.value} - {item.note}</div>
-                      </div>
-                    </div>
-                  ))}
-                  {overview.watchlist.length === 0 && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>No alerts.</p>}
-                </div>
-              </div>
-
               <div className="card card-padding">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <h3 className="section-title">Team performance</h3>
@@ -202,35 +162,11 @@ const AdminDashboard = () => {
                   {overview.team_performance.length === 0 && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>No team performance yet.</p>}
                 </div>
               </div>
-            </div>
-
-            {/* Queues + Activity */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div className="card card-padding">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <h3 className="section-title">Operations queue</h3>
-                  <button className="btn btn-ghost btn-sm" style={{ color: 'var(--color-accent)' }}>View all <ArrowUpRight size={12} /></button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {overview.queues.map(item => (
-                    <div key={item.title} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)' }}>
-                      <div>
-                        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-medium)' }}>{item.title}</div>
-                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{item.status}</div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
-                        <Clock size={12} /> {item.age}
-                      </div>
-                    </div>
-                  ))}
-                  {overview.queues.length === 0 && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>Queue is empty.</p>}
-                </div>
-              </div>
 
               <div className="card card-padding">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <h3 className="section-title">Recent admin activity</h3>
-                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Activity log</span>
+                  <Link to="/admin/activity-log" className="btn btn-secondary btn-sm">Activity Log</Link>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {activityRows.map((entry, i) => (

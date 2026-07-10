@@ -35,6 +35,48 @@ const navItemVariant = {
   animate: { opacity: 1, x: 0, transition: { duration: 0.2 } },
 };
 
+const getNotificationTone = (item) => {
+  const type = String(item?.type || '').toLowerCase();
+  if (type.includes('critical')) {
+    return {
+      border: '#dc2626',
+      background: '#fef2f2',
+      accent: '#dc2626',
+      label: 'Critical',
+    };
+  }
+  if (type.includes('customer_risk') || type.includes('escalated')) {
+    return {
+      border: '#ef4444',
+      background: '#fff1f2',
+      accent: '#e11d48',
+      label: 'High',
+    };
+  }
+  if (type.includes('overdue') || type.includes('recovery')) {
+    return {
+      border: '#f59e0b',
+      background: '#fffbeb',
+      accent: '#b45309',
+      label: 'Medium',
+    };
+  }
+  if (type.includes('due_soon')) {
+    return {
+      border: '#3b82f6',
+      background: '#eff6ff',
+      accent: '#2563eb',
+      label: 'Due soon',
+    };
+  }
+  return {
+    border: 'var(--color-border)',
+    background: item?.read_at ? 'var(--color-bg-elevated)' : 'var(--color-accent-subtle)',
+    accent: 'var(--color-text-tertiary)',
+    label: '',
+  };
+};
+
 const Sidebar = ({ onLogout, user, permissions, onUserUpdate }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
@@ -577,24 +619,43 @@ const Sidebar = ({ onLogout, user, permissions, onUserUpdate }) => {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 'calc(100vh - 110px)', overflowY: 'auto' }}>
-                  {notifications.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => !item.read_at && markOneRead(item.id)}
-                      style={{
-                        textAlign: 'left',
-                        border: '1px solid var(--color-border)',
-                        borderRadius: 'var(--radius)',
-                        background: item.read_at ? 'var(--color-bg-elevated)' : 'var(--color-accent-subtle)',
-                        padding: '10px 12px',
-                        cursor: item.read_at ? 'default' : 'pointer',
-                      }}
-                    >
-                      <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.title}</div>
-                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: 4 }}>{item.message}</div>
-                    </button>
-                  ))}
+                  {notifications.map((item) => {
+                    const tone = getNotificationTone(item);
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => !item.read_at && markOneRead(item.id)}
+                        style={{
+                          textAlign: 'left',
+                          border: `1px solid ${tone.border}`,
+                          borderLeft: `4px solid ${tone.accent}`,
+                          borderRadius: 'var(--radius)',
+                          background: tone.background,
+                          padding: '10px 12px',
+                          cursor: item.read_at ? 'default' : 'pointer',
+                          opacity: item.read_at ? 0.74 : 1,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.title}</div>
+                          {tone.label && (
+                            <span style={{
+                              flex: '0 0 auto',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              color: tone.accent,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.06em',
+                            }}>
+                              {tone.label}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: 4 }}>{item.message}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </motion.div>

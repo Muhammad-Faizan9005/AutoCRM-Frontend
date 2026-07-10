@@ -440,20 +440,250 @@ export function SkeletonOrganizationDetail() {
   );
 }
 
+export function SkeletonOrganizations() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+        <SkeletonBlock width="220px" height="40px" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <SkeletonBlock width="36px" height="36px" />
+          <SkeletonBlock width="160px" height="36px" />
+        </div>
+      </div>
+
+      <SkeletonBlock width="320px" height="36px" />
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+        {[1, 2, 3, 4, 5, 6].map((item) => (
+          <div key={item} className="card card-padding" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <SkeletonBlock width="36px" height="36px" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  <SkeletonBlock width="150px" height="16px" />
+                  <SkeletonBlock width="82px" height="22px" />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              <SkeletonBlock width="110px" height="13px" />
+              <SkeletonBlock width="84px" height="13px" />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: 10 }}>
+              <SkeletonBlock width="96px" height="10px" />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <SkeletonBlock width="58px" height="30px" />
+                <SkeletonBlock width="70px" height="30px" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SkeletonDashboard() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
-        {[1, 2, 3, 4].map(i => <SkeletonCard key={i} />)}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 16 }}>
+        {[1, 2, 3, 4, 5, 6].map((i) => <SkeletonMetricCard key={i} />)}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '20px' }}>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
         <div className="card card-padding">
-          <SkeletonBlock width="30%" height="14px" />
-          <div style={{ marginTop: 16 }}><SkeletonBlock width="100%" height="180px" /></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <SkeletonBlock width="120px" height="18px" />
+            <SkeletonBlock width="130px" height="10px" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {[1, 2, 3].map((item) => (
+              <div key={item}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <SkeletonBlock width="150px" height="12px" />
+                  <SkeletonBlock width="90px" height="12px" />
+                </div>
+                <SkeletonBlock width="100%" height="6px" />
+              </div>
+            ))}
+          </div>
         </div>
         <div className="card card-padding">
-          <SkeletonBlock width="30%" height="14px" />
-          <div style={{ marginTop: 16 }}><SkeletonBlock width="100%" height="180px" /></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <SkeletonBlock width="110px" height="18px" />
+            <SkeletonBlock width="130px" height="10px" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {[1, 2].map((item) => (
+              <div key={item}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <SkeletonBlock width="110px" height="12px" />
+                  <SkeletonBlock width="70px" height="12px" />
+                </div>
+                <SkeletonBlock width="100%" height="6px" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div className="card card-padding">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <SkeletonBlock width="150px" height="18px" />
+            <SkeletonBlock width="130px" height="10px" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {[1, 2, 3].map((item) => (
+              <div key={item} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 12, borderBottom: '1px solid var(--color-border)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <SkeletonBlock width="120px" height="12px" />
+                  <SkeletonBlock width="90px" height="10px" />
+                </div>
+                <SkeletonBlock width="60px" height="12px" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card card-padding">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <SkeletonBlock width="170px" height="18px" />
+            <SkeletonBlock width="80px" height="10px" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {[1, 2, 3, 4, 5, 6].map((item) => (
+              <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <SkeletonBlock width="28px" height="28px" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7, flex: 1 }}>
+                  <SkeletonBlock width="60%" height="12px" />
+                  <SkeletonBlock width="35%" height="10px" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function SkeletonCrmDashboard() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SkeletonBlock width="170px" height="40px" />
+          <SkeletonBlock width="240px" height="13px" />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <SkeletonBlock width="132px" height="36px" />
+          <SkeletonBlock width="36px" height="36px" />
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 20 }}>
+        {[1, 2, 3, 4, 5].map((item) => (
+          <div key={item} className="card card-padding" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <SkeletonBlock width="76px" height="10px" />
+                <SkeletonBlock width="70px" height="30px" />
+              </div>
+              <SkeletonBlock width="40px" height="40px" />
+            </div>
+            <SkeletonBlock width="150px" height="12px" />
+          </div>
+        ))}
+      </div>
+
+      <div className="card card-padding" style={{ display: 'grid', gap: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <SkeletonBlock width="150px" height="18px" />
+          <SkeletonBlock width="92px" height="22px" />
+        </div>
+        {[1, 2, 3].map((line) => (
+          <div key={line} style={{ display: 'grid', gridTemplateColumns: '8px minmax(0, 1fr)', gap: 10, alignItems: 'center' }}>
+            <SkeletonBlock width="6px" height="6px" className="skeleton-round" />
+            <SkeletonBlock width={`${72 + line * 6}%`} height="12px" />
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
+        <div className="card card-padding">
+          <SkeletonBlock width="130px" height="18px" />
+          <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <SkeletonBlock width="100%" height="150px" />
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+              {[1, 2, 3, 4, 5, 6].map((tick) => (
+                <SkeletonBlock key={tick} width="42px" height="10px" />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="card card-padding">
+          <SkeletonBlock width="130px" height="18px" />
+          <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <SkeletonBlock width="148px" height="148px" className="skeleton-round" />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
+            {[1, 2, 3].map((item) => (
+              <SkeletonBlock key={item} width="74px" height="10px" />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="card card-padding">
+        <SkeletonBlock width="140px" height="18px" />
+        <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
+          {[1, 2, 3, 4].map((item) => (
+            <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <SkeletonBlock width="80px" height="12px" />
+              <SkeletonBlock width="100%" height="24px" />
+              <SkeletonBlock width="36px" height="12px" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function SkeletonImportData() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SkeletonBlock width="190px" height="34px" />
+          <SkeletonBlock width="340px" height="13px" />
+        </div>
+        <SkeletonBlock width="180px" height="30px" />
+      </div>
+      <div className="card card-padding">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <SkeletonBlock width="80px" height="10px" />
+            <SkeletonBlock width="100%" height="38px" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <SkeletonBlock width="40px" height="10px" />
+            <SkeletonBlock width="100%" height="38px" />
+            <SkeletonBlock width="220px" height="10px" />
+          </div>
+        </div>
+        <div style={{ marginTop: 20 }}>
+          <SkeletonBlock width="130px" height="36px" />
+        </div>
+      </div>
+      <div className="card card-padding">
+        <SkeletonBlock width="170px" height="18px" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8, marginTop: 14 }}>
+          {[1, 2, 3, 4, 5, 6].map((item) => (
+            <SkeletonBlock key={item} width="100%" height="38px" />
+          ))}
         </div>
       </div>
     </div>

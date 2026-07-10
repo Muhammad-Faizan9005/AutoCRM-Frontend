@@ -17,6 +17,21 @@ export async function getAdminOverview() {
   return apiFetch('/api/admin/overview');
 }
 
+export async function getAdminActivityLog({ skip = 0, limit = 50, entityType, eventType, search } = {}) {
+  const suffix = buildQuery({
+    skip,
+    limit,
+    entity_type: entityType,
+    event_type: eventType,
+    search,
+  });
+  const data = await apiFetch(`/api/admin/activity-log${suffix}`, {}, { cache: false });
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    total: Number.isFinite(Number(data?.total)) ? Number(data.total) : 0,
+  };
+}
+
 export async function listAdminUsers({ search, page = 1, pageSize = DEFAULT_PAGE_SIZE } = {}) {
   const suffix = buildQuery({ search, page, page_size: pageSize });
   const data = await apiFetch(`/api/admin/users${suffix}`);
