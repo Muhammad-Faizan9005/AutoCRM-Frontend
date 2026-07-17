@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Camera, Code2, Copy, Eye, EyeOff, KeyRound, Save, Trash2, X } from 'lucide-react';
+import { Camera, ChevronDown, Code2, Copy, Eye, EyeOff, KeyRound, Moon, Save, Sun, Trash2, X } from 'lucide-react';
 import { apiFetch } from '../api/client';
-import { ThemeToggle } from './ThemeToggle';
+import { useTheme } from '../hooks/useTheme';
 import { toast } from '../utils/toast';
 
 const getInitials = (name) => {
@@ -78,10 +78,13 @@ const PasswordField = ({
 };
 
 const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
+  const { theme, applyTheme } = useTheme();
+  const savedTheme = user?.settings?.theme === 'dark' ? 'dark' : 'light';
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '');
   const [developerMode, setDeveloperMode] = useState(Boolean(user?.developer_mode));
+  const [selectedTheme, setSelectedTheme] = useState(theme);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -99,8 +102,12 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
   const [isCreatingCredential, setIsCreatingCredential] = useState(false);
   const [revokingCredentialId, setRevokingCredentialId] = useState(null);
   const initializedUserId = useRef(null);
+  const revertThemeRef = useRef(theme);
+  const [showServiceCredentials, setShowServiceCredentials] = useState(false);
   const canUseDeveloperMode = isAdminUser(user);
-  const canUseServiceCredentials = canUseDeveloperMode && (developerMode || Boolean(user?.developer_mode));
+  // Only expose service credentials once developer mode is actually saved on the
+  // account, not while the toggle is flipped but unsaved.
+  const canUseServiceCredentials = canUseDeveloperMode && Boolean(user?.developer_mode);
 
   useEffect(() => {
     if (initializedUserId.current === user?.id) return;
@@ -109,12 +116,29 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
     setEmail(user?.email || '');
     setAvatarUrl(user?.avatar_url || '');
     setDeveloperMode(Boolean(user?.developer_mode));
+    setSelectedTheme(savedTheme);
+    revertThemeRef.current = savedTheme;
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
     setVisiblePasswords({ current: false, next: false, confirm: false });
     setCreatedCredential(null);
-  }, [user?.avatar_url, user?.developer_mode, user?.email, user?.full_name, user?.id]);
+  }, [user?.avatar_url, user?.developer_mode, user?.email, user?.full_name, user?.id, savedTheme]);
+
+  // Preview the selected theme live while the modal is open.
+  useEffect(() => {
+    applyTheme(selectedTheme);
+  }, [selectedTheme, applyTheme]);
+
+  // On unmount, revert the live preview to the last saved theme. A successful
+  // save rebaselines revertThemeRef, so an unsaved toggle never sticks.
+  useEffect(() => () => {
+    applyTheme(revertThemeRef.current);
+  }, [applyTheme]);
+
+  const toggleSelectedTheme = () => {
+    setSelectedTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
 
   useEffect(() => {
     setDeveloperMode(Boolean(user?.developer_mode));
@@ -138,6 +162,7 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
     if (!canUseServiceCredentials) {
       setCreatedCredential(null);
       setCredentials([]);
+      setShowServiceCredentials(false);
       return;
     }
 
@@ -230,8 +255,9 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
       full_name: trimmedName,
       email: trimmedEmail,
     };
+    payload.settings = { theme: selectedTheme };
     if (canUseDeveloperMode) {
-      payload.settings = { developer_mode: developerMode };
+      payload.settings.developer_mode = developerMode;
     }
     if (newPassword || emailChanged) {
       payload.current_password = currentPassword;
@@ -246,6 +272,7 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
         method: 'PATCH',
         body: JSON.stringify(payload),
       }, { cache: false, timeoutMs: 15000 });
+      revertThemeRef.current = selectedTheme;
       onUserUpdate?.(updatedUser);
       setCurrentPassword('');
       setNewPassword('');
@@ -418,10 +445,20 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
                   Theme
                 </div>
                 <div style={{ marginTop: 3, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
-                  Switch between light and dark workspace modes.
+                  Switch between light and dark workspace modes. Applied on save.
                 </div>
               </div>
-              <ThemeToggle />
+              <button
+                type="button"
+                onClick={toggleSelectedTheme}
+                className="btn btn-secondary"
+                aria-label="Toggle theme"
+                style={{ gap: 8 }}
+              >
+                {selectedTheme === 'dark'
+                  ? <><Moon size={15} /> Dark</>
+                  : <><Sun size={15} /> Light</>}
+              </button>
             </div>
 
             {canUseDeveloperMode && (
@@ -459,7 +496,23 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
                     gap: 12,
                     background: 'var(--color-surface-secondary)',
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowServiceCredentials((prev) => !prev)}
+                      aria-expanded={showServiceCredentials}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        width: '100%',
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-semibold)', color: 'var(--color-text-primary)' }}>
                           <KeyRound size={16} /> AI Service Credentials
@@ -468,9 +521,20 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
                           Generate copy-once tokens for backend-authenticated AI workers.
                         </div>
                       </div>
-                    </div>
+                      <ChevronDown
+                        size={18}
+                        style={{
+                          color: 'var(--color-text-tertiary)',
+                          flexShrink: 0,
+                          transition: 'transform 0.2s',
+                          transform: showServiceCredentials ? 'rotate(180deg)' : 'rotate(0deg)',
+                        }}
+                      />
+                    </button>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, alignItems: 'end' }}>
+                    {showServiceCredentials && (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, alignItems: 'end' }}>
                       <div>
                         <label className="label">Expiry</label>
                         <select className="input" value={credentialExpiry} onChange={(event) => setCredentialExpiry(event.target.value)}>
@@ -565,6 +629,8 @@ const ProfileSettingsModal = ({ user, onClose, onUserUpdate }) => {
                         })
                       )}
                     </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

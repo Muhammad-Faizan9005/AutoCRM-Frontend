@@ -140,10 +140,13 @@ function App() {
   const loginLoaderTimerRef = useRef(null);
   const isSigningOutRef = useRef(false);
 
+  const themeInitializedRef = useRef(false);
+
   const clearSession = () => {
     setCacheUserScope(null);
     setUser(null);
     setPermissions(getPermissionsForUser(null));
+    themeInitializedRef.current = false;
   };
 
   // Check if user is already logged in. The access token lives in an httpOnly
@@ -182,30 +185,13 @@ function App() {
   }, [user]);
 
   useEffect(() => {
+    if (themeInitializedRef.current) return;
     const savedTheme = user?.settings?.theme;
     if (savedTheme === 'light' || savedTheme === 'dark') {
+      themeInitializedRef.current = true;
       applyTheme(savedTheme);
     }
   }, [applyTheme, user?.settings?.theme]);
-
-  useEffect(() => {
-    const handleThemeChanged = async (event) => {
-      const nextTheme = event?.detail?.theme;
-      if (!user || (nextTheme !== 'light' && nextTheme !== 'dark')) return;
-      try {
-        const updatedUser = await apiFetch('/api/auth/profile', {
-          method: 'PATCH',
-          body: JSON.stringify({ settings: { theme: nextTheme } }),
-        }, { cache: false, timeoutMs: 10000 });
-        setUser((currentUser) => ({ ...(currentUser || {}), ...(updatedUser || {}) }));
-      } catch (error) {
-        logger.warn('profile.theme_save_failed', { message: error?.message });
-      }
-    };
-
-    window.addEventListener('autocrm-theme-changed', handleThemeChanged);
-    return () => window.removeEventListener('autocrm-theme-changed', handleThemeChanged);
-  }, [user]);
 
   useEffect(() => {
     const handlePermissionsUpdate = (event) => {

@@ -218,6 +218,7 @@ const AIControlCenter = ({ currentUser }) => {
   const [trace, setTrace] = useState([]);
   const [memory, setMemory] = useState([]);
   const [aiAgents, setAiAgents] = useState([]);
+  const [snapshotMetrics, setSnapshotMetrics] = useState(null);
   const [selectedRun, setSelectedRun] = useState(null);
   const [selectedApproval, setSelectedApproval] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -249,6 +250,7 @@ const AIControlCenter = ({ currentUser }) => {
       });
       setApprovals(asArray(snapshot?.approvals));
       setAiAgents(asArray(snapshot?.ai_agents));
+      setSnapshotMetrics(snapshot?.metrics || null);
       setRunsPagination(snapshot?.runs_pagination || { page, limit: RUNS_PAGE_SIZE, has_more: false });
       setSelectedRun((current) => current || nextRuns[0] || null);
     } catch (err) {
@@ -294,11 +296,19 @@ const AIControlCenter = ({ currentUser }) => {
   }, [selectedRun]);
 
   const metrics = useMemo(() => {
+    if (snapshotMetrics) {
+      return {
+        running: Number(snapshotMetrics.running || 0),
+        failed: Number(snapshotMetrics.failed || 0),
+        completed: Number(snapshotMetrics.completed || 0),
+        pendingApprovals: Number(snapshotMetrics.pending_approvals ?? approvals.length),
+      };
+    }
     const running = runs.filter((run) => ['running', 'pending'].includes(String(run.status).toLowerCase())).length;
     const failed = runs.filter((run) => String(run.status).toLowerCase().includes('fail')).length;
     const completed = runs.filter((run) => String(run.status).toLowerCase().includes('complete')).length;
     return { running, failed, completed, pendingApprovals: approvals.length };
-  }, [runs, approvals]);
+  }, [runs, approvals, snapshotMetrics]);
 
   const decideApproval = async (approval, decision) => {
     const id = getId(approval);
@@ -628,8 +638,14 @@ const AIControlCenter = ({ currentUser }) => {
           {approvals.length === 0 ? (
             <EmptyState>No actions waiting for approval.</EmptyState>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 0.9fr) minmax(420px, 1.4fr)', gap: 14 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 0.9fr) minmax(420px, 1.4fr)', gap: 14, alignItems: 'stretch' }}>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                height: 536,
+                overflowY: 'auto',
+              }}>
                 {approvals.map((approval) => {
                   const active = getId(activeApproval) === getId(approval);
                   return (
@@ -659,7 +675,7 @@ const AIControlCenter = ({ currentUser }) => {
                 })}
               </div>
 
-              <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: 14, background: 'var(--color-bg-elevated)' }}>
+              <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: 14, background: 'var(--color-bg-elevated)', minHeight: 536 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <AlertTriangle size={16} color="var(--color-warning)" />
                   <strong>Review Action</strong>

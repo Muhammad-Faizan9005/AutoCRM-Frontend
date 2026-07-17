@@ -51,6 +51,11 @@ const mapLeadToRow = (lead) => ({
   source: lead.source || 'unknown',
   modified: formatDate(lead.updated_at),
   ownerId: lead.owner_id || null,
+  ownerName: lead.owner_name || lead.owner_email || '',
+  ownerEmail: lead.owner_email || '',
+  assignmentManagerId: lead.assignment_manager_id || lead.owner_id || null,
+  assignmentManagerName: lead.assignment_manager_name || lead.assignment_manager_email || '',
+  assignmentManagerEmail: lead.assignment_manager_email || '',
 });
 
 const LEADS_INITIAL_PATH = '/api/leads/?skip=0&limit=20';
@@ -95,7 +100,8 @@ const Leads = ({ user }) => {
 
   const canDelete = user?.role === 'admin';
   const canEdit = user?.role === 'admin' || (user?.role || '').toLowerCase().includes('manager');
-  const canAssignLead = ['admin', 'sales_manager', 'manager'].includes((user?.role || '').toLowerCase());
+  const userRole = (user?.role || '').toLowerCase();
+  const canAssignLead = ['admin', 'sales_manager', 'manager'].includes(userRole);
 
   const resetForm = () => setFormData({ salutation: '', firstName: '', lastName: '', email: '', mobile: '', organization: '', status: 'new' });
 
@@ -182,7 +188,7 @@ const Leads = ({ user }) => {
     };
     fetchReps();
     return () => { active = false; };
-  }, [canAssignLead]);
+  }, [canAssignLead, userRole]);
 
   const sourceOptions = useMemo(() => {
     const values = Array.from(new Set(leads.map((lead) => String(lead.source || 'unknown').toLowerCase()).filter(Boolean)));
@@ -220,13 +226,14 @@ const Leads = ({ user }) => {
   const filteredLeads = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     return leads.filter((lead) => {
+      const resolvedOwnerId = String(lead.assignmentManagerId || lead.ownerId || '');
       const hasEmail = Boolean(lead.email && lead.email !== '-');
       const hasPhone = Boolean(lead.mobile && lead.mobile !== '-');
       if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
       if (ownerFilter === 'assigned' && !lead.ownerId) return false;
       if (ownerFilter === 'unassigned' && lead.ownerId) return false;
-      if (ownerFilter === 'mine' && String(lead.ownerId || '') !== String(user?.id || '')) return false;
-      if (ownerFilter.startsWith('owner:') && String(lead.ownerId || '') !== ownerFilter.replace('owner:', '')) return false;
+      if (ownerFilter === 'mine' && resolvedOwnerId !== String(user?.id || '')) return false;
+      if (ownerFilter.startsWith('owner:') && resolvedOwnerId !== ownerFilter.replace('owner:', '')) return false;
       if (sourceFilter !== 'all' && String(lead.source || 'unknown').toLowerCase() !== sourceFilter) return false;
       if (contactFilter === 'email' && !hasEmail) return false;
       if (contactFilter === 'phone' && !hasPhone) return false;
@@ -347,10 +354,13 @@ const Leads = ({ user }) => {
   };
 
   const handleAssignLead = async (leadId, repId) => {
-    if (!repId) return;
     setError('');
 
-    setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ownerId: repId } : lead)));
+    const nextOwnerId = repId || null;
+    const current = leads.find((lead) => String(lead.id) === String(leadId));
+    if (String(current?.ownerId || '') === String(nextOwnerId || '')) return;
+
+    setLeads((prev) => prev.map((lead) => (lead.id === leadId ? { ...lead, ownerId: nextOwnerId } : lead)));
     setLeadAssigning(leadId, true);
 
     const existing = leadAssignStateRef.current.get(leadId) || {
@@ -362,14 +372,14 @@ const Leads = ({ user }) => {
     existing.version = nextVersion;
 
     if (existing.inFlight) {
-      existing.queuedOwnerId = repId;
+      existing.queuedOwnerId = nextOwnerId;
       leadAssignStateRef.current.set(leadId, existing);
       return;
     }
 
     existing.inFlight = true;
     leadAssignStateRef.current.set(leadId, existing);
-    await sendLeadAssignment(leadId, repId, nextVersion);
+    await sendLeadAssignment(leadId, nextOwnerId, nextVersion);
   };
 
   const getAssignedRepLabel = (ownerId) => {
@@ -382,9 +392,7 @@ const Leads = ({ user }) => {
     return 'Assigned';
   };
 
-  const getAssignableLeadOwnerId = (ownerId) => (
-    teamReps.some((rep) => String(rep.id) === String(ownerId || '')) ? ownerId : ''
-  );
+  const getLeadOwnerSelectValue = (lead) => String(lead.assignmentManagerId || lead.ownerId || '');
 
   const handleLeadStatusChange = async (leadId, nextStatus) => {
     const normalized = normalizeStatus(nextStatus) || 'new';
@@ -591,7 +599,7 @@ const Leads = ({ user }) => {
                               <div>
                                 <select
                                   className="input"
-                                  value={getAssignableLeadOwnerId(l.ownerId)}
+                                  value={getLeadOwnerSelectValue(l)}
                                   onChange={(e) => handleAssignLead(l.id, e.target.value)}
                                   style={{ minWidth: 170, height: 34, padding: '0 10px' }}
                                 >

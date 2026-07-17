@@ -58,6 +58,9 @@ const mapDeal = (deal,orgIdx) => {
   rawOwnerId: deal.owner_id || '',
   ownerName: deal.owner_name || deal.owner_email || '',
   ownerEmail: deal.owner_email || '',
+  assignmentManagerId: deal.assignment_manager_id || deal.owner_id || deal.effective_owner_id || '',
+  assignmentManagerName: deal.assignment_manager_name || deal.assignment_manager_email || '',
+  assignmentManagerEmail: deal.assignment_manager_email || '',
   };
 };
 
@@ -89,8 +92,9 @@ const Deals = ({ user }) => {
   const [draggingDealId, setDraggingDealId] = useState(null);
   const [dragOverStatus, setDragOverStatus] = useState(null);
   useOutsideDismiss(Boolean(actionMenu), () => setActionMenu(null), [], ['[data-row-actions]']);
-  const canDelete = user?.role === 'admin';
-  const canAssignDeal = ['admin', 'sales_manager', 'manager'].includes(String(user?.role || '').toLowerCase());
+  const userRole = String(user?.role || '').toLowerCase();
+  const canDelete = userRole === 'admin';
+  const canAssignDeal = ['admin', 'sales_manager', 'manager'].includes(userRole);
 
   const [formData, setFormData] = useState({ orgName:'', website:'', revenue:'', industry:'', dealType:'new_business', firstName:'', lastName:'', email:'', mobile:'', status:'qualification', ownerId:'' });
   const resetForm = () => setFormData({ orgName:'', website:'', revenue:'', industry:'', dealType:'new_business', firstName:'', lastName:'', email:'', mobile:'', status:'qualification', ownerId:'' });
@@ -202,9 +206,7 @@ const Deals = ({ user }) => {
     dealOwners.some((owner) => String(owner.id) === String(ownerId || '')) ? ownerId : ''
   );
 
-  const getDealOwnerSelectValue = (deal) => (
-    deal?.ownerId ? String(deal.ownerId) : ''
-  );
+  const getDealOwnerSelectValue = (deal) => String(deal?.assignmentManagerId || deal?.ownerId || '');
 
   const getDealOwnerDisplayName = (deal) => (
     deal?.ownerName || deal?.ownerEmail || (deal?.ownerId ? 'Assigned owner' : 'Unassigned')
@@ -361,7 +363,7 @@ const Deals = ({ user }) => {
                                   style={{ minWidth: 170, height: 34, padding: '0 10px' }}
                                 >
                                   <option value="">Unassigned to team</option>
-                                  {d.ownerId && !getAssignableDealOwnerId(d.ownerId) && (
+                                  {d.ownerId && !getAssignableDealOwnerId(d.ownerId) && !d.assignmentManagerId && (
                                     <option value={d.ownerId} disabled>{getDealOwnerDisplayName(d)}</option>
                                   )}
                                   {dealOwners.map((owner) => (
