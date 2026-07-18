@@ -13,8 +13,9 @@ function buildQuery(params) {
   return serialized ? `?${serialized}` : '';
 }
 
-export async function getAdminOverview() {
-  return apiFetch('/api/admin/overview');
+export async function getAdminOverview({ days } = {}) {
+  const suffix = buildQuery({ days });
+  return apiFetch(`/api/admin/overview${suffix}`, {}, { cache: false });
 }
 
 export async function getAdminActivityLog({ skip = 0, limit = 50, entityType, eventType, search } = {}) {

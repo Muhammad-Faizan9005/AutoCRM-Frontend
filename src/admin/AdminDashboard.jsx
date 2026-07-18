@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, Briefcase, Clock, DollarSign, Target, Users } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, Briefcase, Calendar, ChevronDown, Clock, DollarSign, RefreshCcw, Target, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { getAdminOverview } from './adminApi';
+import { isAdminUser, isManagerUser } from './roles';
 import { PageTransition, staggerContainer, staggerItem } from '../components/PageTransition';
 import { CountUp } from '../components/CountUp';
 import { SkeletonDashboard } from '../components/Skeleton';
@@ -14,6 +15,15 @@ const ICON_BY_LABEL = {
   'Overdue Tasks': Clock,
   'Active Operators': Users,
   'Unassigned Records': Briefcase,
+};
+
+const ICON_COLOR_BY_LABEL = {
+  'Open Pipeline': { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.14)' },
+  'Won Revenue': { color: '#22c55e', bg: 'rgba(34, 197, 94, 0.14)' },
+  'New Leads': { color: '#a855f7', bg: 'rgba(168, 85, 247, 0.14)' },
+  'Overdue Tasks': { color: '#f97316', bg: 'rgba(249, 115, 22, 0.14)' },
+  'Active Operators': { color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.14)' },
+  'Unassigned Records': { color: '#eab308', bg: 'rgba(234, 179, 8, 0.14)' },
 };
 
 const getErrorMessage = (error, fallback) => error?.message || error?.data?.detail || fallback;
@@ -60,31 +70,75 @@ const ProgressList = ({ title, subtitle, items, emptyText }) => (
   </div>
 );
 
-const AdminDashboard = () => {
+const AdminDashboard = ({ user }) => {
   const [overview, setOverview] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [timeRange, setTimeRange] = useState('Last 7 Days');
+  const [activeDropdown, setActiveDropdown] = useState(null);
+  const timeDropdownRef = useRef(null);
+
+  const daysMap = {
+    'Last 7 Days': 7,
+    'Last 30 Days': 30,
+    'Last 90 Days': 90,
+  };
+  const selectedDays = daysMap[timeRange] || 7;
+
+  const dashboardTitle = isAdminUser(user) ? 'Admin Dashboard' : isManagerUser(user) ? 'Manager Dashboard' : 'Dashboard';
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      setLoading(true); setError('');
-      try {
-        const data = await getAdminOverview();
-        if (mounted) setOverview({
-          highlights: Array.isArray(data?.highlights) ? data.highlights : [],
-          coverage: Array.isArray(data?.coverage) ? data.coverage : [],
-          sources: Array.isArray(data?.sources) ? data.sources : [],
-          watchlist: Array.isArray(data?.watchlist) ? data.watchlist : [],
-          queues: Array.isArray(data?.queues) ? data.queues : [],
-          team_performance: Array.isArray(data?.team_performance) ? data.team_performance : [],
-          activity: Array.isArray(data?.activity) ? data.activity : [],
-        });
-      } catch (e) { if (mounted) { setError(getErrorMessage(e, 'Failed to load overview.')); setOverview(EMPTY); } }
-      finally { if (mounted) setLoading(false); }
-    })();
-    return () => { mounted = false; };
-  }, []);
+    if (!activeDropdown) return undefined;
+
+    const closeDropdown = (event) => {
+      if (timeDropdownRef.current?.contains(event.target)) return;
+      setActiveDropdown(null);
+    };
+
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setActiveDropdown(null);
+    };
+
+    document.addEventListener('pointerdown', closeDropdown);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeDropdown);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [activeDropdown]);
+
+  const fetchOverview = useCallback(async (showLoader = true) => {
+    if (showLoader) setLoading(true);
+    setError('');
+    try {
+      const data = await getAdminOverview({ days: selectedDays });
+      setOverview({
+        highlights: Array.isArray(data?.highlights) ? data.highlights : [],
+        coverage: Array.isArray(data?.coverage) ? data.coverage : [],
+        sources: Array.isArray(data?.sources) ? data.sources : [],
+        watchlist: Array.isArray(data?.watchlist) ? data.watchlist : [],
+        queues: Array.isArray(data?.queues) ? data.queues : [],
+        team_performance: Array.isArray(data?.team_performance) ? data.team_performance : [],
+        activity: Array.isArray(data?.activity) ? data.activity : [],
+      });
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to load overview.'));
+      setOverview(EMPTY);
+    } finally {
+      if (showLoader) setLoading(false);
+    }
+  }, [selectedDays]);
+
+  useEffect(() => {
+    fetchOverview(true);
+  }, [fetchOverview]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchOverview(false);
+    setIsRefreshing(false);
+  };
 
   const activityRows = useMemo(() => overview.activity.map(i => ({
     message: i?.message || 'Activity event',
@@ -94,6 +148,53 @@ const AdminDashboard = () => {
   return (
     <PageTransition>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+        {/* HEADER */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 className="page-title">{dashboardTitle}</h1>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
+              Console overview and team metrics.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Time Range Selector */}
+            <div ref={timeDropdownRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setActiveDropdown(activeDropdown === 'time' ? null : 'time')}
+                className="btn btn-secondary"
+                style={{ gap: 6 }}
+              >
+                <Calendar size={14} /> {timeRange} <ChevronDown size={14} />
+              </button>
+              {activeDropdown === 'time' && (
+                <div className="dropdown-menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)' }}>
+                  {['Last 7 Days', 'Last 30 Days', 'Last 90 Days'].map(t => (
+                    <button
+                      key={t}
+                      className="dropdown-item"
+                      onClick={() => { setTimeRange(t); setActiveDropdown(null); }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Refresh */}
+            <button
+              onClick={handleRefresh}
+              className="btn btn-ghost btn-icon"
+              aria-label="Refresh dashboard"
+              style={{ transition: 'transform 0.3s' }}
+            >
+              <RefreshCcw size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+            </button>
+          </div>
+        </div>
+
         {error && <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>}
 
         {loading ? (
@@ -104,11 +205,12 @@ const AdminDashboard = () => {
             <motion.div variants={staggerContainer} initial="initial" animate="animate" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 16 }}>
               {overview.highlights.map((item) => {
                 const Icon = ICON_BY_LABEL[item.label] || Activity;
+                const iconColor = ICON_COLOR_BY_LABEL[item.label] || { color: 'var(--color-accent)', bg: 'var(--color-accent-subtle)' };
                 return (
                   <motion.div key={item.label} variants={staggerItem} className="card card-padding">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{item.label}</div>
-                      <div style={{ width: 36, height: 36, borderRadius: 'var(--radius)', background: 'var(--color-accent-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-accent)' }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 'var(--radius)', background: iconColor.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: iconColor.color }}>
                         <Icon size={18} />
                       </div>
                     </div>
@@ -185,6 +287,13 @@ const AdminDashboard = () => {
           </>
         )}
       </div>
+
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </PageTransition>
   );
 };

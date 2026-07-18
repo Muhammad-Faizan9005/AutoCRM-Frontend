@@ -39,33 +39,33 @@ const getNotificationTone = (item) => {
   const type = String(item?.type || '').toLowerCase();
   if (type.includes('critical')) {
     return {
-      border: '#dc2626',
-      background: '#fef2f2',
-      accent: '#dc2626',
+      border: 'color-mix(in srgb, var(--color-danger) 70%, var(--color-border))',
+      background: 'color-mix(in srgb, var(--color-danger) 14%, var(--color-bg-surface))',
+      accent: 'var(--color-danger)',
       label: 'Critical',
     };
   }
   if (type.includes('customer_risk') || type.includes('escalated')) {
     return {
-      border: '#ef4444',
-      background: '#fff1f2',
-      accent: '#e11d48',
+      border: 'color-mix(in srgb, var(--color-danger) 58%, var(--color-border))',
+      background: 'color-mix(in srgb, var(--color-danger) 11%, var(--color-bg-surface))',
+      accent: 'var(--color-danger)',
       label: 'High',
     };
   }
   if (type.includes('overdue') || type.includes('recovery')) {
     return {
-      border: '#f59e0b',
-      background: '#fffbeb',
-      accent: '#b45309',
+      border: 'color-mix(in srgb, var(--color-warning) 64%, var(--color-border))',
+      background: 'color-mix(in srgb, var(--color-warning) 14%, var(--color-bg-surface))',
+      accent: 'var(--color-warning)',
       label: 'Medium',
     };
   }
   if (type.includes('due_soon')) {
     return {
-      border: '#3b82f6',
-      background: '#eff6ff',
-      accent: '#2563eb',
+      border: 'color-mix(in srgb, var(--color-accent) 58%, var(--color-border))',
+      background: 'color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-surface))',
+      accent: 'var(--color-accent-text)',
       label: 'Due soon',
     };
   }
@@ -646,7 +646,7 @@ const Sidebar = ({ onLogout, user, permissions, onUserUpdate }) => {
                               fontWeight: 700,
                               color: tone.accent,
                               textTransform: 'uppercase',
-                              letterSpacing: '0.06em',
+                              letterSpacing: 0,
                             }}>
                               {tone.label}
                             </span>

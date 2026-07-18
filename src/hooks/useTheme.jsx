@@ -27,14 +27,9 @@ export function ThemeProvider({ children, defaultTheme = 'light' }) {
     }
   }, []);
 
-  const setTheme = useCallback((newTheme, options = {}) => {
+  const setTheme = useCallback((newTheme) => {
     const normalizedTheme = newTheme === 'dark' ? 'dark' : 'light';
     setThemeState(normalizedTheme);
-    if (options.persist !== false && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('autocrm-theme-changed', {
-        detail: { theme: normalizedTheme },
-      }));
-    }
   }, []);
 
   const applyTheme = useCallback((newTheme) => {
@@ -42,15 +37,7 @@ export function ThemeProvider({ children, defaultTheme = 'light' }) {
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setThemeState((prev) => {
-      const nextTheme = prev === 'dark' ? 'light' : 'dark';
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('autocrm-theme-changed', {
-          detail: { theme: nextTheme },
-        }));
-      }
-      return nextTheme;
-    });
+    setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
   return (

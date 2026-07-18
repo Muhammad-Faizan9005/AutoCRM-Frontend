@@ -9,18 +9,7 @@ import ManagerTeam from './ManagerTeam';
 import AIControlCenter from './AIControlCenter';
 import AdminActivityLog from './AdminActivityLog';
 import Sidebar from '../components/Sidebar';
-
-const isAdminUser = (user) => {
-  if (!user) return false;
-  if (user.is_admin || user.is_superuser) return true;
-  const role = (user.role || '').toString().toLowerCase();
-  return ['admin', 'administrator', 'system manager', 'superuser'].includes(role);
-};
-
-const isManagerUser = (user) => {
-  const role = (user?.role || '').toString().toLowerCase();
-  return role === 'sales_manager' || role === 'manager';
-};
+import { isAdminUser, isManagerUser } from './roles';
 
 const AdminLayout = ({ user, onLogout, permissions, onUserUpdate }) => {
   const canOpenConsole =
@@ -67,7 +56,7 @@ const AdminLayout = ({ user, onLogout, permissions, onUserUpdate }) => {
               index
               element={
                 showDashboard ? (
-                  <AdminDashboard />
+                  <AdminDashboard user={user} />
                 ) : (
                   <Navigate to={firstAllowedPath} replace />
                 )
