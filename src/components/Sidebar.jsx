@@ -9,6 +9,8 @@ import {
 import ProfileSettingsModal from './ProfileSettingsModal';
 import { apiFetch } from '../api/client';
 
+const COLLAPSED_KEY = 'autocrm-sidebar-collapsed';
+
 const isAdminUser = (user) => {
   if (!user) return false;
   if (user.is_admin || user.is_superuser) return true;
@@ -78,7 +80,16 @@ const getNotificationTone = (item) => {
 };
 
 const Sidebar = ({ onLogout, user, permissions, onUserUpdate }) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  // Sidebar is remounted when routing between the CRM shell and the admin
+  // console, so the collapsed state has to live outside React to survive.
+  const [isCollapsed, setIsCollapsed] = useState(
+    () => localStorage.getItem(COLLAPSED_KEY) === '1',
+  );
+  const toggleCollapsed = () => {
+    const next = !isCollapsed;
+    setIsCollapsed(next);
+    localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0');
+  };
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -202,7 +213,7 @@ const Sidebar = ({ onLogout, user, permissions, onUserUpdate }) => {
     <div style={{ position: 'relative', display: 'flex', zIndex: 30 }}>
       {/* Edge collapse toggle */}
       <button
-        onClick={() => setIsCollapsed(!isCollapsed)}
+        onClick={toggleCollapsed}
         aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         style={{
           position: 'absolute',
@@ -233,6 +244,7 @@ const Sidebar = ({ onLogout, user, permissions, onUserUpdate }) => {
       {/* Sidebar */}
       <motion.aside
         layout
+        initial={false}
         animate={{ width: isCollapsed ? 64 : 240 }}
         transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
         style={{
