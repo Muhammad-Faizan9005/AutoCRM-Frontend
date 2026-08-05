@@ -71,6 +71,58 @@ export const PERMISSION_GROUPS = [
   },
 ];
 
+/* ── Operator list grouping (admin permissions page) ───────────────────────
+   Both role spellings per section: the admin API maps roles to
+   admin/manager/agent, but raw DB values (sales_manager, sales_rep) pass
+   through unmapped for anything outside ROLE_OUTPUT_MAP. */
+export const ROLE_SECTIONS = [
+  { key: 'admin', label: 'Admins', roles: ['admin', 'administrator', 'system_manager', 'superuser'] },
+  { key: 'manager', label: 'Managers', roles: ['manager', 'sales_manager'] },
+  { key: 'agent', label: 'Sales reps', roles: ['agent', 'sales_rep'] },
+];
+
+const SECTION_BY_ROLE = new Map(
+  ROLE_SECTIONS.flatMap((section) => section.roles.map((role) => [role, section.key]))
+);
+
+const sectionKeyFor = (user) =>
+  SECTION_BY_ROLE.get((user?.role || '').toString().trim().toLowerCase()) || 'other';
+
+// Buckets users in ROLE_SECTIONS order, sorted by name. Unrecognised roles land
+// in "Other" so nobody can silently vanish from the page. Empty sections dropped.
+export const groupUsersByRole = (users = []) => {
+  const sections = [...ROLE_SECTIONS, { key: 'other', label: 'Other' }];
+  const buckets = new Map(sections.map((section) => [section.key, []]));
+
+  users.forEach((user) => buckets.get(sectionKeyFor(user)).push(user));
+
+  return sections
+    .map((section) => ({
+      key: section.key,
+      label: section.label,
+      users: buckets
+        .get(section.key)
+        .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')),
+    }))
+    .filter((section) => section.users.length > 0);
+};
+
+// A manager owns a team via teams.manager_id and normally has a NULL
+// agents.team_id; reps are linked by team_id. Same two-way resolution the
+// backend does — cf. COALESCE(a.team_id, tm.team_id) in utils/team_access.py.
+export const buildTeamLabeler = (teams = []) => {
+  const byId = new Map(teams.map((team) => [String(team.id), team.name]));
+  const byManager = new Map(teams.map((team) => [String(team.manager_id), team.name]));
+
+  return (user) => {
+    const label = byManager.get(String(user?.id)) || byId.get(String(user?.team_id));
+    if (label) return label;
+    const section = sectionKeyFor(user);
+    if (section === 'admin') return '';
+    return section === 'manager' ? 'No team' : 'Unassigned';
+  };
+};
+
 export const DEFAULT_PERMISSIONS = {
   dashboard: true,
   leads: true,

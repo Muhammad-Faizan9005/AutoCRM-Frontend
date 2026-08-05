@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, UserCheck, CheckCircle } from 'lucide-react';
+import { Loader2, UserCheck, CheckCircle, ChevronDown } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { DEFAULT_PERMISSIONS, PERMISSION_GROUPS } from './permissionsStore';
+import { DEFAULT_PERMISSIONS, PERMISSION_GROUPS, buildTeamLabeler, groupUsersByRole } from './permissionsStore';
 import { getAdminUserPermissions, listAdminUsers, updateAdminUserPermissions } from './adminApi';
+import { listTeams } from './teamsApi';
 import { PageTransition } from '../components/PageTransition';
 import { SkeletonTable } from '../components/Skeleton';
 
@@ -39,7 +40,9 @@ const isAdminUser = (user) => {
 const AdminPermissions = ({ currentUser }) => {
   const [searchParams] = useSearchParams();
   const [users, setUsers] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
+  const [openSections, setOpenSections] = useState({});
   const [activeUserId, setActiveUserId] = useState('');
   const [permissions, setPermissions] = useState({ ...DEFAULT_PERMISSIONS });
   const [permissionsLoading, setPermissionsLoading] = useState(false);
@@ -48,6 +51,7 @@ const AdminPermissions = ({ currentUser }) => {
   const [error, setError] = useState('');
   const [savingKeys, setSavingKeys] = useState({});
   const saveQueueRef = useRef({ inFlight: false, queued: null });
+  const activeRowRef = useRef(null);
 
   // Managers only see CRM Core + Data Operations; admins see everything
   const adminActor = isAdminUser(currentUser);
@@ -77,7 +81,37 @@ const AdminPermissions = ({ currentUser }) => {
     return () => { mounted = false; };
   }, [searchParams]);
 
+  // Team labels are decoration — on failure render rows without them rather than
+  // failing the page, and keep it out of the permission-save error banner.
+  useEffect(() => {
+    let mounted = true;
+    listTeams()
+      .then((d) => { if (mounted) setTeams(d.items); })
+      .catch(() => { if (mounted) setTeams([]); });
+    return () => { mounted = false; };
+  }, []);
+
   const activeUser = useMemo(() => users.find(u => String(u.id) === String(activeUserId)) || null, [users, activeUserId]);
+
+  const sections = useMemo(() => groupUsersByRole(users), [users]);
+  const teamLabelFor = useMemo(() => buildTeamLabeler(teams), [teams]);
+
+  // Keep the active user's section open — AdminUsers deep-links here with
+  // ?user=<id>, and landing on a collapsed list reads as a broken page.
+  const activeSectionKey = useMemo(
+    () => sections.find(s => s.users.some(u => String(u.id) === String(activeUserId)))?.key || '',
+    [sections, activeUserId]
+  );
+
+  useEffect(() => {
+    if (activeSectionKey) setOpenSections(prev => ({ ...prev, [activeSectionKey]: true }));
+  }, [activeSectionKey]);
+
+  // The list scrolls internally, so a deep-linked user can be selected but out
+  // of view. 'nearest' keeps it from scrolling when the row is already visible.
+  useEffect(() => {
+    activeRowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [activeUserId, openSections]);
 
   useEffect(() => {
     let mounted = true;
@@ -194,26 +228,62 @@ const AdminPermissions = ({ currentUser }) => {
 
         {error && <div style={{ padding: 12, background: 'var(--color-danger-subtle)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius)', fontSize: 'var(--text-sm)', color: 'var(--color-danger)' }}>{error}</div>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 16 }}>
-          {/* User List */}
-          <div className="card card-padding">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 16, alignItems: 'start' }}>
+          {/* User List — capped and scrolled internally so a long operator list
+              doesn't stretch the grid row past the permission panel. */}
+          <div className="card card-padding" style={{ position: 'sticky', top: 0, maxHeight: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginBottom: 12, flexShrink: 0 }}>
               <UserCheck size={14} /> Select operator
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', minHeight: 0, margin: '0 -4px', padding: '0 4px' }}>
               {usersLoading && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}><Loader2 size={14} className="animate-spin" /> Loading...</div>}
-              {!usersLoading && users.map(u => {
-                const active = String(u.id) === String(activeUserId);
+              {!usersLoading && sections.map(section => {
+                const open = !!openSections[section.key];
                 return (
-                  <button key={u.id} onClick={() => setActiveUserId(String(u.id))} style={{
-                    width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 'var(--radius-lg)', border: 'none',
-                    cursor: 'pointer', transition: 'all 0.15s',
-                    background: active ? 'var(--color-accent)' : 'transparent',
-                    color: active ? 'var(--color-text-inverse)' : 'var(--color-text-primary)',
-                  }}>
-                    <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)' }}>{u.full_name}</div>
-                    <div style={{ fontSize: 'var(--text-xs)', opacity: active ? 0.7 : 0.5 }}>{u.email}</div>
-                  </button>
+                  <div key={section.key}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenSections(prev => ({ ...prev, [section.key]: !prev[section.key] }))}
+                      aria-expanded={open}
+                      aria-controls={`section-${section.key}`}
+                      style={{
+                        width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px',
+                        background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: 'var(--radius)',
+                        color: 'var(--color-text-secondary)', fontSize: 'var(--text-xs)',
+                        textTransform: 'uppercase', letterSpacing: '0.08em',
+                        fontWeight: 'var(--weight-semibold)',
+                      }}
+                    >
+                      <ChevronDown size={14} style={{ transition: 'transform 0.15s', transform: open ? 'none' : 'rotate(-90deg)', flexShrink: 0 }} />
+                      <span style={{ flex: 1, textAlign: 'left' }}>{section.label}</span>
+                      <span style={{ color: 'var(--color-text-tertiary)' }}>{section.users.length}</span>
+                    </button>
+
+                    {open && (
+                      <div id={`section-${section.key}`} style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                        {section.users.map(u => {
+                          const active = String(u.id) === String(activeUserId);
+                          const teamLabel = teamLabelFor(u);
+                          return (
+                            <button key={u.id} ref={active ? activeRowRef : null} onClick={() => setActiveUserId(String(u.id))} style={{
+                              width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 'var(--radius-lg)', border: 'none',
+                              cursor: 'pointer', transition: 'all 0.15s',
+                              background: active ? 'var(--color-accent)' : 'transparent',
+                              color: active ? 'var(--color-text-inverse)' : 'var(--color-text-primary)',
+                            }}>
+                              <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)' }}>{u.full_name}</div>
+                              <div style={{ fontSize: 'var(--text-xs)', opacity: active ? 0.7 : 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
+                              {teamLabel && (
+                                <div style={{ fontSize: 'var(--text-xs)', marginTop: 2, opacity: active ? 0.7 : 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {teamLabel}
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
               {!usersLoading && users.length === 0 && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>No users available.</div>}
