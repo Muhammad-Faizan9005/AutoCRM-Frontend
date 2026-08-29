@@ -160,6 +160,7 @@ const Sidebar = ({ onLogout, user, permissions, onUserUpdate }) => {
     { name: 'Organizations', icon: Building2, path: '/orgs', permission: 'organizations' },
     { name: 'Notes', icon: ClipboardList, path: '/tasks', permission: 'notes' },
     { name: 'Tasks', icon: CheckSquare, path: '/todo', permission: 'tasks' },
+    { name: 'Front desk', icon: Bot, path: '/frontdesk', permission: 'dashboard' },
   ];
 
   const canAccess = (permissionKey) => {

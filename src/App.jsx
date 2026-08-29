@@ -6,6 +6,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import AcceptInvite from './pages/AcceptInvite';
 import CallJoin from './pages/CallJoin';
+import PublicChat from './pages/PublicChat';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
@@ -18,6 +19,7 @@ import OrganizationDetail from './pages/OrganizationDetail';
 import Notes from './pages/Notes';
 import Tasks from './pages/Tasks';
 import ImportData from './pages/ImportData';
+import FrontDesk from './pages/FrontDesk';
 import AdminLayout from './admin/AdminLayout';
 import { API_BASE, apiFetch, setCacheUserScope } from './api/client';
 import { getPermissionsForUser } from './admin/permissionsStore';
@@ -118,6 +120,7 @@ const CrmShell = ({ user, permissions, onLogout, onUserUpdate }) => {
                 />
                 <Route path="/tasks" element={guardRoute('notes', <Notes user={user} />)} />
                 <Route path="/todo" element={guardRoute('tasks', <Tasks user={user} />)} />
+                <Route path="/frontdesk" element={guardRoute('dashboard', <FrontDesk user={user} />)} />
                 <Route path="/import" element={guardRoute('import_data', <ImportData />)} />
                 <Route path="*" element={<Navigate to={fallbackRoute || '/'} replace />} />
               </Routes>
@@ -402,6 +405,7 @@ function App() {
       <Routes>
         <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route path="/call/join" element={<CallJoin />} />
+        <Route path="/chat" element={<PublicChat />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route
