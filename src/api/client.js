@@ -49,7 +49,7 @@ export function setCacheUserScope(userId) {
   inFlightRequests.clear();
 }
 
-function getCsrfToken() {
+export function getCsrfToken() {
   if (typeof document === "undefined") {
     return "";
   }
