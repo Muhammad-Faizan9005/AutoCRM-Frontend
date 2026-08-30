@@ -13,8 +13,10 @@ export default function FrontDesk({ user }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);
   const endRef = useRef(null);
-  const load = async () => setSessions(await apiFetch('/api/frontdesk/sessions', {}, { cache: false }));
-  const open = async (id) => setSelected(await apiFetch(`/api/frontdesk/sessions/${id}`, {}, { cache: false }));
+  // Every successful read clears the banner, otherwise a one-off timeout stayed
+  // on screen after the retry had already refilled the list.
+  const load = async () => { const rows = await apiFetch('/api/frontdesk/sessions', {}, { cache: false }); setSessions(rows); setError(''); };
+  const open = async (id) => { const s = await apiFetch(`/api/frontdesk/sessions/${id}`, {}, { cache: false }); setSelected(s); setError(''); };
   useEffect(() => { load().catch((e) => setError(e.message)); }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: busy ? 'auto' : 'smooth' }); }, [selected?.messages, busy]);
   const visible = useMemo(() => sessions.filter((s) => `${s.contact_name || ''} ${s.contact_email || ''} ${s.channel}`.toLowerCase().includes(search.toLowerCase())), [sessions, search]);
